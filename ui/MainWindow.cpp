@@ -1,200 +1,176 @@
 #include "MainWindow.h"
+#include "infra/config/ConfigManager.h"
+#include "infra/workflow/WorkflowManager.h"
 
 #include <cmath>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QProgressDialog>
-#include <QThread>
 #include <QStatusBar>
 #include <QHeaderView>
+#include <QDir>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent),
       s_movement_controller_(arm_controller_)
 {
-    // Setup logging
     std::cout << "MainWindow: Initializing main window..." << std::endl;
-    
-    // Setup UI
-    std::cout << "MainWindow: Setting up UI..." << std::endl;
+
     setupUI();
-    
-    // Initialize timers
-    std::cout << "MainWindow: Initializing timers..." << std::endl;
-    arm_status_timer_ = new QTimer(this);
-    connect(arm_status_timer_, &QTimer::timeout, this, &MainWindow::updateArmStatus);
-    arm_status_timer_->start(500); // Update every 500ms
-    
-    camera_status_timer_ = new QTimer(this);
-    connect(camera_status_timer_, &QTimer::timeout, this, &MainWindow::updateCameraStatus);
-    camera_status_timer_->start(500); // Update every 500ms
-    
-    // Initialize camera update timer (for pulling images)
+
+    // Initialize camera update timer (for pulling images at ~30fps)
     camera_update_timer_ = new QTimer(this);
     connect(camera_update_timer_, &QTimer::timeout, this, &MainWindow::updateCameraImage);
-    
-    // Set up callbacks
-    std::cout << "MainWindow: Setting up callbacks..." << std::endl;
+
+    // Set up callbacks from service modules
     camera_handler_.setImageCallback([this](const cv::Mat& frame) {
         QMetaObject::invokeMethod(this, "onImageCaptured", Q_ARG(const cv::Mat&, frame));
     });
-    
+
     camera_handler_.setStatusCallback([this](const camera::CameraStatus& status) {
         QMetaObject::invokeMethod(this, "onCameraStatusChanged", Q_ARG(const camera::CameraStatus&, status));
     });
-    
+
     arm_controller_.setStatusCallback([this](const arm::ArmStatus& status) {
         QMetaObject::invokeMethod(this, "onArmStatusChanged", Q_ARG(const arm::ArmStatus&, status));
     });
-    
+
     s_movement_controller_.setStatusCallback([this](const arm::SMovementStatus& status) {
         QMetaObject::invokeMethod(this, "onMovementStatus", Q_ARG(const arm::SMovementStatus&, status));
     });
-    
+
     image_stitcher_.setProgressCallback([this](int current, int total) {
         QMetaObject::invokeMethod(this, "onStitchingProgress", Q_ARG(int, current), Q_ARG(int, total));
     });
-    
+
     image_stitcher_.setStatusCallback([this](const std::string& status) {
         QMetaObject::invokeMethod(this, "onStitchingStatus", Q_ARG(const std::string&, status));
     });
-    
-    // Setup concurrent stitching
+
+    // Setup concurrent stitching watcher
     connect(&stitching_watcher_, &QFutureWatcher<cv::Mat>::finished, this, &MainWindow::onStitchingFinished);
-    
-    // Enumerate cameras on startup
+
+    // Initialize workflow manager (async, non-blocking)
+    workflow_mgr_ = new WorkflowManager(
+        arm_controller_, s_movement_controller_,
+        camera_handler_, yolo_detector_, image_stitcher_, this);
+
+    connect(workflow_mgr_, &WorkflowManager::statusMessage, this, [this](const QString& msg) {
+        status_bar_label_->setText(msg);
+    });
+    connect(workflow_mgr_, &WorkflowManager::workflowError, this, [this](const QString& err) {
+        status_bar_label_->setText("Error: " + err);
+        QMessageBox::critical(this, "Workflow Error", err);
+    });
+    connect(workflow_mgr_, &WorkflowManager::stitchingFinished, this, [this](const cv::Mat& result) {
+        stitched_result_ = result;
+        displayImage(result, stitched_image_label_);
+    });
+
+    // Enumerate cameras on startup (non-blocking)
     std::cout << "MainWindow: Enumerating cameras..." << std::endl;
     on_enumerateCamerasButton_clicked();
-    
-    // 自动连接相机
-    std::cout << "MainWindow: Auto-connecting camera..." << std::endl;
-    if (camera_combo_->count() > 0) {
-        camera_combo_->setCurrentIndex(0);
-        on_connectCameraButton_clicked();
-        
-        // 自动启动相机捕获
-        std::cout << "MainWindow: Auto-starting camera capture..." << std::endl;
-        on_startCaptureButton_clicked();
-    }
-    
-    // 自动连接机械臂
-    std::cout << "MainWindow: Auto-connecting arm..." << std::endl;
-    on_connectArmButton_clicked();
-    
-    // 默认勾选实时坐标
-    std::cout << "MainWindow: Auto-enabling real-time position reading..." << std::endl;
-    real_time_position_checkbox_->setChecked(true);
-    on_realTimePositionCheckbox_stateChanged(Qt::Checked);
-    
-    // 等待相机和机械臂连接就绪
-    std::cout << "MainWindow: Waiting for camera and arm to be ready..." << std::endl;
-    QThread::sleep(2); // 等待2秒确保连接稳定
-    
-    // 自动一键归零
-    std::cout << "MainWindow: Auto-zeroing all axes..." << std::endl;
-    on_zeroButton_clicked();
-    
-    // 等待归零完成
-    std::cout << "MainWindow: Waiting for zeroing to complete..." << std::endl;
-    QThread::sleep(3); // 等待3秒确保归零完成
-    
-    // 自动开始S型运动
-    std::cout << "MainWindow: Auto-starting S-movement..." << std::endl;
-    on_startSMovementButton_clicked();
-    
+
     std::cout << "MainWindow: Initialization complete!" << std::endl;
 }
 
 MainWindow::~MainWindow() {
-    // Clean up resources
+    std::cout << "MainWindow: Shutting down..." << std::endl;
+
+    // Stop workflow and timers first
+    if (workflow_mgr_) {
+        workflow_mgr_->stopAutoWorkflow();
+    }
+
+    camera_update_timer_->stop();
+
+    // Stop S-movement
+    s_movement_controller_.stop();
+
+    // Stop camera
+    camera_handler_.stopCapture();
+    camera_handler_.disconnect();
+
+    // Stop Modbus auto-read and disconnect
+    arm_controller_.stopAutoRead();
+    arm_controller_.disconnect();
+
+    std::cout << "MainWindow: Shutdown complete." << std::endl;
 }
 
 void MainWindow::setupUI() {
-    // Set window properties
     setWindowTitle("ArmLite C++ Control System");
     resize(1500, 900);
-    
-    // Create tab widget
+
     tab_widget_ = new QTabWidget(this);
     setCentralWidget(tab_widget_);
-    
-    // Create Arm-Camera Combined Tab
+
     setupArmCameraTab();
-    
-    // Setup other tabs
     setupDetectionTab();
     setupStitchingTab();
-    
-    // Create status bar
+
     status_bar_label_ = new QLabel("Ready");
     statusBar()->addWidget(status_bar_label_);
 }
 
-
-
 void MainWindow::setupDetectionTab() {
     QWidget *detection_tab = new QWidget(this);
     QVBoxLayout *main_layout = new QVBoxLayout(detection_tab);
-    
-    // Model Group
+
     model_group_ = new QGroupBox("模型加载");
     QGridLayout *model_layout = new QGridLayout(model_group_);
-    
-    param_path_edit_ = new QLineEdit("d:/ArmSightStitch/doc/NCNN/best-sim-opt.ncnn.param");
-    bin_path_edit_ = new QLineEdit("d:/ArmSightStitch/doc/NCNN/best-sim-opt.ncnn.bin");
+
+    auto& cfg = ConfigManager::instance();
+    param_path_edit_ = new QLineEdit(QString::fromStdString(cfg.modelParamPath()));
+    bin_path_edit_ = new QLineEdit(QString::fromStdString(cfg.modelBinPath()));
     load_model_button_ = new QPushButton("加载模型");
-    
+
     model_layout->addWidget(new QLabel("Param文件:"), 0, 0);
     model_layout->addWidget(param_path_edit_, 0, 1);
     model_layout->addWidget(new QLabel("Bin文件:"), 1, 0);
     model_layout->addWidget(bin_path_edit_, 1, 1);
     model_layout->addWidget(load_model_button_, 2, 0, 1, 2);
-    
-    // Detection Settings Group
+
     detection_settings_group_ = new QGroupBox("检测设置");
     QGridLayout *settings_layout = new QGridLayout(detection_settings_group_);
-    
+
     confidence_threshold_spin_ = new QDoubleSpinBox();
     confidence_threshold_spin_->setRange(0, 1);
     confidence_threshold_spin_->setValue(0.3);
     confidence_threshold_spin_->setSingleStep(0.05);
     set_confidence_threshold_button_ = new QPushButton("设置置信度阈值");
-    
+
     nms_threshold_spin_ = new QDoubleSpinBox();
     nms_threshold_spin_->setRange(0, 1);
     nms_threshold_spin_->setValue(0.3);
     nms_threshold_spin_->setSingleStep(0.05);
     set_nms_threshold_button_ = new QPushButton("设置NMS阈值");
-    
+
     settings_layout->addWidget(new QLabel("置信度阈值:"), 0, 0);
     settings_layout->addWidget(confidence_threshold_spin_, 0, 1);
     settings_layout->addWidget(set_confidence_threshold_button_, 0, 2);
     settings_layout->addWidget(new QLabel("NMS阈值:"), 1, 0);
     settings_layout->addWidget(nms_threshold_spin_, 1, 1);
     settings_layout->addWidget(set_nms_threshold_button_, 1, 2);
-    
-    // Detection Group
+
     detection_group_ = new QGroupBox("检测控制");
     QHBoxLayout *detection_layout = new QHBoxLayout(detection_group_);
-    
+
     load_image_button_ = new QPushButton("加载图像");
     detect_button_ = new QPushButton("开始检测");
-    
+
     detection_layout->addWidget(load_image_button_);
     detection_layout->addWidget(detect_button_);
-    
-    // Image Display
+
     detection_image_label_ = new QLabel("检测结果");
     detection_image_label_->setAlignment(Qt::AlignCenter);
     detection_image_label_->setStyleSheet("background-color: #f0f0f0; border: 1px solid #ccc;");
     detection_image_label_->setMinimumHeight(400);
-    
-    // Status Text
+
     detection_status_text_ = new QTextEdit();
     detection_status_text_->setReadOnly(true);
     detection_status_text_->setMaximumHeight(100);
-    
-    // Add all groups to main layout
+
     main_layout->addWidget(model_group_);
     main_layout->addWidget(detection_settings_group_);
     main_layout->addWidget(detection_group_);
@@ -202,11 +178,9 @@ void MainWindow::setupDetectionTab() {
     main_layout->addWidget(detection_image_label_);
     main_layout->addWidget(new QLabel("检测状态:"));
     main_layout->addWidget(detection_status_text_);
-    
-    // Add tab to tab widget
+
     tab_widget_->addTab(detection_tab, "目标检测");
-    
-    // Connect signals and slots
+
     connect(load_model_button_, &QPushButton::clicked, this, &MainWindow::on_loadModelButton_clicked);
     connect(load_image_button_, &QPushButton::clicked, this, &MainWindow::on_loadImageButton_clicked);
     connect(detect_button_, &QPushButton::clicked, this, &MainWindow::on_detectButton_clicked);
@@ -215,20 +189,18 @@ void MainWindow::setupDetectionTab() {
 }
 
 void MainWindow::setupArmCameraTab() {
-    // Create main tab widget
     arm_camera_tab_ = new QWidget(this);
     arm_camera_main_layout_ = new QHBoxLayout(arm_camera_tab_);
-    
-    // Create left widget for 10x10 cells
+
+    // Left: 10x10 cells
     left_widget_ = new QWidget();
     left_layout_ = new QVBoxLayout(left_widget_);
-    
-    // Top cells: display images during S-movement
+
     top_cells_label_ = new QLabel("上方单元格: S型运动图像");
     top_cells_label_->setAlignment(Qt::AlignCenter);
     top_cells_label_->setStyleSheet("font-weight: bold;");
     left_layout_->addWidget(top_cells_label_);
-    
+
     top_cells_table_ = new QTableWidget(10, 10);
     top_cells_table_->setHorizontalHeaderLabels({"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"});
     top_cells_table_->setVerticalHeaderLabels({"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"});
@@ -239,13 +211,12 @@ void MainWindow::setupArmCameraTab() {
     top_cells_table_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     top_cells_table_->setMinimumSize(300, 300);
     left_layout_->addWidget(top_cells_table_, 1);
-    
-    // Bottom cells: click-to-move functionality
+
     bottom_cells_label_ = new QLabel("下方单元格: 点击移动");
     bottom_cells_label_->setAlignment(Qt::AlignCenter);
     bottom_cells_label_->setStyleSheet("font-weight: bold;");
     left_layout_->addWidget(bottom_cells_label_);
-    
+
     bottom_cells_table_ = new QTableWidget(10, 10);
     bottom_cells_table_->setHorizontalHeaderLabels({"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"});
     bottom_cells_table_->setVerticalHeaderLabels({"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"});
@@ -256,71 +227,67 @@ void MainWindow::setupArmCameraTab() {
     bottom_cells_table_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     bottom_cells_table_->setMinimumSize(300, 300);
     left_layout_->addWidget(bottom_cells_table_, 1);
-    
-    // Initialize cells
+
     for (int row = 0; row < 10; ++row) {
         for (int col = 0; col < 10; ++col) {
             QTableWidgetItem *top_item = new QTableWidgetItem("");
             top_item->setTextAlignment(Qt::AlignCenter);
             top_cells_table_->setItem(row, col, top_item);
-            
+
             QTableWidgetItem *bottom_item = new QTableWidgetItem(QString("%1,%2").arg(row).arg(col));
             bottom_item->setTextAlignment(Qt::AlignCenter);
             bottom_cells_table_->setItem(row, col, bottom_item);
         }
     }
-    
-    // Create center widget for camera control
+
+    // Center: Camera
     center_widget_ = new QWidget();
     center_layout_ = new QVBoxLayout(center_widget_);
-    
-    // Camera Connection Group
+
     camera_connection_group_ = new QGroupBox("相机连接");
     QGridLayout *conn_layout = new QGridLayout(camera_connection_group_);
-    
+
     camera_combo_ = new QComboBox();
     connect_camera_button_ = new QPushButton("连接相机");
     disconnect_camera_button_ = new QPushButton("断开相机");
     disconnect_camera_button_->setEnabled(false);
     enumerate_cameras_button_ = new QPushButton("枚举相机");
-    
+
     conn_layout->addWidget(new QLabel("相机:"), 0, 0);
     conn_layout->addWidget(camera_combo_, 0, 1);
     conn_layout->addWidget(enumerate_cameras_button_, 0, 2);
     conn_layout->addWidget(connect_camera_button_, 1, 0, 1, 2);
     conn_layout->addWidget(disconnect_camera_button_, 1, 2);
-    
-    // Camera Control Group
+
     camera_control_group_ = new QGroupBox("相机控制");
     QHBoxLayout *control_layout = new QHBoxLayout(camera_control_group_);
-    
+
     start_capture_button_ = new QPushButton("开始采集");
     stop_capture_button_ = new QPushButton("停止采集");
     stop_capture_button_->setEnabled(false);
     capture_image_button_ = new QPushButton("采集图像");
     capture_image_button_->setEnabled(false);
     enable_detection_checkbox_ = new QCheckBox("开启图像检测");
-    enable_detection_checkbox_->setChecked(true); // 默认开启
-    
+    enable_detection_checkbox_->setChecked(true);
+
     control_layout->addWidget(start_capture_button_);
     control_layout->addWidget(stop_capture_button_);
     control_layout->addWidget(capture_image_button_);
     control_layout->addWidget(enable_detection_checkbox_);
-    
-    // Camera Settings Group
+
     camera_settings_group_ = new QGroupBox("相机设置");
     QGridLayout *settings_layout = new QGridLayout(camera_settings_group_);
-    
+
     exposure_spin_ = new QDoubleSpinBox();
     exposure_spin_->setRange(0, 1000);
     exposure_spin_->setValue(100);
     set_exposure_button_ = new QPushButton("设置曝光");
-    
+
     gain_spin_ = new QDoubleSpinBox();
     gain_spin_->setRange(0, 5);
     gain_spin_->setValue(1);
     set_gain_button_ = new QPushButton("设置增益");
-    
+
     width_spin_ = new QSpinBox();
     width_spin_->setRange(1, 4096);
     width_spin_->setValue(640);
@@ -328,7 +295,7 @@ void MainWindow::setupArmCameraTab() {
     height_spin_->setRange(1, 4096);
     height_spin_->setValue(480);
     set_resolution_button_ = new QPushButton("设置分辨率");
-    
+
     settings_layout->addWidget(new QLabel("曝光(ms):"), 0, 0);
     settings_layout->addWidget(exposure_spin_, 0, 1);
     settings_layout->addWidget(set_exposure_button_, 0, 2);
@@ -339,28 +306,24 @@ void MainWindow::setupArmCameraTab() {
     settings_layout->addWidget(width_spin_, 2, 1);
     settings_layout->addWidget(new QLabel("高度:"), 2, 2);
     settings_layout->addWidget(height_spin_, 2, 3);
-    
-    // 选择路径设置
+
     save_directory_edit_ = new QLineEdit(QDir::currentPath());
     set_save_directory_button_ = new QPushButton("选择路径");
     settings_layout->addWidget(new QLabel("保存路径:"), 3, 0);
     settings_layout->addWidget(save_directory_edit_, 3, 1, 1, 2);
     settings_layout->addWidget(set_save_directory_button_, 3, 3);
-    
+
     settings_layout->addWidget(set_resolution_button_, 4, 0, 1, 4);
-    
-    // Camera Image Display
+
     camera_image_label_ = new QLabel("相机图像");
     camera_image_label_->setAlignment(Qt::AlignCenter);
     camera_image_label_->setStyleSheet("background-color: #f0f0f0; border: 1px solid #ccc;");
     camera_image_label_->setMinimumHeight(400);
-    
-    // Camera Status
+
     camera_status_text_ = new QTextEdit();
     camera_status_text_->setReadOnly(true);
     camera_status_text_->setMaximumHeight(100);
-    
-    // Add camera components to center layout
+
     center_layout_->addWidget(camera_connection_group_);
     center_layout_->addWidget(camera_control_group_);
     center_layout_->addWidget(camera_settings_group_);
@@ -368,34 +331,33 @@ void MainWindow::setupArmCameraTab() {
     center_layout_->addWidget(camera_image_label_);
     center_layout_->addWidget(new QLabel("相机状态:"));
     center_layout_->addWidget(camera_status_text_);
-    
-    // Create right widget for arm control
+
+    // Right: Arm control
     right_widget_ = new QWidget();
     right_layout_ = new QVBoxLayout(right_widget_);
-    
-    // Arm Connection Group
+
     arm_connection_group_ = new QGroupBox("机械臂连接");
     QGridLayout *arm_conn_layout = new QGridLayout(arm_connection_group_);
-    
-    arm_ip_edit_ = new QLineEdit("192.168.0.1"); // 默认IP修改为192.168.0.1
+
+    auto& cfg = ConfigManager::instance();
+    arm_ip_edit_ = new QLineEdit(QString::fromStdString(cfg.armIp()));
     arm_port_spin_ = new QSpinBox();
     arm_port_spin_->setRange(1, 65535);
-    arm_port_spin_->setValue(502); // 默认端口修改为502
+    arm_port_spin_->setValue(cfg.armPort());
     connect_arm_button_ = new QPushButton("连接");
     disconnect_arm_button_ = new QPushButton("断开连接");
     disconnect_arm_button_->setEnabled(false);
-    
+
     arm_conn_layout->addWidget(new QLabel("IP地址:"), 0, 0);
     arm_conn_layout->addWidget(arm_ip_edit_, 0, 1);
     arm_conn_layout->addWidget(new QLabel("端口:"), 0, 2);
     arm_conn_layout->addWidget(arm_port_spin_, 0, 3);
     arm_conn_layout->addWidget(connect_arm_button_, 1, 0, 1, 2);
     arm_conn_layout->addWidget(disconnect_arm_button_, 1, 2, 1, 2);
-    
-    // Arm Position Group
+
     arm_position_group_ = new QGroupBox("位置控制");
     QGridLayout *pos_layout = new QGridLayout(arm_position_group_);
-    
+
     x_pos_spin_ = new QDoubleSpinBox();
     x_pos_spin_->setRange(0, 999999);
     x_pos_spin_->setDecimals(0);
@@ -419,7 +381,7 @@ void MainWindow::setupArmCameraTab() {
     move_to_position_button_ = new QPushButton("移动到位置");
     read_position_button_ = new QPushButton("读取位置");
     zero_button_ = new QPushButton("一键归零");
-    
+
     pos_layout->addWidget(new QLabel("X轴:"), 0, 0);
     pos_layout->addWidget(x_pos_spin_, 0, 1);
     pos_layout->addWidget(new QLabel("Y轴:"), 0, 2);
@@ -433,11 +395,10 @@ void MainWindow::setupArmCameraTab() {
     pos_layout->addWidget(move_to_position_button_, 2, 2);
     pos_layout->addWidget(read_position_button_, 2, 3);
     pos_layout->addWidget(zero_button_, 3, 0, 1, 4);
-    
-    // Arm Continuous Movement Group
+
     arm_continuous_group_ = new QGroupBox("连续运动");
     QGridLayout *cont_layout = new QGridLayout(arm_continuous_group_);
-    
+
     continuous_axis_combo_ = new QComboBox();
     continuous_axis_combo_->addItems({"X轴", "Y轴", "Z轴", "A轴", "B轴"});
     direction_combo_ = new QComboBox();
@@ -445,7 +406,7 @@ void MainWindow::setupArmCameraTab() {
     start_continuous_button_ = new QPushButton("开始连续运动");
     stop_continuous_button_ = new QPushButton("停止连续运动");
     stop_all_button_ = new QPushButton("停止所有运动");
-    
+
     cont_layout->addWidget(new QLabel("轴:"), 0, 0);
     cont_layout->addWidget(continuous_axis_combo_, 0, 1);
     cont_layout->addWidget(new QLabel("方向:"), 0, 2);
@@ -453,49 +414,44 @@ void MainWindow::setupArmCameraTab() {
     cont_layout->addWidget(start_continuous_button_, 1, 0, 1, 2);
     cont_layout->addWidget(stop_continuous_button_, 1, 2);
     cont_layout->addWidget(stop_all_button_, 1, 3);
-    
-    // Arm Speed Group
+
     arm_speed_group_ = new QGroupBox("速度设置");
     QGridLayout *speed_layout = new QGridLayout(arm_speed_group_);
-    
+
     speed_spin_ = new QDoubleSpinBox();
-    speed_spin_->setRange(0, 100000); // 修改为0-100000
-    speed_spin_->setValue(70000); // 默认速度修改为70000
+    speed_spin_->setRange(0, 100000);
+    speed_spin_->setValue(cfg.defaultSpeed());
     set_speed_button_ = new QPushButton("设置速度");
     read_speed_button_ = new QPushButton("读取速度");
     current_speed_label_ = new QLabel("当前速度: --");
-    
+
     speed_layout->addWidget(new QLabel("速度:"), 0, 0);
     speed_layout->addWidget(speed_spin_, 0, 1);
     speed_layout->addWidget(set_speed_button_, 0, 2);
     speed_layout->addWidget(read_speed_button_, 0, 3);
     speed_layout->addWidget(current_speed_label_, 1, 0, 1, 4);
-    
-    // Real-time position reading
+
     real_time_position_checkbox_ = new QCheckBox("实时读取位置");
     speed_layout->addWidget(real_time_position_checkbox_, 2, 0, 1, 4);
-    
-    // S-curve Movement Group
+
     s_movement_group_ = new QGroupBox("S型运动");
     QGridLayout *s_move_layout = new QGridLayout(s_movement_group_);
-    
+
     start_s_movement_button_ = new QPushButton("开始S型运动");
     stop_s_movement_button_ = new QPushButton("停止S型运动");
     pause_s_movement_button_ = new QPushButton("暂停S型运动");
     resume_s_movement_button_ = new QPushButton("恢复S型运动");
-    
+
     s_move_layout->addWidget(start_s_movement_button_, 0, 0);
     s_move_layout->addWidget(stop_s_movement_button_, 0, 1);
     s_move_layout->addWidget(pause_s_movement_button_, 0, 2);
     s_move_layout->addWidget(resume_s_movement_button_, 0, 3);
-    
-    // Movement Progress and Status
+
     movement_progress_bar_ = new QProgressBar();
     movement_status_text_ = new QTextEdit();
     movement_status_text_->setReadOnly(true);
     movement_status_text_->setMaximumHeight(100);
-    
-    // Add arm components to right layout
+
     right_layout_->addWidget(arm_connection_group_);
     right_layout_->addWidget(arm_position_group_);
     right_layout_->addWidget(arm_continuous_group_);
@@ -505,16 +461,14 @@ void MainWindow::setupArmCameraTab() {
     right_layout_->addWidget(movement_progress_bar_);
     right_layout_->addWidget(new QLabel("运动状态:"));
     right_layout_->addWidget(movement_status_text_);
-    
-    // Add all widgets to main layout
+
     arm_camera_main_layout_->addWidget(left_widget_, 1);
     arm_camera_main_layout_->addWidget(center_widget_, 2);
     arm_camera_main_layout_->addWidget(right_widget_, 1);
-    
-    // Add tab to tab widget
+
     tab_widget_->addTab(arm_camera_tab_, "机械臂与相机控制");
-    
-    // Connect signals and slots for camera
+
+    // Camera signals
     connect(connect_camera_button_, &QPushButton::clicked, this, &MainWindow::on_connectCameraButton_clicked);
     connect(disconnect_camera_button_, &QPushButton::clicked, this, &MainWindow::on_disconnectCameraButton_clicked);
     connect(start_capture_button_, &QPushButton::clicked, this, &MainWindow::on_startCaptureButton_clicked);
@@ -526,8 +480,8 @@ void MainWindow::setupArmCameraTab() {
     connect(set_gain_button_, &QPushButton::clicked, this, &MainWindow::on_setGainButton_clicked);
     connect(set_resolution_button_, &QPushButton::clicked, this, &MainWindow::on_setResolutionButton_clicked);
     connect(enable_detection_checkbox_, &QCheckBox::stateChanged, this, &MainWindow::on_enableDetectionCheckbox_stateChanged);
-    
-    // Connect signals and slots for arm
+
+    // Arm signals
     connect(connect_arm_button_, &QPushButton::clicked, this, &MainWindow::on_connectArmButton_clicked);
     connect(disconnect_arm_button_, &QPushButton::clicked, this, &MainWindow::on_disconnectArmButton_clicked);
     connect(move_to_position_button_, &QPushButton::clicked, this, &MainWindow::on_moveToPositionButton_clicked);
@@ -543,8 +497,8 @@ void MainWindow::setupArmCameraTab() {
     connect(stop_s_movement_button_, &QPushButton::clicked, this, &MainWindow::on_stopSMovementButton_clicked);
     connect(pause_s_movement_button_, &QPushButton::clicked, this, &MainWindow::on_pauseSMovementButton_clicked);
     connect(resume_s_movement_button_, &QPushButton::clicked, this, &MainWindow::on_resumeSMovementButton_clicked);
-    
-    // Connect cell click signals
+
+    // Cell click signals
     connect(top_cells_table_, &QTableWidget::cellClicked, this, &MainWindow::on_topCellsTable_cellClicked);
     connect(bottom_cells_table_, &QTableWidget::cellClicked, this, &MainWindow::on_bottomCellsTable_cellClicked);
 }
@@ -552,20 +506,19 @@ void MainWindow::setupArmCameraTab() {
 void MainWindow::setupStitchingTab() {
     QWidget *stitching_tab = new QWidget(this);
     QVBoxLayout *main_layout = new QVBoxLayout(stitching_tab);
-    
-    // Input Group
+
     stitching_input_group_ = new QGroupBox("拼接输入");
     QGridLayout *input_layout = new QGridLayout(stitching_input_group_);
-    
+
     input_dir_edit_ = new QLineEdit("./images");
     load_images_button_ = new QPushButton("加载图像");
     stitch_grid_size_x_spin_ = new QSpinBox();
     stitch_grid_size_x_spin_->setRange(1, 50);
-    stitch_grid_size_x_spin_->setValue(10);
+    stitch_grid_size_x_spin_->setValue(ConfigManager::instance().gridSizeX());
     stitch_grid_size_y_spin_ = new QSpinBox();
     stitch_grid_size_y_spin_->setRange(1, 50);
-    stitch_grid_size_y_spin_->setValue(10);
-    
+    stitch_grid_size_y_spin_->setValue(ConfigManager::instance().gridSizeY());
+
     input_layout->addWidget(new QLabel("图像目录:"), 0, 0);
     input_layout->addWidget(input_dir_edit_, 0, 1);
     input_layout->addWidget(load_images_button_, 0, 2);
@@ -573,30 +526,26 @@ void MainWindow::setupStitchingTab() {
     input_layout->addWidget(stitch_grid_size_x_spin_, 1, 1);
     input_layout->addWidget(new QLabel("网格Y:"), 1, 2);
     input_layout->addWidget(stitch_grid_size_y_spin_, 1, 3);
-    
-    // Control Group
+
     stitching_control_group_ = new QGroupBox("拼接控制");
     QHBoxLayout *control_layout = new QHBoxLayout(stitching_control_group_);
-    
+
     stitch_images_button_ = new QPushButton("开始拼接");
     save_stitched_image_button_ = new QPushButton("保存拼接结果");
-    
+
     control_layout->addWidget(stitch_images_button_);
     control_layout->addWidget(save_stitched_image_button_);
-    
-    // Progress and Status
+
     stitching_progress_bar_ = new QProgressBar();
     stitching_status_text_ = new QTextEdit();
     stitching_status_text_->setReadOnly(true);
     stitching_status_text_->setMaximumHeight(100);
-    
-    // Result Image
+
     stitched_image_label_ = new QLabel("拼接结果");
     stitched_image_label_->setAlignment(Qt::AlignCenter);
     stitched_image_label_->setStyleSheet("background-color: #f0f0f0; border: 1px solid #ccc;");
     stitched_image_label_->setMinimumHeight(400);
-    
-    // Add all groups to main layout
+
     main_layout->addWidget(stitching_input_group_);
     main_layout->addWidget(stitching_control_group_);
     main_layout->addWidget(new QLabel("拼接进度:"));
@@ -605,11 +554,9 @@ void MainWindow::setupStitchingTab() {
     main_layout->addWidget(stitching_status_text_);
     main_layout->addWidget(new QLabel("拼接结果:"));
     main_layout->addWidget(stitched_image_label_);
-    
-    // Add tab to tab widget
+
     tab_widget_->addTab(stitching_tab, "图像拼接");
-    
-    // Connect signals and slots
+
     connect(stitch_images_button_, &QPushButton::clicked, this, &MainWindow::on_stitchImagesButton_clicked);
     connect(load_images_button_, &QPushButton::clicked, this, &MainWindow::on_loadImagesButton_clicked);
     connect(save_stitched_image_button_, &QPushButton::clicked, this, &MainWindow::on_saveStitchedImageButton_clicked);
@@ -617,49 +564,43 @@ void MainWindow::setupStitchingTab() {
 
 // Helper Functions
 void MainWindow::displayImage(const cv::Mat& image, QLabel* label) {
-    if (image.empty()) {
-        return;
-    }
-    
+    if (image.empty()) return;
+
     QImage qimage = cvMatToQImage(image);
     QPixmap pixmap = QPixmap::fromImage(qimage);
     label->setPixmap(pixmap.scaled(label->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
 }
 
 QImage MainWindow::cvMatToQImage(const cv::Mat& mat) {
-    if (mat.empty()) {
-        return QImage();
-    }
-    
+    if (mat.empty()) return QImage();
+
     if (mat.type() == CV_8UC3) {
         return QImage(mat.data, mat.cols, mat.rows, mat.step, QImage::Format_RGB888).rgbSwapped();
     } else if (mat.type() == CV_8UC1) {
         return QImage(mat.data, mat.cols, mat.rows, mat.step, QImage::Format_Grayscale8);
     } else {
-        // Convert to RGB888 if not already
         cv::Mat rgb;
         mat.convertTo(rgb, CV_8UC3);
         return QImage(rgb.data, rgb.cols, rgb.rows, rgb.step, QImage::Format_RGB888).rgbSwapped();
     }
 }
 
-// Arm Control Slots
+// ==================== Arm Control Slots ====================
+
 void MainWindow::on_connectArmButton_clicked() {
     std::string ip = arm_ip_edit_->text().toStdString();
     int port = arm_port_spin_->value();
-    
+
     if (arm_controller_.connect(ip, port)) {
         connect_arm_button_->setEnabled(false);
         disconnect_arm_button_->setEnabled(true);
         status_bar_label_->setText("机械臂连接成功");
         arm_connected_ = true;
-        
-        // 自动设置速度为默认值70000
-        int default_speed = 70000;
+
+        int default_speed = ConfigManager::instance().defaultSpeed();
         for (int i = 0; i < 5; ++i) {
             arm_controller_.setSpeed(i, default_speed);
         }
-        std::cout << "MainWindow: Set default speed to " << default_speed << std::endl;
     } else {
         status_bar_label_->setText("机械臂连接失败");
         QMessageBox::critical(this, "错误", "机械臂连接失败");
@@ -676,25 +617,18 @@ void MainWindow::on_disconnectArmButton_clicked() {
 }
 
 void MainWindow::on_moveToPositionButton_clicked() {
-    double x = x_pos_spin_->value();
-    double y = y_pos_spin_->value();
-    double z = z_pos_spin_->value();
-    double a = a_pos_spin_->value();
-    double b = b_pos_spin_->value();
-    
-    arm_controller_.moveToPosition(0, x);
-    arm_controller_.moveToPosition(1, y);
-    arm_controller_.moveToPosition(2, z);
-    arm_controller_.moveToPosition(3, a);
-    arm_controller_.moveToPosition(4, b);
-    
+    arm_controller_.moveToPosition(0, static_cast<int>(x_pos_spin_->value()));
+    arm_controller_.moveToPosition(1, static_cast<int>(y_pos_spin_->value()));
+    arm_controller_.moveToPosition(2, static_cast<int>(z_pos_spin_->value()));
+    arm_controller_.moveToPosition(3, static_cast<int>(a_pos_spin_->value()));
+    arm_controller_.moveToPosition(4, static_cast<int>(b_pos_spin_->value()));
+
     status_bar_label_->setText("开始移动到指定位置");
 }
 
 void MainWindow::on_startContinuousButton_clicked() {
     int axis_id = continuous_axis_combo_->currentIndex();
-    bool direction = (direction_combo_->currentIndex() == 0); // 0: forward, 1: backward
-    
+    bool direction = (direction_combo_->currentIndex() == 0);
     arm_controller_.startContinuousMovement(axis_id, direction);
     status_bar_label_->setText("开始连续运动");
 }
@@ -715,7 +649,6 @@ void MainWindow::on_stopAllButton_clicked() {
 void MainWindow::on_readPositionButton_clicked() {
     for (int i = 0; i < 5; ++i) {
         double position = arm_controller_.readPosition(i);
-        // No scaling, use raw position directly
         switch (i) {
             case 0: x_pos_spin_->setValue(position); break;
             case 1: y_pos_spin_->setValue(position); break;
@@ -723,13 +656,12 @@ void MainWindow::on_readPositionButton_clicked() {
             case 3: a_pos_spin_->setValue(position); break;
             case 4: b_pos_spin_->setValue(position); break;
         }
-        qDebug() << "MainWindow: Axis" << i << "position:" << position;
     }
     status_bar_label_->setText("位置读取完成");
 }
 
 void MainWindow::on_setSpeedButton_clicked() {
-    int speed = speed_spin_->value();
+    int speed = static_cast<int>(speed_spin_->value());
     for (int i = 0; i < 5; ++i) {
         arm_controller_.setSpeed(i, speed);
     }
@@ -741,8 +673,7 @@ void MainWindow::on_readSpeedButton_clicked() {
         QMessageBox::warning(this, "警告", "机械臂未连接");
         return;
     }
-    
-    int speed = arm_controller_.readSpeed(0); // 读取X轴速度作为参考
+    int speed = arm_controller_.readSpeed(0);
     current_speed_label_->setText(QString("当前速度: %1").arg(speed));
     status_bar_label_->setText("速度读取完成");
 }
@@ -752,81 +683,57 @@ void MainWindow::on_zeroButton_clicked() {
         QMessageBox::warning(this, "警告", "机械臂未连接");
         return;
     }
-    
-    // 使每个轴直接回到0位置
-    std::cout << "MainWindow: Zeroing all axes..." << std::endl;
-    
-    // 并行发送所有轴的归零命令
-    arm_controller_.moveToPosition(0, 0); // X轴归零
-    arm_controller_.moveToPosition(1, 0); // Y轴归零
-    arm_controller_.moveToPosition(2, 0); // Z轴归零
-    arm_controller_.moveToPosition(3, 0); // A轴归零
-    arm_controller_.moveToPosition(4, 0); // B轴归零
-    
-    // 更新UI显示
+
+    arm_controller_.moveToPosition(0, 0);
+    arm_controller_.moveToPosition(1, 0);
+    arm_controller_.moveToPosition(2, 0);
+    arm_controller_.moveToPosition(3, 0);
+    arm_controller_.moveToPosition(4, 0);
+
     x_pos_spin_->setValue(0);
     y_pos_spin_->setValue(0);
     z_pos_spin_->setValue(0);
     a_pos_spin_->setValue(0);
     b_pos_spin_->setValue(0);
-    
+
     status_bar_label_->setText("所有轴已归零");
-    std::cout << "MainWindow: All axes zeroed" << std::endl;
 }
 
 void MainWindow::on_realTimePositionCheckbox_stateChanged(int state) {
     if (state == Qt::Checked) {
-        // 启动实时读取
-        arm_controller_.startAutoRead(0.3f); // 300ms更新一次
+        arm_controller_.startAutoRead(0.3f);
         status_bar_label_->setText("已开启实时位置读取");
     } else {
-        // 停止实时读取
         arm_controller_.stopAutoRead();
         status_bar_label_->setText("已关闭实时位置读取");
     }
 }
 
 void MainWindow::on_startSMovementButton_clicked() {
-    // 检查机械臂和相机连接状态
-    std::cout << "MainWindow: Checking arm and camera connections..." << std::endl;
     if (!arm_controller_.isConnected()) {
-        std::cout << "MainWindow: Arm is not connected" << std::endl;
         QMessageBox::warning(this, "警告", "机械臂未连接");
         return;
     }
-    
+
     if (!camera_handler_.isConnected()) {
-        std::cout << "MainWindow: Camera is not connected" << std::endl;
         QMessageBox::warning(this, "警告", "相机未连接");
         return;
     }
-    
-    std::cout << "MainWindow: Arm and camera are connected" << std::endl;
-    
-    // 启动相机采集
-    std::cout << "MainWindow: Starting camera capture..." << std::endl;
+
     if (!camera_handler_.startCapture()) {
-        std::cout << "MainWindow: Failed to start camera capture" << std::endl;
         QMessageBox::warning(this, "警告", "相机采集启动失败！");
         return;
     }
-    std::cout << "MainWindow: Camera capture started successfully" << std::endl;
-    
-    // 使用默认参数
-    double x_start = 0;
-    double x_end = 387000; // 9*43000
-    double y_start = 0;
-    double y_end = 387000; // 9*43000
-    int grid_size_x = 10;
-    int grid_size_y = 10;
-    double z_height = 50000;
-    
-    std::cout << "MainWindow: S-movement parameters - Start: (" << x_start << ", " << y_start << "), End: (" << x_end << ", " << y_end << "), Grid: " << grid_size_x << "x" << grid_size_y << ", Z: " << z_height << std::endl;
-    
-    // Create new save directory with sequential numbering
-    std::string base_path = "d:/ArmSightStitch/ArmLiteCPlusPlus/image";
-    
-    // Find the next run number by checking existing directories
+
+    auto& cfg = ConfigManager::instance();
+    int grid_x = cfg.gridSizeX();
+    int grid_y = cfg.gridSizeY();
+    int step = cfg.stepSize();
+    int z = cfg.zHeight();
+    int end_x = step * (grid_x - 1);
+    int end_y = step * (grid_y - 1);
+
+    std::string base_path = cfg.imageSaveBasePath();
     int run_number = 0;
     QDir base_dir(QString::fromStdString(base_path));
     if (base_dir.exists()) {
@@ -834,164 +741,75 @@ void MainWindow::on_startSMovementButton_clicked() {
         for (const QString& dir : dirs) {
             bool ok;
             int num = dir.toInt(&ok);
-            if (ok && num > run_number) {
-                run_number = num;
-            }
+            if (ok && num > run_number) run_number = num;
         }
     }
-    run_number++; // Increment to get the next run number
-    
+    run_number++;
     std::string save_path = base_path + "/" + std::to_string(run_number);
-    
-    std::cout << "MainWindow: Creating save directory: " << save_path << std::endl;
-    
-    // Create directory if it doesn't exist
+
     QDir dir(QString::fromStdString(save_path));
-    if (!dir.exists()) {
-        std::cout << "MainWindow: Directory doesn't exist, creating..." << std::endl;
-        if (dir.mkpath(QString::fromStdString(save_path))) {
-            std::cout << "MainWindow: Created save directory: " << save_path << std::endl;
-        } else {
-            std::cout << "MainWindow: Failed to create save directory" << std::endl;
-            QMessageBox::warning(this, "警告", "创建保存目录失败！");
-            return;
-        }
-    } else {
-        std::cout << "MainWindow: Directory already exists: " << save_path << std::endl;
+    if (!dir.exists() && !dir.mkpath(QString::fromStdString(save_path))) {
+        QMessageBox::warning(this, "警告", "创建保存目录失败！");
+        return;
     }
-    
-    // Set save directory
+
     s_movement_controller_.setSaveDirectory(save_path);
     s_movement_controller_.setRunNumber(run_number);
-    std::cout << "MainWindow: Set save directory: " << save_path << ", Run number: " << run_number << std::endl;
-    
-    // Create start and end points
-    arm::SMovementPoint start_pos;
-    start_pos.x = static_cast<int32_t>(x_start);
-    start_pos.y = static_cast<int32_t>(y_start);
-    start_pos.z = static_cast<int32_t>(z_height);
-    start_pos.a = 0;
-    start_pos.b = 0;
-    start_pos.row = 0;
-    start_pos.col = 0;
-    
-    arm::SMovementPoint end_pos;
-    end_pos.x = static_cast<int32_t>(x_end);
-    end_pos.y = static_cast<int32_t>(y_end);
-    end_pos.z = static_cast<int32_t>(z_height);
-    end_pos.a = 0;
-    end_pos.b = 0;
-    end_pos.row = grid_size_y - 1;
-    end_pos.col = grid_size_x - 1;
-    
-    std::cout << "MainWindow: Start position: (" << start_pos.x << ", " << start_pos.y << ", " << start_pos.z << ")" << std::endl;
-    std::cout << "MainWindow: End position: (" << end_pos.x << ", " << end_pos.y << ", " << end_pos.z << ")" << std::endl;
-    
-    // Initialize S-movement controller
-    std::cout << "MainWindow: Initializing S-movement controller..." << std::endl;
-    if (s_movement_controller_.initialize(cv::Size(grid_size_x, grid_size_y), start_pos, end_pos)) {
-        std::cout << "MainWindow: S-movement controller initialized successfully" << std::endl;
-        
-        // Set image capture callback
-        s_movement_controller_.setImageCaptureCallback([this](cv::Mat& frame) {
-            std::cout << "MainWindow: Capturing image..." << std::endl;
-            bool captured = camera_handler_.captureSingleFrame(frame);
-            std::cout << "MainWindow: Image capture " << (captured ? "successful" : "failed") << std::endl;
-            return captured;
-        });
-        
-        // Set image save callback
-        s_movement_controller_.setImageSaveCallback([this](const cv::Mat& frame, const std::string& path, int row, int col) {
-            // 保存图片为对应单元格的位置
-            std::string filename = path + "/" + std::to_string(row) + "_" + std::to_string(col) + ".jpg";
-            std::cout << "MainWindow: Saving image to: " << filename << std::endl;
-            
-            // 确保保存目录存在
-            QDir dir(QString::fromStdString(path));
-            if (!dir.exists()) {
-                std::cout << "MainWindow: Creating directory: " << path << std::endl;
-                if (!dir.mkpath(QString::fromStdString(path))) {
-                    std::cout << "MainWindow: Failed to create directory" << std::endl;
-                    return false;
-                }
-            }
-            
-            // 只尝试一次图像保存
-            std::cout << "MainWindow: Attempting to save image" << std::endl;
-            bool saved = cv::imwrite(filename, frame);
-            
-            if (!saved) {
-                std::cout << "MainWindow: Failed to save image" << std::endl;
-            }
-            
-            if (saved) {
-                // 验证文件是否存在
-                QFile file(QString::fromStdString(filename));
-                if (file.exists()) {
-                    std::cout << "MainWindow: Image saved and verified successfully" << std::endl;
-                    // 保存图片路径到映射中
-                    s_movement_images_[std::make_pair(row, col)] = filename;
-                    
-                    // 在主线程中更新UI
-                    QMetaObject::invokeMethod(this, [this, frame, row, col]() {
-                        try {
-                            // 更新上方单元格显示
-                            if (row < 10 && col < 10) {
-                                QTableWidgetItem *item = top_cells_table_->item(row, col);
-                                if (item) {
-                                    // 设置单元格文本为位置信息
-                                    item->setText(QString("%1,%2").arg(row).arg(col));
-                                    
-                                    // 调整单元格背景色以表示有图片
-                                    item->setBackground(QColor(144, 238, 144)); // 淡绿色
-                                    
-                                    // 显示图片到单元格
-                                    QImage qimage = cvMatToQImage(frame);
-                                    QPixmap pixmap = QPixmap::fromImage(qimage);
-                                    QSize cellSize = QSize(50, 50);
-                                    
-                                    // 创建标签来显示图片
-                                    QLabel *imageLabel = new QLabel();
-                                    imageLabel->setPixmap(pixmap.scaled(cellSize, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-                                    imageLabel->setAlignment(Qt::AlignCenter);
-                                    
-                                    // 设置单元格小部件
-                                    top_cells_table_->setCellWidget(row, col, imageLabel);
-                                    
-                                    std::cout << "MainWindow: Updated cell (" << row << ", " << col << ") with image" << std::endl;
-                                }
-                            }
-                        } catch (const std::exception& e) {
-                            std::cerr << "MainWindow: Exception in UI update: " << e.what() << std::endl;
-                        }
-                    }, Qt::QueuedConnection);
-                } else {
-                    std::cout << "MainWindow: Image save reported success but file does not exist" << std::endl;
-                    saved = false;
-                }
-            } else {
-                std::cout << "MainWindow: Failed to save image" << std::endl;
-            }
-            
-            return saved;
-        });
-        
-        // Start S-movement
-        std::cout << "MainWindow: Starting S-movement..." << std::endl;
-        if (s_movement_controller_.start()) {
-            std::cout << "MainWindow: S-movement started successfully" << std::endl;
-            start_s_movement_button_->setEnabled(false);
-            stop_s_movement_button_->setEnabled(true);
-            pause_s_movement_button_->setEnabled(true);
-            resume_s_movement_button_->setEnabled(false);
-            status_bar_label_->setText("S型运动开始");
-        } else {
-            std::cout << "MainWindow: Failed to start S-movement" << std::endl;
-            QMessageBox::critical(this, "错误", "S型运动启动失败");
-        }
-    } else {
-        std::cout << "MainWindow: Failed to initialize S-movement controller" << std::endl;
+    s_movement_controller_.setMovementSpeed(cfg.defaultSpeed());
+
+    arm::SMovementPoint start_pos = {0, 0, z, 0, 0, 0, 0};
+    arm::SMovementPoint end_pos = {end_x, end_y, z, 0, 0, grid_y - 1, grid_x - 1};
+
+    if (!s_movement_controller_.initialize(cv::Size(grid_x, grid_y), start_pos, end_pos)) {
         QMessageBox::critical(this, "错误", "S型运动初始化失败");
+        return;
+    }
+
+    // Set image capture callback
+    s_movement_controller_.setImageCaptureCallback([this](cv::Mat& frame) {
+        return camera_handler_.captureSingleFrame(frame);
+    });
+
+    // Set image save callback
+    s_movement_controller_.setImageSaveCallback([this, save_path](const cv::Mat& frame, const std::string& path, int row, int col) {
+        std::string filename = path + "/" + std::to_string(row) + "_" + std::to_string(col) + ".jpg";
+
+        bool saved = cv::imwrite(filename, frame);
+        if (!saved) return false;
+
+        QFile file(QString::fromStdString(filename));
+        if (!file.exists()) return false;
+
+        s_movement_images_[std::make_pair(row, col)] = filename;
+
+        QMetaObject::invokeMethod(this, [this, frame, row, col]() {
+            if (row < 10 && col < 10) {
+                QTableWidgetItem *item = top_cells_table_->item(row, col);
+                if (item) {
+                    item->setText(QString("%1,%2").arg(row).arg(col));
+                    item->setBackground(QColor(144, 238, 144));
+
+                    QLabel *imageLabel = new QLabel();
+                    QImage qimage = cvMatToQImage(frame);
+                    QPixmap pixmap = QPixmap::fromImage(qimage);
+                    imageLabel->setPixmap(pixmap.scaled(QSize(50, 50), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+                    imageLabel->setAlignment(Qt::AlignCenter);
+                    top_cells_table_->setCellWidget(row, col, imageLabel);
+                }
+            }
+        }, Qt::QueuedConnection);
+
+        return true;
+    });
+
+    if (s_movement_controller_.start()) {
+        start_s_movement_button_->setEnabled(false);
+        stop_s_movement_button_->setEnabled(true);
+        pause_s_movement_button_->setEnabled(true);
+        resume_s_movement_button_->setEnabled(false);
+        status_bar_label_->setText("S型运动开始");
+    } else {
+        QMessageBox::critical(this, "错误", "S型运动启动失败");
     }
 }
 
@@ -1018,10 +836,11 @@ void MainWindow::on_resumeSMovementButton_clicked() {
     status_bar_label_->setText("S型运动已恢复");
 }
 
-// Camera Slots
+// ==================== Camera Slots ====================
+
 void MainWindow::on_connectCameraButton_clicked() {
     std::string device_id = camera_combo_->currentData().toString().toStdString();
-    
+
     if (camera_handler_.connect(device_id)) {
         connect_camera_button_->setEnabled(false);
         disconnect_camera_button_->setEnabled(true);
@@ -1046,30 +865,23 @@ void MainWindow::on_disconnectCameraButton_clicked() {
 }
 
 void MainWindow::on_startCaptureButton_clicked() {
-    std::cout << "MainWindow: on_startCaptureButton_clicked called" << std::endl;
     if (camera_handler_.startCapture()) {
-        std::cout << "MainWindow: Camera capture started successfully" << std::endl;
         start_capture_button_->setEnabled(false);
         stop_capture_button_->setEnabled(true);
-        // Start camera update timer (30fps)
         camera_update_timer_->start(33);
         status_bar_label_->setText("相机开始采集");
     } else {
-        std::cout << "MainWindow: Camera capture failed to start" << std::endl;
         status_bar_label_->setText("相机采集启动失败");
         QMessageBox::critical(this, "错误", "相机采集启动失败");
     }
 }
 
 void MainWindow::on_stopCaptureButton_clicked() {
-    std::cout << "MainWindow: on_stopCaptureButton_clicked called" << std::endl;
     camera_handler_.stopCapture();
     start_capture_button_->setEnabled(true);
     stop_capture_button_->setEnabled(false);
-    // Stop camera update timer
     camera_update_timer_->stop();
     status_bar_label_->setText("相机采集已停止");
-    std::cout << "MainWindow: Camera capture stopped" << std::endl;
 }
 
 void MainWindow::on_captureImageButton_clicked() {
@@ -1078,109 +890,64 @@ void MainWindow::on_captureImageButton_clicked() {
         return;
     }
 
-    // 启动相机采集
-    std::cout << "MainWindow: Starting camera capture..." << std::endl;
     if (!camera_handler_.startCapture()) {
-        std::cout << "MainWindow: Failed to start camera capture" << std::endl;
         QMessageBox::warning(this, "警告", "相机采集启动失败！");
         return;
     }
-    std::cout << "MainWindow: Camera capture started successfully" << std::endl;
 
-    // 生成文件名
     static int imageCounter = 0;
     imageCounter++;
     QString filename = QString("image_%1.jpg").arg(imageCounter, 4, 10, QChar('0'));
     QString saveDirectory = save_directory_edit_->text();
     QString filepath = saveDirectory + "/" + filename;
 
-    // 确保保存目录存在
     QDir dir(saveDirectory);
-    if (!dir.exists()) {
-        if (dir.mkpath(saveDirectory)) {
-            std::cout << "MainWindow: Created save directory: " << saveDirectory.toStdString() << std::endl;
-        } else {
-            QMessageBox::warning(this, "警告", "创建保存目录失败！");
-            camera_handler_.stopCapture();
-            return;
-        }
-    }
-
-    // 检查目录是否可写
-    QFileInfo dirInfo(saveDirectory);
-    if (!dirInfo.isWritable()) {
-        QMessageBox::warning(this, "警告", "保存目录不可写！");
+    if (!dir.exists() && !dir.mkpath(saveDirectory)) {
+        QMessageBox::warning(this, "警告", "创建保存目录失败！");
         camera_handler_.stopCapture();
         return;
     }
 
-    // 采集图像
     cv::Mat frame;
     bool captured = false;
     int retry_count = 0;
     const int max_retries = 10;
-    
+
     while (retry_count < max_retries && !captured) {
         if (camera_handler_.captureSingleFrame(frame)) {
             captured = true;
-            std::cout << "MainWindow: Image capture successful" << std::endl;
             current_image_ = frame;
             displayImage(frame, camera_image_label_);
 
-            // 保存图像
-            std::cout << "MainWindow: Attempting to save image to: " << filepath.toStdString() << std::endl;
-            std::cout << "MainWindow: Frame size: " << frame.cols << "x" << frame.rows << std::endl;
-            std::cout << "MainWindow: Frame type: " << frame.type() << std::endl;
-            
             if (cv::imwrite(filepath.toStdString(), frame)) {
                 status_bar_label_->setText(QString("图像已保存: %1").arg(filepath));
-                std::cout << "MainWindow: Image saved to: " << filepath.toStdString() << std::endl;
-                
-                // 验证文件是否存在
-                QFile file(filepath);
-                if (file.exists()) {
-                    std::cout << "MainWindow: Verified image file exists" << std::endl;
-                } else {
-                    std::cout << "MainWindow: Image file does not exist after save" << std::endl;
-                }
             } else {
                 QMessageBox::warning(this, "警告", "保存图像失败！");
-                status_bar_label_->setText("保存图像失败");
-                std::cout << "MainWindow: Failed to save image to: " << filepath.toStdString() << std::endl;
             }
         } else {
-            std::cout << "MainWindow: Image capture failed, retry: " << retry_count + 1 << "/" << max_retries << std::endl;
             retry_count++;
-            // 等待一段时间后重试
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
-    
-    // 停止相机采集
+
     camera_handler_.stopCapture();
-    std::cout << "MainWindow: Camera capture stopped" << std::endl;
-    
+
     if (!captured) {
-        std::cout << "MainWindow: Image capture failed after " << max_retries << " retries" << std::endl;
         status_bar_label_->setText("采集图像失败");
         QMessageBox::critical(this, "错误", "采集图像失败");
     }
 }
 
 void MainWindow::on_enumerateCamerasButton_clicked() {
-    std::cout << "MainWindow: Starting camera enumeration..." << std::endl;
     camera_combo_->clear();
-    
+
     std::vector<camera::CameraDevice> cameras = camera_handler_.enumerateCameras();
-    std::cout << "MainWindow: Found " << cameras.size() << " cameras" << std::endl;
-    
+
     for (const auto& camera : cameras) {
-        std::cout << "MainWindow: Camera: " << camera.display_name << " (ID: " << camera.id << ")" << std::endl;
         camera_combo_->addItem(camera.display_name.c_str(), camera.id.c_str());
     }
-    
+
     status_bar_label_->setText("相机枚举完成");
-    std::cout << "MainWindow: Camera enumeration complete" << std::endl;
 }
 
 void MainWindow::on_setExposureButton_clicked() {
@@ -1220,15 +987,15 @@ void MainWindow::on_setSaveDirectoryButton_clicked() {
     if (!directory.isEmpty()) {
         save_directory_edit_->setText(directory);
         status_bar_label_->setText(QString("保存目录: %1").arg(directory));
-        std::cout << "MainWindow: Save directory set to: " << directory.toStdString() << std::endl;
     }
 }
 
-// Detection Slots
+// ==================== Detection Slots ====================
+
 void MainWindow::on_loadModelButton_clicked() {
     std::string param_path = param_path_edit_->text().toStdString();
     std::string bin_path = bin_path_edit_->text().toStdString();
-    
+
     if (yolo_detector_.loadModel(param_path, bin_path)) {
         model_loaded_ = true;
         status_bar_label_->setText("模型加载成功");
@@ -1240,31 +1007,21 @@ void MainWindow::on_loadModelButton_clicked() {
 }
 
 void MainWindow::on_loadImageButton_clicked() {
-    // Open file dialog to select an image file
-    QString file_path = QFileDialog::getOpenFileName(this, "选择图像文件", "./", 
+    QString file_path = QFileDialog::getOpenFileName(this, "选择图像文件", "./",
                                                     "图像文件 (*.jpg *.jpeg *.png *.bmp);;所有文件 (*.*)");
-    
-    if (file_path.isEmpty()) {
-        return;
-    }
-    
-    // Load image using OpenCV
+    if (file_path.isEmpty()) return;
+
     cv::Mat image = cv::imread(file_path.toStdString());
     if (image.empty()) {
         QMessageBox::warning(this, "警告", "图像加载失败");
         return;
     }
-    
-    // Update current image and display it
+
     current_image_ = image;
     displayImage(image, detection_image_label_);
-    
-    // Clear previous detection results
     detection_result_ = cv::Mat();
-    
     status_bar_label_->setText("图像加载成功");
-    
-    // Update status text
+
     detection_status_text_->append("图像加载成功: " + file_path);
     detection_status_text_->append("图像大小: " + QString::number(image.cols) + "x" + QString::number(image.rows));
 }
@@ -1274,85 +1031,79 @@ void MainWindow::on_detectButton_clicked() {
         QMessageBox::warning(this, "警告", "模型未加载");
         return;
     }
-    
+
     if (current_image_.empty()) {
         QMessageBox::warning(this, "警告", "没有图像可以检测");
         return;
     }
-    
+
     std::vector<detector::Detection> detections = yolo_detector_.detect(current_image_);
     cv::Mat result = yolo_detector_.drawDetections(current_image_, detections);
-    
+
     detection_result_ = result;
     displayImage(result, detection_image_label_);
-    
+
     status_bar_label_->setText("检测完成，共检测到 " + QString::number(detections.size()) + " 个目标");
-    
-    // Update status text
+
     detection_status_text_->append("检测完成，共检测到 " + QString::number(detections.size()) + " 个目标");
     for (const auto& detection : detections) {
-        detection_status_text_->append(QString::fromStdString(detection.class_name) + "，置信度: " + 
-                                      QString::number(detection.confidence, 'f', 2) + 
-                                      "，位置: (" + QString::number(detection.bounding_box.x) + ", " + 
-                                      QString::number(detection.bounding_box.y) + ")，大小: " + 
-                                      QString::number(detection.bounding_box.width) + "x" + 
+        detection_status_text_->append(QString::fromStdString(detection.class_name) + "，置信度: " +
+                                      QString::number(detection.confidence, 'f', 2) +
+                                      "，位置: (" + QString::number(detection.bounding_box.x) + ", " +
+                                      QString::number(detection.bounding_box.y) + ")，大小: " +
+                                      QString::number(detection.bounding_box.width) + "x" +
                                       QString::number(detection.bounding_box.height));
     }
 }
 
 void MainWindow::on_setConfidenceThresholdButton_clicked() {
-    float threshold = confidence_threshold_spin_->value();
-    yolo_detector_.setConfidenceThreshold(threshold);
+    yolo_detector_.setConfidenceThreshold(confidence_threshold_spin_->value());
     status_bar_label_->setText("置信度阈值设置完成");
 }
 
 void MainWindow::on_setNmsThresholdButton_clicked() {
-    float threshold = nms_threshold_spin_->value();
-    yolo_detector_.setNmsThreshold(threshold);
+    yolo_detector_.setNmsThreshold(nms_threshold_spin_->value());
     status_bar_label_->setText("NMS阈值设置完成");
 }
 
-// Stitching Slots
+// ==================== Stitching Slots ====================
+
 void MainWindow::on_stitchImagesButton_clicked() {
     std::string input_dir = input_dir_edit_->text().toStdString();
     int grid_size_x = stitch_grid_size_x_spin_->value();
     int grid_size_y = stitch_grid_size_y_spin_->value();
-    
     cv::Size grid_size(grid_size_x, grid_size_y);
-    
-    // Check if directory exists
+
     std::vector<cv::Mat> images;
     bool directory_exists = std::filesystem::exists(input_dir);
-    
+
     if (!directory_exists) {
-        // Let user select directory
-        QString dir_path = QFileDialog::getExistingDirectory(this, "选择图像目录", "./", QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+        QString dir_path = QFileDialog::getExistingDirectory(this, "选择图像目录", "./",
+                                                             QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
         if (dir_path.isEmpty()) {
             status_bar_label_->setText("未选择图像目录");
             return;
         }
-        
         input_dir = dir_path.toStdString();
         input_dir_edit_->setText(dir_path);
         images = image_stitcher_.loadImagesFromDirectory(input_dir);
     } else {
-        // Load images from existing directory
         images = image_stitcher_.loadImagesFromDirectory(input_dir);
     }
-    
+
     if (images.empty()) {
         QMessageBox::warning(this, "警告", "没有图像可以拼接");
         return;
     }
-    
-    // Sort images in S-curve order
+
+    // Sort once in S-curve order, then pass to stitchImages (which now uses simple row-major placement)
+    // This fixes the double-sort bug
     std::vector<cv::Mat> sorted_images = image_stitcher_.sortImagesInSCurveOrder(images, grid_size);
-    
-    // Start concurrent stitching
+
     stitching_ = true;
     status_bar_label_->setText("图像拼接中...");
     stitch_images_button_->setEnabled(false);
-    
+
     stitching_future_ = QtConcurrent::run([this, sorted_images, grid_size]() {
         return image_stitcher_.stitchImages(sorted_images, grid_size);
     });
@@ -1361,10 +1112,10 @@ void MainWindow::on_stitchImagesButton_clicked() {
 
 void MainWindow::onStitchingFinished() {
     cv::Mat result = stitching_future_.result();
-    
+
     stitching_ = false;
     stitch_images_button_->setEnabled(true);
-    
+
     if (!result.empty()) {
         stitched_result_ = result;
         displayImage(result, stitched_image_label_);
@@ -1376,7 +1127,6 @@ void MainWindow::onStitchingFinished() {
 }
 
 void MainWindow::on_loadImagesButton_clicked() {
-    // This function is just a placeholder for now
     status_bar_label_->setText("图像加载功能待实现");
 }
 
@@ -1385,21 +1135,21 @@ void MainWindow::on_saveStitchedImageButton_clicked() {
         QMessageBox::warning(this, "警告", "没有拼接结果可以保存");
         return;
     }
-    
-    QString filename = QFileDialog::getSaveFileName(this, "保存拼接结果", "./stitched_result.jpg", "JPEG Files (*.jpg);;PNG Files (*.png)");
+
+    QString filename = QFileDialog::getSaveFileName(this, "保存拼接结果", "./stitched_result.jpg",
+                                                     "JPEG Files (*.jpg);;PNG Files (*.png)");
     if (!filename.isEmpty()) {
         cv::imwrite(filename.toStdString(), stitched_result_);
         status_bar_label_->setText("拼接结果保存成功");
     }
 }
 
-// Timer Slots
+// ==================== Timer Slots ====================
+
 void MainWindow::updateArmStatus() {
-    // Arm status is updated via callback
 }
 
 void MainWindow::updateCameraStatus() {
-    // Camera status is updated via callback
 }
 
 void MainWindow::updateCameraImage() {
@@ -1408,18 +1158,15 @@ void MainWindow::updateCameraImage() {
     }
 
     try {
-        // Capture a single frame directly
         cv::Mat frame;
         if (camera_handler_.captureSingleFrame(frame)) {
             current_image_ = frame;
-            
+
             if (image_detection_enabled_ && model_loaded_) {
-                // Perform detection if enabled and model is loaded
                 std::vector<detector::Detection> detections = yolo_detector_.detect(frame);
                 cv::Mat result = yolo_detector_.drawDetections(frame, detections);
                 displayImage(result, camera_image_label_);
             } else {
-                // Just display the raw frame if detection is disabled or model not loaded
                 displayImage(frame, camera_image_label_);
             }
         }
@@ -1428,18 +1175,15 @@ void MainWindow::updateCameraImage() {
     }
 }
 
-// Image Callback Slot (deprecated - now using timer-based image pull)
+// ==================== Callback Slots ====================
+
 void MainWindow::onImageCaptured(const cv::Mat& frame) {
-    // This function is no longer used - image capture is handled by updateCameraImage
 }
 
-// Arm Status Callback Slot
 void MainWindow::onArmStatusChanged(const arm::ArmStatus& status) {
-    // Update status text
     std::string status_msg = "机械臂状态: " + status.status_message;
     status_bar_label_->setText(QString::fromStdString(status_msg));
-    
-    // Update position displays
+
     x_pos_spin_->setValue(status.current_positions[0]);
     y_pos_spin_->setValue(status.current_positions[1]);
     z_pos_spin_->setValue(status.current_positions[2]);
@@ -1447,52 +1191,42 @@ void MainWindow::onArmStatusChanged(const arm::ArmStatus& status) {
     b_pos_spin_->setValue(status.current_positions[4]);
 }
 
-// Camera Status Callback Slot
 void MainWindow::onCameraStatusChanged(const camera::CameraStatus& status) {
     std::string status_msg = "相机状态: " + status.status_message;
     status_bar_label_->setText(QString::fromStdString(status_msg));
-    
-    // Update camera status text
+
     camera_status_text_->append(QString::fromStdString(status_msg));
     camera_status_text_->append("分辨率: " + QString::number(status.width) + "x" + QString::number(status.height));
     camera_status_text_->append("帧率: " + QString::number(status.fps, 'f', 2) + " FPS");
 }
 
-// Movement Progress Callback Slot
 void MainWindow::onMovementProgress(int current, int total) {
     movement_progress_bar_->setValue((current * 100) / total);
 }
 
-// Movement Status Callback Slot
 void MainWindow::onMovementStatus(const arm::SMovementStatus& status) {
     movement_status_text_->append(QString::fromStdString(status.status_message));
-    
-    // Update progress bar if we have total points
+
     if (status.total_points > 0) {
         int progress = (status.current_point * 100) / status.total_points;
         movement_progress_bar_->setValue(progress);
     }
 }
 
-// Stitching Progress Callback Slot
 void MainWindow::onStitchingProgress(int current, int total) {
     stitching_progress_bar_->setValue((current * 100) / total);
 }
 
-// Stitching Status Callback Slot
 void MainWindow::onStitchingStatus(const std::string& status) {
     stitching_status_text_->append(QString::fromStdString(status));
 }
 
-// Detection Result Callback Slot
 void MainWindow::onDetectionResult(const std::vector<detector::Detection>& detections, const cv::Mat& image) {
-    // This function is just a placeholder for now
 }
 
-// Detection Toggle Slot
 void MainWindow::on_enableDetectionCheckbox_stateChanged(int state) {
     image_detection_enabled_ = (state == Qt::Checked);
-    
+
     if (image_detection_enabled_) {
         status_bar_label_->setText("图像检测已开启");
     } else {
@@ -1500,19 +1234,15 @@ void MainWindow::on_enableDetectionCheckbox_stateChanged(int state) {
     }
 }
 
-// Top Cells Click Slot
 void MainWindow::on_topCellsTable_cellClicked(int row, int column) {
-    // 检查是否有图片路径
     auto key = std::make_pair(row, column);
     auto it = s_movement_images_.find(key);
-    
+
     if (it != s_movement_images_.end()) {
         std::string image_path = it->second;
-        
-        // 显示图片预览
+
         cv::Mat image = cv::imread(image_path);
         if (!image.empty()) {
-            // 创建一个新窗口显示大图
             cv::namedWindow("Image Preview", cv::WINDOW_NORMAL);
             cv::imshow("Image Preview", image);
             cv::waitKey(0);
@@ -1525,24 +1255,19 @@ void MainWindow::on_topCellsTable_cellClicked(int row, int column) {
     }
 }
 
-// Bottom Cells Click Slot
 void MainWindow::on_bottomCellsTable_cellClicked(int row, int column) {
     if (!arm_connected_) {
         status_bar_label_->setText("机械臂未连接");
         return;
     }
-    
-    // 计算目标位置 - 每个单元格大小为43000
-    double target_x = column * 43000.0;
-    double target_y = row * 43000.0;
-    double target_z = 50000.0; // 默认Z高度
-    
-    // 移动机械臂到目标位置
+
+    double target_x = column * ConfigManager::instance().stepSize();
+    double target_y = row * ConfigManager::instance().stepSize();
+    double target_z = ConfigManager::instance().zHeight();
+
     arm_controller_.moveToPosition(0, static_cast<int>(target_x));
     arm_controller_.moveToPosition(1, static_cast<int>(target_y));
     arm_controller_.moveToPosition(2, static_cast<int>(target_z));
-    
+
     status_bar_label_->setText(QString("移动到位置: (%1, %2, %3)").arg(target_x).arg(target_y).arg(target_z));
 }
-
-

@@ -82,7 +82,6 @@ bool SMovementController::start() {
         
         // Start movement thread
         movement_thread_ = std::thread(&SMovementController::movementThread, this);
-        movement_thread_.detach();
         
         return true;
     } catch (const std::exception& e) {
@@ -94,18 +93,17 @@ bool SMovementController::start() {
 }
 
 void SMovementController::stop() {
-    if (running_) {
-        stop_requested_ = true;
-        running_ = false;
-        paused_ = false;
-        
-        // Wait for thread to finish
-        if (movement_thread_.joinable()) {
-            movement_thread_.join();
-        }
-        
-        updateStatus("Movement stopped");
+    stop_requested_ = true;
+    running_ = false;
+    paused_ = false;
+    current_status_.running = false;
+    current_status_.paused = false;
+
+    if (movement_thread_.joinable()) {
+        movement_thread_.join();
     }
+
+    updateStatus("Movement stopped");
 }
 
 void SMovementController::pause() {

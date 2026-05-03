@@ -203,9 +203,10 @@ bool CameraHandler::captureSingleFrame(cv::Mat& frame) {
     if (!connected_) {
         return false;
     }
-    
+
     try {
-        // 为单帧采集创建独立的缓冲区，避免与连续采集冲突
+        std::lock_guard<std::mutex> lock(capture_mutex_);
+
         std::vector<uint8_t> single_frame_buffer(buffer_size_);
         
         // 尝试捕获图像，最多尝试3次

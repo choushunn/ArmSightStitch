@@ -1,0 +1,47 @@
+# CMake build directories and generated files
+/build/
+/cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+install_manifest.txt
+install/
+# vcpkg local artifacts
+vcpkg_installed/
+build/
+# Visual Studio / VS Code
+.vs/
+.vscode/
+*.VC.db
+*.VC.opendb
+
+# CLion / JetBrains
+.idea/
+
+# Compiled objects and binaries
+*.o
+*.obj
+*.lo
+*.a
+*.lib
+*.dll
+*.so
+*.dylib
+*.exe
+*.out
+
+# Debug symbols and maps
+*.pdb
+*.idb
+*.ilk
+*.map
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.swp
+*~

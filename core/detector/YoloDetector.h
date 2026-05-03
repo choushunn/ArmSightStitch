@@ -108,7 +108,7 @@ private:
     float nms_threshold_ = 0.3f;
     int input_width_ = 640;
     int input_height_ = 640;
-    std::vector<std::string> class_names_ = {"defect"};
+    std::vector<std::string> class_names_ = {"crack", "scratch", "dent"};
     std::vector<std::vector<float>> anchors_ = {
         {10.0f, 13.0f, 16.0f, 30.0f, 33.0f, 23.0f},
         {30.0f, 61.0f, 62.0f, 45.0f, 59.0f, 119.0f},

@@ -167,6 +167,8 @@ private:
     CameraStatus current_status_;
     std::vector<CameraDevice> available_cameras_;
     std::vector<uint8_t> image_buffer_;
+    mutable std::mutex image_buffer_mutex_;
+    std::mutex capture_mutex_;  // Protects Toupcam_PullImageV4 calls
     int image_width_ = 0;
     int image_height_ = 0;
     int buffer_size_ = 0;

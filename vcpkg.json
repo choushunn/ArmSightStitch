@@ -1,0 +1,12 @@
+{
+  "name": "armsightstitch",
+  "version-string": "2.0.0",
+  "description": "ArmSightStitch - Robotic Arm Control with Visual Detection and Image Stitching",
+  "dependencies": [
+    "opencv4",
+    "fmt",
+    "spdlog",
+    "ncnn",
+    "libmodbus"
+  ]
+}

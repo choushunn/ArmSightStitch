@@ -179,12 +179,12 @@ std::vector<Detection> YoloDetector::detect(const cv::Mat& image) {
                 continue;
             }
             
-            // Create detection object
             Detection det;
             det.bounding_box = cv::Rect(x1, y1, width, height);
             det.confidence = final_conf;
             det.class_id = class_id;
-            det.class_name = "defect";
+            det.class_name = (class_id >= 0 && class_id < static_cast<int>(class_names_.size()))
+                             ? class_names_[class_id] : "unknown";
             
             detections.push_back(det);
             

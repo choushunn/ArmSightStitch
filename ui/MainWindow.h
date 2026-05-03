@@ -26,11 +26,13 @@
 #include <QHeaderView>
 #include <QAbstractItemView>
 
-#include "detector/YoloDetector.h"
-#include "arm/ModbusArmController.h"
-#include "arm/SMovementController.h"
-#include "camera/CameraHandler.h"
-#include "stitch/ImageStitcher.h"
+#include "core/detector/YoloDetector.h"
+#include "core/arm/ModbusArmController.h"
+#include "core/arm/SMovementController.h"
+#include "core/camera/CameraHandler.h"
+#include "core/stitch/ImageStitcher.h"
+
+class WorkflowManager;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -265,9 +267,10 @@ private:
     QLabel *status_bar_label_;
     
     // Timers
-    QTimer *arm_status_timer_;
-    QTimer *camera_status_timer_;
     QTimer *camera_update_timer_;
+    
+    // Workflow Manager
+    WorkflowManager *workflow_mgr_ = nullptr;
     
     // Images
     cv::Mat current_image_;

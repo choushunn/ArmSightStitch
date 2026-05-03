@@ -20,11 +20,13 @@ ModbusArmController::ModbusArmController() {
 }
 
 ModbusArmController::~ModbusArmController() {
-    disconnect();
+    stopAutoRead();
     if (modbus_) {
+        modbus_close(modbus_);
         modbus_free(modbus_);
         modbus_ = nullptr;
     }
+    connected_ = false;
 }
 
 bool ModbusArmController::connect(const std::string& ip, int port) {
@@ -150,10 +152,6 @@ double ModbusArmController::readPosition(int axis_id) {
         double final_position = static_cast<double>(raw_position);
 
         current_status_.current_positions[axis_id] = static_cast<int32_t>(final_position);
-
-        if (status_callback_) {
-            status_callback_(current_status_);
-        }
 
         return final_position;
     } catch (const std::exception& e) {
@@ -360,10 +358,14 @@ void ModbusArmController::startAutoRead(float interval) {
         return;
     }
 
+    // Ensure previous thread is joined
+    if (auto_read_thread_.joinable()) {
+        auto_read_thread_.join();
+    }
+
     auto_read_interval_ = interval;
     auto_read_running_ = true;
     auto_read_thread_ = std::thread(&ModbusArmController::autoReadLoop, this);
-    auto_read_thread_.detach();
 }
 
 void ModbusArmController::stopAutoRead() {
@@ -388,10 +390,18 @@ void ModbusArmController::setStatusCallback(std::function<void(const ArmStatus&)
 
 void ModbusArmController::autoReadLoop() {
     while (auto_read_running_ && isConnected()) {
-        for (int axis_id = 0; axis_id < 5; ++axis_id) {
-            if (auto_read_enabled_[axis_id]) {
-                readPosition(axis_id);
+        {
+            std::lock_guard<std::mutex> lock(modbus_mutex_);
+            for (int axis_id = 0; axis_id < 5; ++axis_id) {
+                if (auto_read_enabled_[axis_id]) {
+                    readPosition(axis_id);
+                }
             }
+        }
+
+        // Notify status change once per cycle
+        if (status_callback_) {
+            status_callback_(current_status_);
         }
 
         // Sleep for interval
