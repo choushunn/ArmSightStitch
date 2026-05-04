@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <opencv2/opencv.hpp>
 
 namespace arm {
 

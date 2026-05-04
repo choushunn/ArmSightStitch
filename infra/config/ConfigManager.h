@@ -93,5 +93,5 @@ private:
 
     std::string image_save_base_path_;
     std::string log_path_;
-    std::string last_error_;
+    mutable std::string last_error_;
 };

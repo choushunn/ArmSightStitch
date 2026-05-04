@@ -106,41 +106,23 @@ endif()
 # ============================================================
 
 set(SOURCES
-    # Application entry
     app/main.cpp
-
-    # UI layer
     ui/MainWindow.cpp
-
-    # Core - Arm control
+    ui/AppController.cpp
+    ui/DetectionSettingsDialog.cpp
+    ui/StitchingSettingsDialog.cpp
     core/arm/ModbusArmController.cpp
     core/arm/SMovementController.cpp
-
-    # Core - Camera
     core/camera/CameraHandler.cpp
-
-    # Core - Detector
     core/detector/YoloDetector.cpp
-
-    # Core - Stitching
     core/stitch/ImageStitcher.cpp
-
-    # Infrastructure - Config
     infra/config/ConfigManager.cpp
-
-    # Infrastructure - Workflow
     infra/workflow/WorkflowManager.cpp
-
-    # Infrastructure - Logging (header-only via spdlog)
 )
 
 set(RESOURCES
     res/qt/resources.qrc
 )
-
-# ============================================================
-# Include directories - per target
-# ============================================================
 
 # Create output directory
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin)
@@ -152,9 +134,11 @@ file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin)
 add_executable(${PROJECT_NAME}
     ${SOURCES}
     ${RESOURCES}
+    ui/MainWindow.ui
+    ui/DetectionSettingsDialog.ui
+    ui/StitchingSettingsDialog.ui
 )
 
-# Target-specific include directories
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/app
@@ -168,13 +152,13 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/infra/log
 )
 
+# Compile definitions and optional module support
 if(HAS_LIBMODBUS)
     target_sources(${PROJECT_NAME} PRIVATE ${LIBMODBUS_SOURCES})
     target_compile_definitions(${PROJECT_NAME} PRIVATE DLLBUILD)
     target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32)
 endif()
 
-# Compile definitions for optional modules
 if(NOT HAS_NCNN)
     target_compile_definitions(${PROJECT_NAME} PRIVATE ARM_SIGHT_STITCH_NO_DETECTOR)
 endif()
@@ -184,10 +168,6 @@ endif()
 if(NOT HAS_LIBMODBUS)
     target_compile_definitions(${PROJECT_NAME} PRIVATE ARM_SIGHT_STITCH_NO_ARM)
 endif()
-
-# ============================================================
-# Link libraries
-# ============================================================
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt${QT_VERSION_MAJOR}::Widgets
@@ -202,10 +182,14 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 if(HAS_NCNN)
     target_link_libraries(${PROJECT_NAME} PRIVATE ncnn)
 endif()
-
 if(HAS_TOUPCAM)
     target_link_libraries(${PROJECT_NAME} PRIVATE toupcam)
 endif()
+
+# Output directory
+set_target_properties(${PROJECT_NAME} PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin
+)
 
 # ============================================================
 # Post-build: copy model files and DLLs
@@ -214,6 +198,7 @@ endif()
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_CURRENT_SOURCE_DIR}/res/models $<TARGET_FILE_DIR:${PROJECT_NAME}>/models
+    COMMENT "Copying model files..."
 )
 
 if(HAS_TOUPCAM)
@@ -224,13 +209,8 @@ if(HAS_TOUPCAM)
     )
 endif()
 
-# Output directory
-set_target_properties(${PROJECT_NAME} PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin
-)
-
 # ============================================================
-# Deploy target: windeployqt
+# Deploy target: windeployqt + MinGW runtime DLLs
 # ============================================================
 
 find_program(WINDEPLOYQT_EXECUTABLE
@@ -239,11 +219,20 @@ find_program(WINDEPLOYQT_EXECUTABLE
     NO_DEFAULT_PATH
 )
 if(WINDEPLOYQT_EXECUTABLE)
+    get_filename_component(MINGW_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+
     add_custom_target(deploy
+        COMMAND ${CMAKE_COMMAND} -E echo "=== Step 1: Deploying Qt runtime ==="
         COMMAND ${WINDEPLOYQT_EXECUTABLE}
             --dir $<TARGET_FILE_DIR:${PROJECT_NAME}>
             $<TARGET_FILE:${PROJECT_NAME}>
-        COMMENT "Deploying Qt dependencies to $<TARGET_FILE_DIR:${PROJECT_NAME}>..."
+        COMMAND ${CMAKE_COMMAND} -E echo "=== Step 2: Copying MinGW runtime DLLs ==="
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${MINGW_BIN_DIR}/libgcc_s_seh-1.dll"    $<TARGET_FILE_DIR:${PROJECT_NAME}>
+            "${MINGW_BIN_DIR}/libstdc++-6.dll"       $<TARGET_FILE_DIR:${PROJECT_NAME}>
+            "${MINGW_BIN_DIR}/libwinpthread-1.dll"   $<TARGET_FILE_DIR:${PROJECT_NAME}>
+        COMMAND ${CMAKE_COMMAND} -E echo "=== Deploy complete ==="
+        COMMENT "Deploy: Qt + MinGW runtime DLLs"
         DEPENDS ${PROJECT_NAME}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )

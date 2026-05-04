@@ -2,8 +2,11 @@
 
 #include <QObject>
 #include <QTimer>
+#include <QCoreApplication>
 #include <atomic>
 #include <functional>
+#include <chrono>
+#include <thread>
 
 #include "core/arm/IArmController.h"
 #include "core/camera/ICameraHandler.h"
@@ -56,6 +59,8 @@ private slots:
 private:
     void setState(State s);
     void scheduleNext(int delayMs, std::function<void()> step);
+    bool waitForPosition(const arm::SMovementPoint& target,
+                         int timeoutMs = 10000, int checkIntervalMs = 100);
 
     arm::IArmController& arm_;
     arm::ISMovementController& s_movement_;

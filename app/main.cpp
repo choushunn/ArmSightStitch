@@ -3,6 +3,7 @@
 #include <QDir>
 
 #include "ui/MainWindow.h"
+#include "ui/AppController.h"
 #include "infra/config/ConfigManager.h"
 #include "infra/log/LogManager.h"
 
