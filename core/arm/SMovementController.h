@@ -8,33 +8,13 @@
 #include <atomic>
 #include <opencv2/opencv.hpp>
 
-#include "ModbusArmController.h"
+#include "IArmController.h"
 
 namespace arm {
 
-struct SMovementPoint {
-    int32_t x; // X axis position
-    int32_t y; // Y axis position
-    int32_t z; // Z axis position
-    int32_t a; // A axis position
-    int32_t b; // B axis position
-    int row;   // Grid row index
-    int col;   // Grid column index
-};
-
-struct SMovementStatus {
-    bool running;           // Whether S movement is running
-    bool paused;            // Whether S movement is paused
-    int current_point;      // Current point index
-    int total_points;       // Total number of points
-    std::string status_message; // Status message
-    std::string current_action;  // Current action
-    SMovementPoint current_position; // Current position
-};
-
-class SMovementController {
+class SMovementController : public ISMovementController {
 public:
-    SMovementController(ModbusArmController& arm_controller);
+    explicit SMovementController(IArmController& arm_controller);
     ~SMovementController();
 
     /**
@@ -176,7 +156,7 @@ private:
     void updateAction(const std::string& action);
 
 private:
-    ModbusArmController& arm_controller_;
+    IArmController& arm_controller_;
     std::vector<SMovementPoint> movement_path_;
     std::thread movement_thread_;
     std::atomic<bool> running_;

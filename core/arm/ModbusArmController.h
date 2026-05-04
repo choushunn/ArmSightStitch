@@ -1,36 +1,16 @@
 #pragma once
 
-// Define MODBUS_API as empty to avoid __declspec(dllimport) when linking statically
 #define MODBUS_API
 #include <modbus.h>
-#include <string>
-#include <vector>
-#include <functional>
 #include <mutex>
 #include <thread>
 #include <atomic>
 
+#include "IArmController.h"
+
 namespace arm {
 
-struct AxisConfig {
-    int target_pos_reg;
-    int current_pos_reg;
-    int speed_reg;
-    int pos_move_relay;
-    int pos_move_abs_relay;
-    int forward_relay;
-    int backward_relay;
-    std::string name;
-};
-
-struct ArmStatus {
-    std::vector<int32_t> current_positions; // X, Y, Z, A, B
-    std::vector<int32_t> target_positions;  // X, Y, Z, A, B
-    bool connected;                         // Connection status
-    std::string status_message;              // Status message
-};
-
-class ModbusArmController {
+class ModbusArmController : public IArmController {
 public:
     ModbusArmController();
     ~ModbusArmController();

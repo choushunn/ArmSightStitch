@@ -1,55 +1,105 @@
 #include "WorkflowManager.h"
 #include "infra/config/ConfigManager.h"
-#include <iostream>
+#include <spdlog/spdlog.h>
+
+#include <QCoreApplication>
+#include <chrono>
+#include <thread>
 
 WorkflowManager::WorkflowManager(
-    arm::ModbusArmController& arm,
-    arm::SMovementController& s_movement,
-    camera::CameraHandler& camera,
-    detector::YoloDetector& detector,
-    stitch::ImageStitcher& stitcher,
+    arm::IArmController& arm,
+    arm::ISMovementController& s_movement,
+    camera::ICameraHandler& camera,
+    stitch::IStitcher& stitcher,
     QObject* parent)
     : QObject(parent)
     , arm_(arm)
     , s_movement_(s_movement)
     , camera_(camera)
-    , detector_(detector)
     , stitcher_(stitcher)
 {
     step_timer_ = new QTimer(this);
     step_timer_->setSingleShot(true);
+    SPDLOG_INFO("WorkflowManager initialized");
 }
 
 WorkflowManager::~WorkflowManager() {
     stopAutoWorkflow();
+    SPDLOG_INFO("WorkflowManager destroyed");
 }
 
 void WorkflowManager::setState(State s) {
     if (state_ != s) {
+        State old = state_;
         state_ = s;
+        SPDLOG_INFO("Workflow state: {} -> {}",
+                     static_cast<int>(old), static_cast<int>(s));
         emit stateChanged(s);
     }
 }
 
 void WorkflowManager::scheduleNext(int delayMs, std::function<void()> step) {
     if (stop_requested_) return;
+
     step_timer_->stop();
+    step_timer_->disconnect();
+
     connect(step_timer_, &QTimer::timeout, this, [this, step]() {
         step_timer_->disconnect();
-        if (!stop_requested_) step();
+        if (!stop_requested_) {
+            try {
+                step();
+            } catch (const std::exception& e) {
+                SPDLOG_ERROR("Workflow step error: {}", e.what());
+                emit workflowError(QString::fromStdString(e.what()));
+                setState(State::Error);
+            }
+        }
     });
+
     step_timer_->start(delayMs);
+}
+
+bool WorkflowManager::waitForPosition(const arm::SMovementPoint& target,
+                                       int timeoutMs, int checkIntervalMs) {
+    auto start = std::chrono::steady_clock::now();
+    const double tolerance = 100.0;
+
+    while (!stop_requested_) {
+        auto elapsed = std::chrono::steady_clock::now() - start;
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() > timeoutMs) {
+            SPDLOG_WARN("Position wait timed out after {}ms", timeoutMs);
+            return false;
+        }
+
+        double cx = arm_.readPosition(0);
+        double cy = arm_.readPosition(1);
+        double cz = arm_.readPosition(2);
+
+        if (std::abs(cx - target.x) <= tolerance &&
+            std::abs(cy - target.y) <= tolerance &&
+            std::abs(cz - target.z) <= tolerance) {
+            return true;
+        }
+
+        QCoreApplication::processEvents(QEventLoop::AllEvents, checkIntervalMs);
+        std::this_thread::sleep_for(std::chrono::milliseconds(checkIntervalMs));
+    }
+    return false;
 }
 
 void WorkflowManager::startAutoWorkflow() {
     stop_requested_ = false;
+    SPDLOG_INFO("Starting auto workflow");
     emit statusMessage("Starting auto workflow...");
     scheduleNext(100, [this]() { onConnectArmStep(); });
 }
 
 void WorkflowManager::stopAutoWorkflow() {
+    SPDLOG_INFO("Stopping auto workflow");
     stop_requested_ = true;
     step_timer_->stop();
+    step_timer_->disconnect();
     s_movement_.stop();
     if (state_ == State::SMovement) {
         emit statusMessage("Workflow stopped by user");
@@ -84,9 +134,12 @@ void WorkflowManager::onConnectArmStep() {
             arm_.setSpeed(i, cfg.defaultSpeed());
         }
         emit statusMessage("Arm connected, setting speed...");
-        scheduleNext(500, [this]() { onConnectCameraStep(); });
+        scheduleNext(200, [this]() { onConnectCameraStep(); });
     } else {
-        emit workflowError("Failed to connect arm");
+        QString err = "Failed to connect arm at " + QString::fromStdString(cfg.armIp()) +
+                      ":" + QString::number(cfg.armPort());
+        SPDLOG_ERROR(err.toStdString());
+        emit workflowError(err);
         setState(State::Error);
     }
 }
@@ -101,7 +154,7 @@ void WorkflowManager::onConnectCameraStep() {
         if (camera_.connect("")) {
             camera_.startCapture();
             emit statusMessage("Camera connected and capturing");
-            scheduleNext(500, [this]() { onZeroStep(); });
+            scheduleNext(200, [this]() { onZeroStep(); });
         } else {
             emit workflowError("Failed to connect camera");
             setState(State::Error);
@@ -117,24 +170,31 @@ void WorkflowManager::onZeroStep() {
     setState(State::Zeroing);
     emit statusMessage("Zeroing all axes...");
 
+    arm::SMovementPoint zero_pos = {0, 0, 0, 0, 0, 0, 0};
+
     arm_.moveToPosition(0, 0);
     arm_.moveToPosition(1, 0);
     arm_.moveToPosition(2, 0);
     arm_.moveToPosition(3, 0);
     arm_.moveToPosition(4, 0);
 
-    // Wait for zeroing to complete
-    scheduleNext(3000, [this]() {
+    scheduleNext(500, [this, zero_pos]() {
         if (!stop_requested_) {
-            emit statusMessage("Zeroing complete, starting S-movement...");
-            auto& cfg = ConfigManager::instance();
-            cv::Size grid_size(cfg.gridSizeX(), cfg.gridSizeY());
-            int end = cfg.stepSize() * (cfg.gridSizeX() - 1);
+            bool arrived = waitForPosition(zero_pos, 10000, 100);
+            if (arrived || stop_requested_) {
+                emit statusMessage("Zeroing complete, starting S-movement...");
+                auto& cfg = ConfigManager::instance();
+                cv::Size grid_size(cfg.gridSizeX(), cfg.gridSizeY());
+                int end = cfg.stepSize() * (cfg.gridSizeX() - 1);
 
-            arm::SMovementPoint start_pos = {0, 0, cfg.zHeight(), 0, 0, 0, 0};
-            arm::SMovementPoint end_pos = {end, end, cfg.zHeight(), 0, 0, cfg.gridSizeY() - 1, cfg.gridSizeX() - 1};
+                arm::SMovementPoint start_pos = {0, 0, cfg.zHeight(), 0, 0, 0, 0};
+                arm::SMovementPoint end_pos = {end, end, cfg.zHeight(), 0, 0, cfg.gridSizeY() - 1, cfg.gridSizeX() - 1};
 
-            startSMovement(grid_size, start_pos, end_pos);
+                startSMovement(grid_size, start_pos, end_pos);
+            } else {
+                emit workflowError("Zeroing timed out");
+                setState(State::Error);
+            }
         }
     });
 }
@@ -143,7 +203,6 @@ void WorkflowManager::onSMovementFinished() {
     if (stop_requested_) return;
     emit statusMessage("S-movement completed, starting stitching...");
     setState(State::Stitching);
-    // Stitching is triggered externally via collected images
     setState(State::Idle);
     emit statusMessage("Workflow completed");
 }
@@ -152,9 +211,6 @@ void WorkflowManager::startStitching(const std::vector<cv::Mat>& images, const c
     setState(State::Stitching);
     emit statusMessage("Stitching images...");
 
-    // Fix: pass images directly without double-sorting.
-    // The images have already been collected in S-curve order from SMovementController.
-    // stitchImages will place them in the grid in the order received.
     cv::Mat result = stitcher_.stitchImages(images, grid_size);
 
     if (!result.empty()) {

@@ -1,20 +1,14 @@
 #pragma once
 
-#include <opencv2/opencv.hpp>
 #include <net.h>
 #include <vector>
 #include <string>
 
+#include "IDetector.h"
+
 namespace detector {
 
-struct Detection {
-    cv::Rect bounding_box;
-    float confidence;
-    int class_id;
-    std::string class_name;
-};
-
-class YoloDetector {
+class YoloDetector : public IDetector {
 public:
     YoloDetector();
     ~YoloDetector();

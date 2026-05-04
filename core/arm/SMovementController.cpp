@@ -10,7 +10,7 @@
 
 namespace arm {
 
-SMovementController::SMovementController(ModbusArmController& arm_controller) 
+SMovementController::SMovementController(IArmController& arm_controller) 
     : arm_controller_(arm_controller),
       running_(false),
       paused_(false),

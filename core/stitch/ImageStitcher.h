@@ -1,13 +1,14 @@
 #pragma once
 
-#include <opencv2/opencv.hpp>
-#include <string>
 #include <vector>
+#include <string>
 #include <functional>
+
+#include "IStitcher.h"
 
 namespace stitch {
 
-class ImageStitcher {
+class ImageStitcher : public IStitcher {
 public:
     ImageStitcher();
     ~ImageStitcher();

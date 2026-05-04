@@ -1,33 +1,15 @@
 #pragma once
 
-#include <opencv2/opencv.hpp>
-#include <string>
-#include <vector>
-#include <functional>
 #include <thread>
 #include <mutex>
 #include <atomic>
 #include <toupcam.h>
 
+#include "ICameraHandler.h"
+
 namespace camera {
 
-struct CameraDevice {
-    std::string id;
-    std::string display_name;
-    std::string model_name;
-    int width;
-    int height;
-};
-
-struct CameraStatus {
-    bool connected;
-    std::string status_message;
-    int width;
-    int height;
-    float fps;
-};
-
-class CameraHandler {
+class CameraHandler : public ICameraHandler {
 public:
     CameraHandler();
     ~CameraHandler();

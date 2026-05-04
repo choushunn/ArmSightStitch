@@ -5,11 +5,9 @@
 #include <atomic>
 #include <functional>
 
-#include "core/arm/ModbusArmController.h"
-#include "core/arm/SMovementController.h"
-#include "core/camera/CameraHandler.h"
-#include "core/detector/YoloDetector.h"
-#include "core/stitch/ImageStitcher.h"
+#include "core/arm/IArmController.h"
+#include "core/camera/ICameraHandler.h"
+#include "core/stitch/IStitcher.h"
 
 class WorkflowManager : public QObject {
     Q_OBJECT
@@ -26,17 +24,15 @@ public:
     };
 
     explicit WorkflowManager(
-        arm::ModbusArmController& arm,
-        arm::SMovementController& s_movement,
-        camera::CameraHandler& camera,
-        detector::YoloDetector& detector,
-        stitch::ImageStitcher& stitcher,
+        arm::IArmController& arm,
+        arm::ISMovementController& s_movement,
+        camera::ICameraHandler& camera,
+        stitch::IStitcher& stitcher,
         QObject* parent = nullptr);
     ~WorkflowManager();
 
     State currentState() const { return state_; }
 
-    // Manual control
     void startAutoWorkflow();
     void stopAutoWorkflow();
     void startSMovement(const cv::Size& grid_size,
@@ -61,11 +57,10 @@ private:
     void setState(State s);
     void scheduleNext(int delayMs, std::function<void()> step);
 
-    arm::ModbusArmController& arm_;
-    arm::SMovementController& s_movement_;
-    camera::CameraHandler& camera_;
-    detector::YoloDetector& detector_;
-    stitch::ImageStitcher& stitcher_;
+    arm::IArmController& arm_;
+    arm::ISMovementController& s_movement_;
+    camera::ICameraHandler& camera_;
+    stitch::IStitcher& stitcher_;
 
     State state_ = State::Idle;
     std::atomic<bool> stop_requested_ = false;

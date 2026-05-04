@@ -20,7 +20,7 @@ build/
 *.user
 # CLion / JetBrains
 .idea/
-
+bin/
 # Compiled objects and binaries
 *.o
 *.obj

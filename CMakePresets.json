@@ -51,8 +51,20 @@
       "configurePreset": "default"
     },
     {
+      "name": "deploy",
+      "configurePreset": "default",
+      "displayName": "Build + Deploy Qt deps (MinGW)",
+      "targets": ["deploy"]
+    },
+    {
       "name": "msvc",
       "configurePreset": "msvc"
+    },
+    {
+      "name": "msvc-deploy",
+      "configurePreset": "msvc",
+      "displayName": "Build + Deploy Qt deps (MSVC)",
+      "targets": ["deploy"]
     }
   ]
 }
