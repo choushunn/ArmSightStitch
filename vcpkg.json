@@ -3,10 +3,13 @@
   "version-string": "2.0.0",
   "description": "ArmSightStitch - Robotic Arm Control with Visual Detection and Image Stitching",
   "dependencies": [
-    "opencv4",
+    {
+      "name": "opencv4",
+      "default-features": false,
+      "features": ["highgui", "fs", "jpeg", "png", "tiff", "webp"]
+    },
     "fmt",
     "spdlog",
-    "ncnn",
-    "libmodbus"
+    "ncnn"
   ]
 }

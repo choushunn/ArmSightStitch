@@ -1,307 +1,152 @@
-# ArmLite C++ 控制系统
+# ArmSightStitch
 
-## 项目概述
-
-ArmLite C++ 是一个基于C++开发的机械臂视觉控制系统，集成了YOLO目标检测、五轴机械臂控制、相机采集和图像拼接功能。该系统采用模块化设计，便于扩展和维护，适用于工业检测、自动化控制等场景。
+机械臂视觉控制系统 — 集成 YOLO 目标检测、五轴机械臂控制、相机采集与图像拼接
 
 ## 功能特性
 
-### 1. YOLO目标检测
-- 基于NCNN框架部署YOLO模型
-- 支持自定义置信度和NMS阈值
-- 实时检测结果绘制和显示
-- 支持多种目标类别检测
+- **YOLO 目标检测** — 基于 NCNN 推理框架部署，支持自定义置信度/NMS 阈值
+- **五轴机械臂控制** — 基于 Modbus TCP 协议，支持位置控制与连续运动
+- **S 型路径规划** — 网格点图像采集，支持自定义网格大小和范围
+- **相机采集** — 基于 ToupCam SDK，支持枚举、连接、连续/单帧采集
+- **图像拼接** — 基于 OpenCV Stitcher，S 型图像排序与自动拼接
+- **GUI 界面** — 基于 Qt6，多标签页设计，实时图像显示
 
-### 2. 机械臂控制
-- 基于ModbusTCP协议
-- 支持五轴机械臂控制
-- 位置控制和连续运动模式
-- 速度设置和状态监控
+## 架构
 
-### 3. S型运动控制
-- 实现S型路径规划
-- 网格点图像采集
-- 支持自定义网格大小和范围
-- 实时进度和状态反馈
-
-### 4. 相机采集
-- 基于ToupCam SDK
-- 相机枚举和连接管理
-- 连续采集和单帧采集
-- 曝光、增益、分辨率调节
-
-### 5. 图像拼接
-- 基于OpenCV Stitcher
-- S型图像排序
-- 自动图像拼接和保存
-- 拼接进度和状态反馈
-
-### 6. GUI界面
-- 基于Qt6开发
-- 直观的操作界面
-- 实时图像显示
-- 多标签页设计
-
-## 技术架构
-
-### 项目结构
 ```
-ArmLiteCPlusPlus/
-├── include/          # 头文件目录
-│   ├── arm/          # 机械臂控制模块
-│   ├── camera/       # 相机采集模块
-│   ├── detector/     # YOLO检测模块
-│   ├── gui/          # GUI界面模块
-│   └── stitch/       # 图像拼接模块
-├── src/              # 源代码目录
-│   ├── arm/          # 机械臂控制实现
-│   ├── camera/       # 相机采集实现
-│   ├── detector/     # YOLO检测实现
-│   ├── gui/          # GUI界面实现
-│   ├── stitch/       # 图像拼接实现
-│   └── main.cpp      # 主入口文件
-├── models/           # 模型文件目录
-├── resources/        # 资源文件目录
-├── third_party/      # 第三方库目录
-├── build/            # 构建目录
-├── bin/              # 可执行文件目录
-└── CMakeLists.txt    # CMake配置文件
+ArmSightStitch/
+├── app/                # 应用入口
+│   └── main.cpp
+├── ui/                 # Qt 界面层
+│   ├── MainWindow.h
+│   └── MainWindow.cpp
+├── core/               # 核心业务层
+│   ├── arm/            # 机械臂控制 (Modbus)
+│   ├── camera/         # 相机采集 (ToupCam SDK)
+│   ├── detector/       # YOLO 检测 (NCNN)
+│   └── stitch/         # 图像拼接 (OpenCV)
+├── infra/              # 基础设施层
+│   ├── config/         # 配置管理
+│   └── workflow/       # 工作流管理
+├── res/
+│   ├── models/         # NCNN 模型文件
+│   └── qt/             # Qt 资源文件
+├── third_party/        # 第三方库 (暂未使用)
+├── build/              # 构建输出目录
+├── bin/                # 可执行文件输出
+├── CMakeLists.txt
+├── CMakePresets.json
+└── vcpkg.json
 ```
 
-### 技术栈
-- **编程语言**: C++17
-- **GUI框架**: Qt6
-- **计算机视觉**: OpenCV 4.x
-- **深度学习框架**: NCNN
-- **机械臂通信**: libmodbus
-- **相机SDK**: ToupCam SDK
-- **构建系统**: CMake
+## 环境要求
 
-## 编译运行
+| 组件 | 版本 | 来源 |
+|------|------|------|
+| Windows | 10/11 | — |
+| CMake | >= 3.16 | 系统安装或 Qt Tools 自带 |
+| Qt | 6.10.1 (mingw_64 / msvc2022_64) | [Qt 在线安装](https://download.qt.io) |
+| MinGW | 13.1.0 (x86_64-posix-seh) | Qt Tools 自带 (mingw1310_64) |
+| Visual Studio | 17 2022 (可选) | MSVC 方案 |
+| vcpkg | 2025.04.09 | [vcpkg](https://github.com/microsoft/vcpkg) |
 
-### 环境要求
-- Windows 10/11
-- Visual Studio 2019/2022 (x64)
-- CMake 3.16+
-- Qt6
-- OpenCV 4.x
-- NCNN
-- libmodbus
-- ToupCam SDK
+### vcpkg 托管的依赖
 
-### 编译步骤
+项目通过 `vcpkg.json` 声明依赖，首次构建时自动下载编译：
 
-1. **克隆或下载项目**
-   ```powershell
-   cd d:\ArmSightStitch
-   ```
+| 依赖 | 用途 |
+|------|------|
+| opencv4 | 图像处理与拼接（core, imgproc, imgcodecs, highgui） |
+| ncnn | YOLO 深度学习推理 |
+| fmt | 格式化输出 |
+| spdlog | 日志记录 |
 
-2. **创建构建目录**
-   ```powershell
-   cd ArmLiteCPlusPlus
-   mkdir build
-   cd build
-   ```
+### 需要手动安装的依赖
 
-3. **配置CMake**
-   ```powershell
-   cmake .. -G "Visual Studio 17 2022" -A x64
-   ```
-   （根据Visual Studio版本调整生成器）
+| 依赖 | 用途 | 安装方式 |
+|------|------|----------|
+| Qt 6.10.1 | GUI 框架 | 系统安装，设置 `CMAKE_PREFIX_PATH` |
 
-4. **编译项目**
-   ```powershell
-   cmake --build . --config Release
-   ```
-   或使用Visual Studio打开生成的解决方案并编译
+> **注意**：所有 C++ 库均通过 vcpkg 管理，首次构建自动下载编译。
 
-### 运行项目
+## 快速开始
 
-编译完成后，可执行文件将生成在`bin/`目录下：
+### 1. 配置环境变量
 
 ```powershell
-cd d:\ArmSightStitch\ArmLiteCPlusPlus\bin
-.\ArmLiteCPlusPlus.exe
+# vcpkg 根目录
+$env:VCPKG_ROOT = "C:/Programs/vcpkg-2025.04.09"
 ```
 
-## 使用指南
+### 2. 构建
 
-### 1. 机械臂控制
+```powershell
+# MinGW 方案（默认，Debug 模式）
+cmake --preset default
+cmake --build --preset default
 
-#### 连接机械臂
-1. 在"机械臂控制"标签页中，输入机械臂的IP地址和端口
-2. 点击"连接"按钮
-3. 连接成功后，状态栏会显示"机械臂连接成功"
+# MSVC 方案（Release 模式）
+cmake --preset msvc
+cmake --build --preset msvc
+```
 
-#### 位置控制
-1. 设置X、Y、Z、A、B轴的目标位置
-2. 点击"移动到位置"按钮
-3. 机械臂将移动到指定位置
+构建完成后，可执行文件输出至 `bin/` 目录。
 
-#### 连续运动
-1. 选择要控制的轴和运动方向
-2. 点击"开始连续运动"按钮
-3. 点击"停止连续运动"按钮停止运动
+### 首次构建说明
 
-#### S型运动
-1. 设置X、Y轴的起始和结束位置
-2. 设置网格大小和Z轴高度
-3. 设置图像保存路径
-4. 点击"开始S型运动"按钮
-5. 机械臂将按照S型路径移动并采集图像
+vcpkg 管理的依赖（opencv4、ncnn 等）在首次配置时会**自动下载并编译**，耗时较长（取决于网络和机器性能，约 30-60 分钟）。后续构建将使用缓存，无需重复编译。
 
-### 2. 相机控制
+如需加速首次构建：
 
-#### 连接相机
-1. 点击"枚举相机"按钮，列出可用相机
-2. 从下拉列表中选择要使用的相机
-3. 点击"连接相机"按钮
+- 设置 `HTTP_PROXY` / `HTTPS_PROXY` 加速源码下载
+- 使用预置的 vcpkg 二进制缓存（默认启用，位于 `%LOCALAPPDATA%\vcpkg\archives`）
 
-#### 图像采集
-1. 点击"开始采集"按钮，开始连续采集
-2. 点击"停止采集"按钮，停止采集
-3. 点击"单帧采集"按钮，采集单张图像
+## 构建预设
 
-#### 相机设置
-1. 调整曝光时间、增益值
-2. 设置图像宽度和高度
-3. 点击相应的"设置"按钮应用更改
+| 预设 | 生成器 | 编译器 | 构建类型 | 适用场景 |
+|------|--------|--------|----------|----------|
+| `default` | Ninja | MinGW 13.1.0 | Debug | 日常开发调试 |
+| `msvc` | Visual Studio 17 2022 | MSVC | Release | 发布构建 |
 
-### 3. 目标检测
+## 可选模块
 
-#### 加载模型
-1. 确保模型文件已在`models/`目录下
-2. 点击"加载模型"按钮
-3. 加载成功后，状态栏会显示"模型加载成功"
+项目通过编译宏控制可选模块。缺失依赖时自动禁用：
 
-#### 执行检测
-1. 确保已采集图像
-2. 点击"开始检测"按钮
-3. 检测结果将显示在右侧图像区域
-4. 检测状态和结果会显示在下方文本区域
+| 宏定义 | 缺失依赖 | 禁用模块 |
+|--------|----------|----------|
+| `ARM_SIGHT_STITCH_NO_DETECTOR` | ncnn | YOLO 目标检测 |
+| `ARM_SIGHT_STITCH_NO_CAMERA` | ToupCam SDK（third_party/toupcam/） | 相机采集 |
+| `ARM_SIGHT_STITCH_NO_ARM` | libmodbus（FetchContent） | 机械臂控制 |
 
-### 4. 图像拼接
+## 依赖管理策略
 
-#### 准备图像
-1. 确保图像已保存在指定目录
-2. 设置网格大小参数
+| 类型 | 管理方式 | 示例 |
+|------|----------|------|
+| 标准库 | vcpkg（`vcpkg.json`） | opencv4, ncnn, fmt, spdlog |
+| 系统库 | 系统安装 + `CMAKE_PREFIX_PATH` | Qt6 |
+| 源码库 | FetchContent（CMake 配置时自动下载） | libmodbus |
+| 模型文件 | Git 管理（`res/models/`） | ncnn .param / .bin |
 
-#### 执行拼接
-1. 输入图像目录路径
-2. 点击"开始拼接"按钮
-3. 拼接进度将显示在进度条上
-4. 拼接结果将显示在右侧图像区域
+## 常见问题
 
-#### 保存结果
-1. 点击"保存拼接结果"按钮
-2. 选择保存路径和格式
-3. 点击"保存"按钮
+### vcpkg 构建失败
 
-## 配置说明
+确保 vcpkg 与 vcpkg 端口为最新：
 
-### 模型配置
-- NCNN模型文件应放置在`models/`目录下
-- 支持的模型格式：`.ncnn.param`和`.ncnn.bin`
-- 可通过GUI界面修改模型文件路径
+```powershell
+cd $env:VCPKG_ROOT
+git pull
+.\bootstrap-vcpkg.bat
+```
 
-### 依赖库配置
-- Qt6：确保环境变量已配置
-- OpenCV：添加到系统路径或复制到`bin/`目录
-- NCNN：添加到`third_party/ncnn/`目录
-- libmodbus：添加到`third_party/modbus/`目录
-- ToupCam SDK：添加到`third_party/toupcam/`目录
+### Qt6 未找到
 
-## 注意事项
+检查 `CMAKE_PREFIX_PATH` 是否指向 Qt6 安装目录：
 
-1. **设备连接**
-   - 确保机械臂和相机已正确连接
-   - 检查网络连接是否正常
+```powershell
+# MinGW 方案
+$env:CMAKE_PREFIX_PATH = "C:/Programs/Qt/6.10.1/mingw_64"
 
-2. **权限设置**
-   - 确保程序具有足够的权限访问设备
-   - Windows系统可能需要以管理员身份运行
-
-3. **性能优化**
-   - 对于大规模图像拼接，建议使用高性能计算机
-   - 可调整检测阈值和网格大小以提高性能
-
-4. **错误处理**
-   - 程序会显示详细的错误信息
-   - 遇到问题时，可查看状态栏和日志信息
-
-## 故障排除
-
-### 1. 机械臂连接失败
-- 检查IP地址和端口是否正确
-- 确认机械臂已开机并处于正常状态
-- 检查网络连接是否正常
-
-### 2. 相机连接失败
-- 确认相机已正确连接到计算机
-- 检查相机驱动是否已安装
-- 尝试重新枚举相机
-
-### 3. 模型加载失败
-- 确认模型文件路径是否正确
-- 检查模型文件是否完整
-- 确认模型版本与NCNN框架兼容
-
-### 4. 图像拼接失败
-- 检查图像质量是否良好
-- 确认图像数量足够
-- 调整网格大小和拼接参数
-
-## 扩展开发
-
-### 添加新功能模块
-1. 在`include/`目录下创建新的模块目录
-2. 编写头文件和源文件
-3. 在CMakeLists.txt中添加新模块
-4. 在GUI界面中添加相应的操作控件
-
-### 修改现有功能
-1. 修改对应模块的头文件和源文件
-2. 重新编译项目
-3. 测试修改后的功能
-
-## 版本历史
-
-### v1.0.0 (2026-01-26)
-- 初始版本发布
-- 集成YOLO目标检测
-- 五轴机械臂控制
-- 相机采集功能
-- S型运动控制
-- 图像拼接功能
-- Qt6 GUI界面
-
-## 依赖：
-
-1. Qt 6.5.3 （或兼容版本）
-2. OpenCV 4.x
-3. CMake
-4. Visual Studio （或其他C++编译器）
-5. 相机驱动
-
-## 许可证
-
-本项目采用MIT许可证，详见LICENSE文件。
-
-## 联系方式
-
-如有问题或建议，欢迎联系：
-- 邮箱：[2220896604@qq.com]
-- GitHub：[https://github.com/zzzssswwwzsw/ArmSightStitch]
-
-## 致谢
-
-感谢以下开源项目的支持：
-- Qt6
-- OpenCV
-- NCNN
-- libmodbus
-- ToupCam SDK
-
----
-
-**ArmLite C++ 控制系统** - 工业自动化的得力助手
+# MSVC 方案
+$env:CMAKE_PREFIX_PATH = "C:/Programs/Qt/6.10.1/msvc2022_64"
+```

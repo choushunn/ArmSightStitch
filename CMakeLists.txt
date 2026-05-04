@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(ArmSightStitch VERSION 2.0.0 LANGUAGES CXX)
+project(ArmSightStitch VERSION 2.0.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -34,24 +34,50 @@ find_package(OpenCV REQUIRED)
 message(STATUS "Found OpenCV: ${OpenCV_VERSION} at ${OpenCV_DIR}")
 
 # ============================================================
-# Third-party: libmodbus (bundled source in third_party/)
+# Third-party: libmodbus (FetchContent - downloaded at configure time)
 # ============================================================
-set(LIBMODBUS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/modbus/libmodbus-master")
-if(EXISTS "${LIBMODBUS_DIR}/src/modbus.c")
-    include_directories("${LIBMODBUS_DIR}/src")
+include(FetchContent)
+if(POLICY CMP0169)
+    cmake_policy(SET CMP0169 OLD)
+endif()
+FetchContent_Declare(libmodbus
+    GIT_REPOSITORY  https://github.com/stephane/libmodbus.git
+    GIT_TAG         v3.1.12
+    GIT_SHALLOW     TRUE
+)
+FetchContent_GetProperties(libmodbus)
+if(NOT libmodbus_POPULATED)
+    FetchContent_Populate(libmodbus)
+    # Generate config.h from the Windows template
+    file(COPY "${libmodbus_SOURCE_DIR}/src/win32/config.h.win32"
+         DESTINATION "${libmodbus_SOURCE_DIR}/src")
+    file(RENAME "${libmodbus_SOURCE_DIR}/src/config.h.win32"
+         "${libmodbus_SOURCE_DIR}/src/config.h")
+    # Resolve version placeholders in config.h
+    file(READ "${libmodbus_SOURCE_DIR}/src/config.h" CONFIG_H_CONTENT)
+    string(REPLACE "@LIBMODBUS_VERSION@" "3.1.12" CONFIG_H_CONTENT "${CONFIG_H_CONTENT}")
+    file(WRITE "${libmodbus_SOURCE_DIR}/src/config.h" "${CONFIG_H_CONTENT}")
+    # Generate modbus-version.h from template
+    set(LIBMODBUS_VERSION_MAJOR 3)
+    set(LIBMODBUS_VERSION_MINOR 1)
+    set(LIBMODBUS_VERSION_MICRO 12)
+    configure_file(
+        "${libmodbus_SOURCE_DIR}/src/modbus-version.h.in"
+        "${libmodbus_SOURCE_DIR}/src/modbus-version.h"
+        @ONLY
+    )
     set(LIBMODBUS_SOURCES
-        "${LIBMODBUS_DIR}/src/modbus.c"
-        "${LIBMODBUS_DIR}/src/modbus-tcp.c"
-        "${LIBMODBUS_DIR}/src/modbus-rtu.c"
-        "${LIBMODBUS_DIR}/src/modbus-data.c"
+        "${libmodbus_SOURCE_DIR}/src/modbus.c"
+        "${libmodbus_SOURCE_DIR}/src/modbus-tcp.c"
+        "${libmodbus_SOURCE_DIR}/src/modbus-rtu.c"
+        "${libmodbus_SOURCE_DIR}/src/modbus-data.c"
     )
     set_source_files_properties(${LIBMODBUS_SOURCES} PROPERTIES LANGUAGE C)
-    message(STATUS "Found libmodbus: ${LIBMODBUS_DIR}")
+    include_directories("${libmodbus_SOURCE_DIR}/src")
+    message(STATUS "Found libmodbus: ${libmodbus_SOURCE_DIR}")
+    set(HAS_LIBMODBUS TRUE)
 else()
-    message(WARNING "libmodbus not found at ${LIBMODBUS_DIR}. "
-                    "Arm communication will be disabled. "
-                    "Download libmodbus to third_party/modbus/")
-    set(LIBMODBUS_SOURCES "")
+    set(HAS_LIBMODBUS FALSE)
 endif()
 
 # ============================================================
@@ -69,19 +95,16 @@ else()
 endif()
 
 # ============================================================
-# Third-party: ToupCam SDK (bundled in third_party/)
+# Third-party: ToupCam SDK
 # ============================================================
-set(TOUPCAM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/toupcam/toupcamsdk.20250623")
-if(EXISTS "${TOUPCAM_DIR}/inc/toupcam.h")
-    include_directories("${TOUPCAM_DIR}/inc")
-    link_directories("${TOUPCAM_DIR}/win/x64")
-    message(STATUS "Found ToupCam SDK: ${TOUPCAM_DIR}")
+set(HAS_TOUPCAM FALSE)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/toupcam/inc/toupcam.h")
+    include("${CMAKE_CURRENT_SOURCE_DIR}/third_party/toupcam/toupcam.cmake")
     set(HAS_TOUPCAM TRUE)
+    message(STATUS "Found ToupCam SDK: ${CMAKE_CURRENT_SOURCE_DIR}/third_party/toupcam")
 else()
-    message(WARNING "ToupCam SDK not found at ${TOUPCAM_DIR}. "
-                    "Camera module will be disabled. "
-                    "Download ToupCam SDK to third_party/toupcam/")
-    set(HAS_TOUPCAM FALSE)
+    message(WARNING "ToupCam SDK not found at third_party/toupcam/. "
+                    "Camera module will be disabled.")
 endif()
 
 # ============================================================
@@ -133,8 +156,7 @@ add_executable(${PROJECT_NAME}
     ${RESOURCES}
 )
 
-# Add libmodbus source files if available
-if(LIBMODBUS_SOURCES)
+if(HAS_LIBMODBUS)
     target_sources(${PROJECT_NAME} PRIVATE ${LIBMODBUS_SOURCES})
     target_compile_definitions(${PROJECT_NAME} PRIVATE DLLBUILD)
     target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32)
@@ -149,7 +171,7 @@ endif()
 if(NOT HAS_TOUPCAM)
     target_compile_definitions(${PROJECT_NAME} PRIVATE ARM_SIGHT_STITCH_NO_CAMERA)
 endif()
-if(NOT LIBMODBUS_SOURCES)
+if(NOT HAS_LIBMODBUS)
     target_compile_definitions(${PROJECT_NAME} PRIVATE ARM_SIGHT_STITCH_NO_ARM)
 endif()
 
@@ -181,12 +203,11 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     ${CMAKE_CURRENT_SOURCE_DIR}/res/models $<TARGET_FILE_DIR:${PROJECT_NAME}>/models
 )
 
-if(HAS_TOUPCAM AND EXISTS "${TOUPCAM_DIR}/win/x64/toupcam.dll")
+if(HAS_TOUPCAM)
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy
-        "${TOUPCAM_DIR}/win/x64/toupcam.dll" $<TARGET_FILE_DIR:${PROJECT_NAME}>
-        COMMAND ${CMAKE_COMMAND} -E copy
-        "${TOUPCAM_DIR}/win/x64/toupcam.lib" $<TARGET_FILE_DIR:${PROJECT_NAME}>
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${TOUPCAM_DLL}" $<TARGET_FILE_DIR:${PROJECT_NAME}>
+        COMMENT "Copying toupcam.dll to output directory"
     )
 endif()
 
@@ -194,3 +215,25 @@ endif()
 set_target_properties(${PROJECT_NAME} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin
 )
+
+# ============================================================
+# Deploy target: run windeployqt to collect Qt DLLs & plugins
+# ============================================================
+find_program(WINDEPLOYQT_EXECUTABLE
+    NAMES windeployqt windeployqt.exe
+    PATHS "C:/Programs/Qt/6.10.1/mingw_64/bin"
+    NO_DEFAULT_PATH
+)
+if(WINDEPLOYQT_EXECUTABLE)
+    add_custom_target(deploy
+        COMMAND ${WINDEPLOYQT_EXECUTABLE}
+            --dir $<TARGET_FILE_DIR:${PROJECT_NAME}>
+            $<TARGET_FILE:${PROJECT_NAME}>
+        COMMENT "Deploying Qt dependencies to $<TARGET_FILE_DIR:${PROJECT_NAME}>..."
+        DEPENDS ${PROJECT_NAME}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    message(STATUS "Found windeployqt: ${WINDEPLOYQT_EXECUTABLE}")
+else()
+    message(WARNING "windeployqt not found. Deploy target will not be available.")
+endif()

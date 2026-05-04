@@ -17,7 +17,7 @@ build/
 .vscode/
 *.VC.db
 *.VC.opendb
-
+*.user
 # CLion / JetBrains
 .idea/
 

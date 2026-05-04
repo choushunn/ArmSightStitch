@@ -11,14 +11,20 @@
       "displayName": "vcpkg + Qt6 (MinGW + Ninja)",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/vcpkg-mingw",
+      "environment": {
+        "PATH": "C:/Programs/Qt/Tools/mingw1310_64/bin;C:/Programs/Qt/Tools/Ninja;$penv{PATH}"
+      },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_MANIFEST_MODE": "ON",
         "VCPKG_TARGET_TRIPLET": "x64-mingw-static",
         "VCPKG_HOST_TRIPLET": "x64-mingw-static",
+        "Qt6_DIR": "C:/Programs/Qt/6.10.1/mingw_64/lib/cmake/Qt6",
         "CMAKE_PREFIX_PATH": "C:/Programs/Qt/6.10.1/mingw_64",
-        "CMAKE_MAKE_PROGRAM": "C:/Programs/Qt/Tools/Ninja/ninja.exe"
+        "CMAKE_MAKE_PROGRAM": "C:/Programs/Qt/Tools/Ninja/ninja.exe",
+        "CMAKE_C_COMPILER": "C:/Programs/Qt/Tools/mingw1310_64/bin/gcc.exe",
+        "CMAKE_CXX_COMPILER": "C:/Programs/Qt/Tools/mingw1310_64/bin/g++.exe"
       }
     },
     {
@@ -27,6 +33,9 @@
       "generator": "Visual Studio 17 2022",
       "binaryDir": "${sourceDir}/build/vcpkg-msvc",
       "architecture": "x64",
+      "environment": {
+        "PATH": "C:/Programs/Qt/Tools/msvc2022_64/bin;$penv{PATH}"
+      },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
