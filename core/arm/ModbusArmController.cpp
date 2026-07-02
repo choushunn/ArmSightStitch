@@ -415,13 +415,10 @@ void ModbusArmController::autoReadLoop() {
         }
 
         bool any_read_failed = false;
-        {
-            std::lock_guard<std::mutex> lock(modbus_mutex_);
-            for (int axis_id = 0; axis_id < 5; ++axis_id) {
-                if (auto_read_enabled_[axis_id]) {
-                    if (!readPosition(axis_id)) {
-                        any_read_failed = true;
-                    }
+        for (int axis_id = 0; axis_id < 5; ++axis_id) {
+            if (auto_read_enabled_[axis_id]) {
+                if (!readPosition(axis_id)) {
+                    any_read_failed = true;
                 }
             }
         }

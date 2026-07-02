@@ -93,20 +93,21 @@ cv::Mat ImageStitcher::stitchImages(const std::vector<cv::Mat>& images,
         updateStatus("Starting stitching process...");
         updateProgress(30, 100);
 
-        // FIX: Place images in simple row-major order.
-        // The caller (SMovementController or sortImagesInSCurveOrder) is responsible
-        // for providing images in the correct S-curve sequence.
-        // This avoids the double-sort bug where both the caller and this function
-        // independently apply S-curve reordering.
+        // The input images are expected in S-curve (snake) order:
+        // even rows: left-to-right, odd rows: right-to-left.
+        // This matches the output of sortImagesInSCurveOrder().
         int index = 0;
         for (int row = 0; row < grid_size.height; ++row) {
             int progress = 30 + (row * 70) / grid_size.height;
             updateProgress(progress, 100);
 
-            for (int col = 0; col < grid_size.width; ++col) {
+            for (int i = 0; i < grid_size.width; ++i) {
                 if (index >= static_cast<int>(images.size())) {
                     break;
                 }
+
+                // S-curve placement: even rows left-to-right, odd rows right-to-left
+                int col = (row % 2 == 0) ? i : (grid_size.width - 1 - i);
 
                 const cv::Mat& img = images[index];
                 int x = col * img_size.width;

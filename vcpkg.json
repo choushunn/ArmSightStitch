@@ -6,7 +6,6 @@
     {
       "name": "opencv4"
     },
-    "fmt",
     "spdlog",
     "ncnn"
   ]

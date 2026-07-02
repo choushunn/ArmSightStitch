@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push *)",
+      "Bash(du -sh vcpkg_installed/)",
+      "Bash(find vcpkg_installed -maxdepth 0 -type d)"
+    ]
+  }
+}

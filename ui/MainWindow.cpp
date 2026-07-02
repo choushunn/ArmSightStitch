@@ -759,13 +759,23 @@ void MainWindow::displayImage(const cv::Mat& image, QLabel* label) {
 
 QImage MainWindow::cvMatToQImage(const cv::Mat& mat) {
     if (mat.empty()) return {};
-    if (mat.type() == CV_8UC3)
-        return QImage(mat.data, mat.cols, mat.rows, mat.step, QImage::Format_RGB888).rgbSwapped();
-    if (mat.type() == CV_8UC1)
+    if (mat.type() == CV_8UC3) {
+        // Safe: mat outlives this QImage (caller owns the cv::Mat)
+        return QImage(mat.data, mat.cols, mat.rows, mat.step, QImage::Format_RGB888)
+            .rgbSwapped();
+    }
+    if (mat.type() == CV_8UC1) {
+        // Safe: mat outlives this QImage (caller owns the cv::Mat)
         return QImage(mat.data, mat.cols, mat.rows, mat.step, QImage::Format_Grayscale8);
+    }
+    // Convert format: must deep-copy because the local cv::Mat is destroyed on return.
+    // Without .copy(), rgbSwapped() shares the QImage's data buffer which points into
+    // the local cv::Mat rgb — use-after-free when rgb goes out of scope.
     cv::Mat rgb;
     mat.convertTo(rgb, CV_8UC3);
-    return QImage(rgb.data, rgb.cols, rgb.rows, rgb.step, QImage::Format_RGB888).rgbSwapped();
+    return QImage(rgb.data, rgb.cols, rgb.rows, rgb.step, QImage::Format_RGB888)
+        .rgbSwapped()
+        .copy();
 }
 
 void MainWindow::addCameraOverlay(cv::Mat& image) {

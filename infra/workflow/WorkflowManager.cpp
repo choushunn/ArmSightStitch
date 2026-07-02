@@ -214,8 +214,25 @@ void WorkflowManager::onSMovementFinished() {
     emit statusMessage("S-movement completed, starting stitching...");
     setState(State::Stitching);
 
-    auto images = stitcher_.loadImagesFromDirectory(
-        ConfigManager::instance().imageSaveBasePath());
+    auto& cfg = ConfigManager::instance();
+    std::string basePath = cfg.imageSaveBasePath();
+
+    // Find the latest numbered run subdirectory (same logic as
+    // AppController::startSMovement — images are saved to basePath/N/)
+    QDir baseDir(QString::fromStdString(basePath));
+    int runNumber = 0;
+    if (baseDir.exists()) {
+        for (const QString& dir : baseDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+            bool ok;
+            int num = dir.toInt(&ok);
+            if (ok && num > runNumber) runNumber = num;
+        }
+    }
+    std::string loadPath = runNumber > 0
+        ? basePath + "/" + std::to_string(runNumber)
+        : basePath;
+
+    auto images = stitcher_.loadImagesFromDirectory(loadPath);
     if (images.empty()) {
         emit workflowError("No images found for stitching");
         setState(State::Idle);
