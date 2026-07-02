@@ -74,6 +74,7 @@ public:
      * @param save_dir Save directory path
      */
     void setSaveDirectory(const std::string& save_dir);
+    void setPositionTolerance(double tolerance);
 
     /**
      * @brief Get current movement status
@@ -168,6 +169,7 @@ private:
     SMovementStatus current_status_;
     std::string save_directory_;
     int saved_images_count_;
+    double position_tolerance_ = 100.0;
     std::mutex status_mutex_;
     std::mutex path_mutex_;
     

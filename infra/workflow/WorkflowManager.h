@@ -70,4 +70,5 @@ private:
     State state_ = State::Idle;
     std::atomic<bool> stop_requested_ = false;
     QTimer* step_timer_;
+    cv::Size grid_size_;
 };

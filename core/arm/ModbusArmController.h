@@ -80,6 +80,10 @@ public:
      */
     bool stopAllMovements(int axis_id);
 
+    void setSafetyLimits(int axis_id, const AxisLimits& limits);
+    AxisLimits getSafetyLimits(int axis_id) const;
+    void setDebugEnabled(bool enabled);
+
     /**
      * @brief Start auto reading of positions
      * @param interval Interval in seconds
@@ -200,6 +204,20 @@ private:
         {7830, 7832, 7834, 7534, 7535, 7532, 7533, "A轴"}, // A axis
         {7840, 7842, 7844, 7544, 7545, 7542, 7543, "B轴"}  // B axis
     };
+
+    std::vector<AxisLimits> safety_limits_ = {
+        {-1000000, 1000000}, {-1000000, 1000000}, {-1000000, 1000000},
+        {-180000, 180000}, {-180000, 180000}
+    };
+
+    std::string stored_ip_;
+    int stored_port_ = 502;
+    bool debug_enabled_ = false;
+    int consecutive_failures_ = 0;
+    static constexpr int kMaxConsecutiveFailures = 5;
+    static constexpr int kMaxReconnectAttempts = 10;
+
+    bool attemptReconnect();
 };
 
 } // namespace arm

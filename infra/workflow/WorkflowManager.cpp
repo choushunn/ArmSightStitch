@@ -63,7 +63,7 @@ void WorkflowManager::scheduleNext(int delayMs, std::function<void()> step) {
 bool WorkflowManager::waitForPosition(const arm::SMovementPoint& target,
                                        int timeoutMs, int checkIntervalMs) {
     auto start = std::chrono::steady_clock::now();
-    const double tolerance = 100.0;
+    const double tolerance = ConfigManager::instance().positionTolerance();
 
     while (!stop_requested_) {
         auto elapsed = std::chrono::steady_clock::now() - start;
@@ -114,7 +114,17 @@ void WorkflowManager::startSMovement(const cv::Size& grid_size,
         emit workflowError("S-movement initialization failed");
         return;
     }
+    grid_size_ = grid_size;
     setState(State::SMovement);
+
+    s_movement_.setStatusCallback([this](const arm::SMovementStatus& status) {
+        if (!status.running && state_ == State::SMovement && !stop_requested_) {
+            if (status.status_message.find("completed") != std::string::npos) {
+                QMetaObject::invokeMethod(this, "onSMovementFinished", Qt::QueuedConnection);
+            }
+        }
+    });
+
     s_movement_.start();
 }
 
@@ -203,8 +213,25 @@ void WorkflowManager::onSMovementFinished() {
     if (stop_requested_) return;
     emit statusMessage("S-movement completed, starting stitching...");
     setState(State::Stitching);
+
+    auto images = stitcher_.loadImagesFromDirectory(
+        ConfigManager::instance().imageSaveBasePath());
+    if (images.empty()) {
+        emit workflowError("No images found for stitching");
+        setState(State::Idle);
+        return;
+    }
+
+    auto sorted = stitcher_.sortImagesInSCurveOrder(images, grid_size_);
+    cv::Mat result = stitcher_.stitchImages(sorted, grid_size_);
+
+    if (!result.empty()) {
+        emit stitchingFinished(result);
+        emit statusMessage("Workflow completed successfully");
+    } else {
+        emit workflowError("Stitching failed");
+    }
     setState(State::Idle);
-    emit statusMessage("Workflow completed");
 }
 
 void WorkflowManager::startStitching(const std::vector<cv::Mat>& images, const cv::Size& grid_size) {

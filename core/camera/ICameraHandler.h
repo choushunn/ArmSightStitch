@@ -44,6 +44,8 @@ public:
 
     virtual bool setExposure(float exposure) = 0;
     virtual float getExposure() const = 0;
+    virtual bool setAutoExposure(bool enable) = 0;
+    virtual bool getAutoExposure() const = 0;
     virtual bool setGain(float gain) = 0;
     virtual float getGain() const = 0;
     virtual bool setResolution(int width, int height) = 0;

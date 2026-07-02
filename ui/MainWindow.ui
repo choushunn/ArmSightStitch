@@ -11,641 +11,577 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>ArmSightStitch - 显微视觉扫描拼接系统</string>
+   <string>明场显微成像验证组件</string>
   </property>
+
+  <!-- ===== CENTRAL WIDGET: Sidebar + Content ===== -->
   <widget class="QWidget" name="centralWidget">
-   <layout class="QHBoxLayout" name="mainLayout">
-    <property name="spacing">
-     <number>1</number>
-    </property>
-    <property name="leftMargin">
-     <number>1</number>
-    </property>
-    <property name="topMargin">
-     <number>1</number>
-    </property>
-    <property name="rightMargin">
-     <number>1</number>
-    </property>
-    <property name="bottomMargin">
-     <number>1</number>
-    </property>
+   <layout class="QHBoxLayout" name="centralLayout">
+    <property name="spacing"><number>0</number></property>
+    <property name="leftMargin"><number>0</number></property>
+    <property name="topMargin"><number>0</number></property>
+    <property name="rightMargin"><number>0</number></property>
+    <property name="bottomMargin"><number>0</number></property>
+
+    <!-- ========== Resizable Splitter: Menu | Content ========== -->
     <item>
      <widget class="QSplitter" name="mainSplitter">
-      <property name="orientation">
-       <enum>Qt::Orientation::Horizontal</enum>
-      </property>
-      <!-- ===== LEFT: QScrollArea ===== -->
-      <widget class="QScrollArea" name="scrollArea">
-       <property name="widgetResizable">
-        <bool>true</bool>
+      <property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property>
+
+      <!-- LEFT: Menu Panel -->
+      <widget class="QWidget" name="menuPanel" native="true">
+       <property name="minimumSize">
+        <size><width>120</width><height>0</height></size>
        </property>
-       <widget class="QWidget" name="scrollContent">
-        <layout class="QVBoxLayout" name="scrollContentLayout">
-         <property name="spacing">
-          <number>1</number>
-         </property>
-         <property name="leftMargin">
-          <number>1</number>
-         </property>
-         <property name="topMargin">
-          <number>1</number>
-         </property>
-         <property name="rightMargin">
-          <number>1</number>
-         </property>
-         <property name="bottomMargin">
-          <number>1</number>
-         </property>
-         <!-- a. Camera controls section -->
-         <item>
-          <widget class="QWidget" name="cameraSection" native="true">
-           <layout class="QVBoxLayout" name="cameraSectionLayout">
-            <property name="spacing">
-             <number>1</number>
-            </property>
-            <property name="leftMargin">
-             <number>1</number>
-            </property>
-            <property name="topMargin">
-             <number>1</number>
-            </property>
-            <property name="rightMargin">
-             <number>1</number>
-            </property>
-            <property name="bottomMargin">
-             <number>1</number>
-            </property>
+       <property name="maximumSize">
+        <size><width>400</width><height>16777215</height></size>
+       </property>
+       <layout class="QVBoxLayout" name="menuPanelLayout">
+        <property name="spacing"><number>0</number></property>
+        <property name="leftMargin"><number>0</number></property>
+        <property name="topMargin"><number>0</number></property>
+        <property name="rightMargin"><number>0</number></property>
+        <property name="bottomMargin"><number>0</number></property>
+
+        <!-- ===== Hardware Connections (always on top) ===== -->
+        <item>
+         <widget class="QWidget" name="hwSection" native="true">
+          <layout class="QVBoxLayout" name="hwSectionLayout">
+           <property name="spacing"><number>8</number></property>
+           <property name="leftMargin"><number>6</number></property>
+           <property name="topMargin"><number>6</number></property>
+           <property name="rightMargin"><number>6</number></property>
+           <property name="bottomMargin"><number>6</number></property>
+
+           <!-- Camera Panel -->
+           <item>
+            <widget class="QGroupBox" name="cameraConnGroup">
+             <property name="title"><string>相机</string></property>
+             <layout class="QVBoxLayout" name="cameraConnLayout">
+              <property name="spacing"><number>4</number></property>
+              <property name="leftMargin"><number>6</number></property>
+              <property name="topMargin"><number>4</number></property>
+              <property name="rightMargin"><number>6</number></property>
+              <property name="bottomMargin"><number>6</number></property>
+              <item>
+               <layout class="QHBoxLayout" name="cameraConnTopRow">
+                <property name="spacing"><number>4</number></property>
+                <item>
+                 <widget class="QComboBox" name="cameraCombo"/>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="cameraToggleButton">
+                  <property name="text"><string>连接</string></property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="cameraBtnRow">
+                <property name="spacing"><number>4</number></property>
+                <item>
+                 <widget class="QPushButton" name="scanCamerasButton">
+                  <property name="text"><string>搜索</string></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="captureImageButton">
+                  <property name="enabled"><bool>false</bool></property>
+                  <property name="text"><string>拍照</string></property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="cameraExposureRow">
+                <property name="spacing"><number>4</number></property>
+                <item>
+                 <widget class="QCheckBox" name="autoExposureCheck">
+                  <property name="text"><string>自动曝光</string></property>
+                  <property name="checked"><bool>true</bool></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="exposureTimeLabel">
+                  <property name="text"><string>曝光时间</string></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QDoubleSpinBox" name="exposureTimeSpin">
+                  <property name="decimals"><number>2</number></property>
+                  <property name="minimum"><double>0.01</double></property>
+                  <property name="maximum"><double>10000.00</double></property>
+                  <property name="value"><double>100.00</double></property>
+                  <property name="suffix"><string> ms</string></property>
+                  <property name="singleStep"><double>10.00</double></property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <spacer name="cameraConnSpacer">
+                <property name="orientation"><enum>Qt::Orientation::Vertical</enum></property>
+                <property name="sizeHint" stdset="0">
+                 <size><width>0</width><height>0</height></size>
+                </property>
+               </spacer>
+              </item>
+             </layout>
+            </widget>
+           </item>
+
+           <!-- Arm Panel -->
+           <item>
+            <widget class="QGroupBox" name="armConnGroup">
+             <property name="title"><string>机械臂</string></property>
+             <layout class="QVBoxLayout" name="armConnLayout">
+              <property name="spacing"><number>4</number></property>
+              <property name="leftMargin"><number>6</number></property>
+              <property name="topMargin"><number>4</number></property>
+              <property name="rightMargin"><number>6</number></property>
+              <property name="bottomMargin"><number>6</number></property>
+              <item>
+               <layout class="QHBoxLayout" name="armConnIpRow">
+                <property name="spacing"><number>4</number></property>
+                <item>
+                 <widget class="QLabel" name="armStatusLabel">
+                  <property name="text"><string>●</string></property>
+                  <property name="minimumSize"><size><width>16</width><height>0</height></size></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLineEdit" name="armIpEdit">
+                  <property name="text"><string notr="true">192.168.0.1</string></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QSpinBox" name="armPortSpin">
+                  <property name="minimum"><number>1</number></property>
+                  <property name="maximum"><number>65535</number></property>
+                  <property name="value"><number>502</number></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="armToggleButton">
+                  <property name="text"><string>连接</string></property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <widget class="QLabel" name="posLabel">
+               <property name="text"><string>位置控制</string></property>
+               <property name="styleSheet"><string notr="true">font-weight: bold; color: red;</string></property>
+              </widget>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="posSpinLayout">
+               <property name="spacing"><number>4</number></property>
+               <item><widget class="QLabel" name="labelX"><property name="text"><string>X</string></property><property name="minimumSize"><size><width>12</width><height>0</height></size></property></widget></item>
+               <item><widget class="QDoubleSpinBox" name="xPosSpin"/></item>
+               <item><widget class="QLabel" name="labelY"><property name="text"><string>Y</string></property><property name="minimumSize"><size><width>12</width><height>0</height></size></property></widget></item>
+               <item><widget class="QDoubleSpinBox" name="yPosSpin"/></item>
+               <item><widget class="QLabel" name="labelZ"><property name="text"><string>Z</string></property><property name="minimumSize"><size><width>12</width><height>0</height></size></property></widget></item>
+               <item><widget class="QDoubleSpinBox" name="zPosSpin"/></item>
+               <item><spacer name="posSpinSpacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
+              </layout>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="posBtnLayout">
+               <property name="spacing"><number>4</number></property>
+               <item><widget class="QPushButton" name="moveToPosButton"><property name="text"><string>移动</string></property></widget></item>
+               <item><widget class="QPushButton" name="readPosButton"><property name="text"><string>读取</string></property></widget></item>
+               <item><widget class="QPushButton" name="zeroButton"><property name="text"><string>归零</string></property></widget></item>
+              </layout>
+             </item>
+             </layout>
+            </widget>
+           </item>
+
+           <!-- Camera Preview -->
+           <item>
+            <widget class="QLabel" name="cameraImageLabel">
+             <property name="minimumSize">
+              <size><width>0</width><height>160</height></size>
+             </property>
+             <property name="text"><string>相机预览</string></property>
+             <property name="alignment">
+              <set>Qt::AlignmentFlag::AlignCenter</set>
+             </property>
+             <property name="frameShape"><enum>QFrame::Shape::StyledPanel</enum></property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+
+        <!-- Control Stack: expandable panels for each mode -->
+        <item>
+         <widget class="QStackedWidget" name="controlStack">
+          <property name="currentIndex"><number>0</number></property>
+
+          <!-- Page 0: Scan controls -->
+          <widget class="QWidget" name="armPosPanel">
+           <layout class="QVBoxLayout" name="armPosPanelLayout">
+            <property name="spacing"><number>4</number></property>
+            <property name="leftMargin"><number>4</number></property>
+            <property name="topMargin"><number>4</number></property>
+            <property name="rightMargin"><number>4</number></property>
+            <property name="bottomMargin"><number>4</number></property>
             <item>
-             <widget class="QFrame" name="cameraControlBar">
-              <property name="frameShape">
-               <enum>QFrame::Shape::StyledPanel</enum>
+             <spacer name="scanSpacer">
+              <property name="orientation"><enum>Qt::Orientation::Vertical</enum></property>
+              <property name="sizeHint" stdset="0">
+               <size><width>20</width><height>0</height></size>
               </property>
-              <layout class="QHBoxLayout" name="cameraControlLayout">
-               <property name="spacing">
-                <number>1</number>
-               </property>
-               <property name="leftMargin">
-                <number>1</number>
-               </property>
-               <property name="topMargin">
-                <number>1</number>
-               </property>
-               <property name="rightMargin">
-                <number>1</number>
-               </property>
-               <property name="bottomMargin">
-                <number>1</number>
-               </property>
-               <item>
-                <widget class="QComboBox" name="cameraCombo"/>
-               </item>
-               <item>
-                <widget class="QPushButton" name="scanCamerasButton">
-                 <property name="text">
-                  <string>搜索</string>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <widget class="QPushButton" name="cameraToggleButton">
-                 <property name="text">
-                  <string>连接</string>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <widget class="QPushButton" name="captureImageButton">
-                 <property name="enabled">
-                  <bool>false</bool>
-                 </property>
-                 <property name="text">
-                  <string>拍照</string>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <widget class="QCheckBox" name="enableDetectionCheck">
-                 <property name="text">
-                  <string>检测</string>
-                 </property>
-                 <property name="checked">
-                  <bool>true</bool>
-                 </property>
-                </widget>
-               </item>
+             </spacer>
+            </item>
+           </layout>
+          </widget>
+
+          <!-- Page 1: Stitch controls -->
+          <widget class="QWidget" name="stitchPanel">
+           <layout class="QVBoxLayout" name="stitchPanelLayout">
+            <property name="spacing"><number>4</number></property>
+            <property name="leftMargin"><number>4</number></property>
+            <property name="topMargin"><number>4</number></property>
+            <property name="rightMargin"><number>4</number></property>
+            <property name="bottomMargin"><number>4</number></property>
+
+            <item>
+             <widget class="QGroupBox" name="stitchCmdGroup">
+              <property name="title"><string>拼接控制</string></property>
+              <layout class="QVBoxLayout" name="stitchCmdLayout">
+               <property name="spacing"><number>4</number></property>
+               <property name="leftMargin"><number>4</number></property>
+               <property name="topMargin"><number>4</number></property>
+               <property name="rightMargin"><number>4</number></property>
+               <property name="bottomMargin"><number>4</number></property>
+               <item><widget class="QPushButton" name="stitchRunButton"><property name="text"><string>开始拼接</string></property><property name="minimumSize"><size><width>0</width><height>30</height></size></property></widget></item>
+               <item><widget class="QPushButton" name="stitchSettingsButton"><property name="text"><string>拼接设置</string></property><property name="minimumSize"><size><width>0</width><height>28</height></size></property></widget></item>
+               <item><widget class="QPushButton" name="stitchSaveButton"><property name="text"><string>保存结果</string></property><property name="minimumSize"><size><width>0</width><height>28</height></size></property></widget></item>
               </layout>
              </widget>
             </item>
-           </layout>
-          </widget>
-         </item>
-         <!-- b. Arm connection section (compact single-line) -->
-         <item>
-          <widget class="QWidget" name="armConnSection" native="true">
-           <layout class="QHBoxLayout" name="armConnSectionLayout">
-            <property name="spacing">
-             <number>1</number>
-            </property>
-            <property name="leftMargin">
-             <number>1</number>
-            </property>
-            <property name="topMargin">
-             <number>1</number>
-            </property>
-            <property name="rightMargin">
-             <number>1</number>
-            </property>
-            <property name="bottomMargin">
-             <number>1</number>
-            </property>
+
             <item>
-             <widget class="QLabel" name="armStatusLabel">
-              <property name="text">
-               <string>未连接</string>
+             <spacer name="stitchSpacer">
+              <property name="orientation"><enum>Qt::Orientation::Vertical</enum></property>
+              <property name="sizeHint" stdset="0">
+               <size><width>20</width><height>0</height></size>
               </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QLineEdit" name="armIpEdit">
-              <property name="text">
-               <string notr="true">192.168.0.1</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QSpinBox" name="armPortSpin">
-              <property name="minimum">
-               <number>1</number>
-              </property>
-              <property name="maximum">
-               <number>65535</number>
-              </property>
-              <property name="value">
-               <number>502</number>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="armToggleButton">
-              <property name="text">
-               <string>连接</string>
-              </property>
-             </widget>
+             </spacer>
             </item>
            </layout>
           </widget>
-         </item>
-         <!-- c. Arm position section (compact) -->
-         <item>
-          <widget class="QWidget" name="armPosSection" native="true">
-           <layout class="QHBoxLayout" name="armPosSectionLayout">
-            <property name="spacing">
-             <number>1</number>
-            </property>
-            <property name="leftMargin">
-             <number>1</number>
-            </property>
-            <property name="topMargin">
-             <number>1</number>
-            </property>
-            <property name="rightMargin">
-             <number>1</number>
-            </property>
-            <property name="bottomMargin">
-             <number>1</number>
-            </property>
+
+          <!-- Page 2: Detect controls -->
+          <widget class="QWidget" name="detectPanel">
+           <layout class="QVBoxLayout" name="detectPanelLayout">
+            <property name="spacing"><number>4</number></property>
+            <property name="leftMargin"><number>4</number></property>
+            <property name="topMargin"><number>4</number></property>
+            <property name="rightMargin"><number>4</number></property>
+            <property name="bottomMargin"><number>4</number></property>
+
             <item>
-             <widget class="QLabel" name="labelX">
-              <property name="text">
-               <string>X:</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QDoubleSpinBox" name="xPosSpin">
-              <property name="minimum">
-               <double>0.000000000000000</double>
-              </property>
-              <property name="maximum">
-               <double>999999.000000000000000</double>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QLabel" name="labelY">
-              <property name="text">
-               <string>Y:</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QDoubleSpinBox" name="yPosSpin">
-              <property name="minimum">
-               <double>0.000000000000000</double>
-              </property>
-              <property name="maximum">
-               <double>999999.000000000000000</double>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QLabel" name="labelZ">
-              <property name="text">
-               <string>Z:</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QDoubleSpinBox" name="zPosSpin">
-              <property name="minimum">
-               <double>0.000000000000000</double>
-              </property>
-              <property name="maximum">
-               <double>999999.000000000000000</double>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="moveToPosButton">
-              <property name="text">
-               <string>移动</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="readPosButton">
-              <property name="text">
-               <string>读取</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="zeroButton">
-              <property name="text">
-               <string>归零</string>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </widget>
-         </item>
-         <!-- d. S-Movement section -->
-         <item>
-          <widget class="QWidget" name="sMovementSection" native="true">
-           <layout class="QHBoxLayout" name="sMovementSectionLayout">
-            <property name="spacing">
-             <number>1</number>
-            </property>
-            <property name="leftMargin">
-             <number>1</number>
-            </property>
-            <property name="topMargin">
-             <number>1</number>
-            </property>
-            <property name="rightMargin">
-             <number>1</number>
-            </property>
-            <property name="bottomMargin">
-             <number>1</number>
-            </property>
-            <item>
-             <widget class="QPushButton" name="startStopToggleButton">
-              <property name="text">
-               <string>开始</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="pauseToggleButton">
-              <property name="enabled">
-               <bool>false</bool>
-              </property>
-              <property name="text">
-               <string>暂停</string>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </widget>
-         </item>
-         <!-- e. Grid section -->
-         <item>
-          <widget class="QWidget" name="gridSection" native="true">
-           <layout class="QVBoxLayout" name="gridSectionLayout">
-            <property name="spacing">
-             <number>1</number>
-            </property>
-            <property name="leftMargin">
-             <number>1</number>
-            </property>
-            <property name="topMargin">
-             <number>1</number>
-            </property>
-            <property name="rightMargin">
-             <number>1</number>
-            </property>
-            <property name="bottomMargin">
-             <number>1</number>
-            </property>
-            <item>
-             <widget class="QTableWidget" name="topCellsTable">
-              <property name="minimumSize">
-               <size>
-                <width>300</width>
-                <height>150</height>
-               </size>
-              </property>
-              <property name="editTriggers">
-               <set>QAbstractItemView::EditTrigger::NoEditTriggers</set>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QWidget" name="bottomCellsGrid" native="true">
-              <property name="minimumSize">
-               <size>
-                <width>300</width>
-                <height>80</height>
-               </size>
-              </property>
-              <property name="maximumSize">
-               <size>
-                <width>16777215</width>
-                <height>350</height>
-               </size>
-              </property>
-              <property name="toolTip">
-               <string>点击单元格移动至目标位置</string>
-              </property>
-              <layout class="QGridLayout" name="bottomCellsGridLayout">
-               <property name="spacing">
-                <number>1</number>
-               </property>
+             <widget class="QGroupBox" name="detectCmdGroup">
+              <property name="title"><string>检测控制</string></property>
+              <layout class="QVBoxLayout" name="detectCmdLayout">
+               <property name="spacing"><number>4</number></property>
+               <property name="leftMargin"><number>4</number></property>
+               <property name="topMargin"><number>4</number></property>
+               <property name="rightMargin"><number>4</number></property>
+               <property name="bottomMargin"><number>4</number></property>
+               <item><widget class="QPushButton" name="detectModelButton"><property name="text"><string>加载模型</string></property><property name="minimumSize"><size><width>0</width><height>30</height></size></property></widget></item>
+               <item><widget class="QPushButton" name="detectSettingsButton"><property name="text"><string>检测设置</string></property><property name="minimumSize"><size><width>0</width><height>28</height></size></property></widget></item>
+               <item><widget class="QPushButton" name="detectRunButton"><property name="text"><string>开始检测</string></property><property name="minimumSize"><size><width>0</width><height>30</height></size></property></widget></item>
               </layout>
              </widget>
             </item>
+
+            <item>
+             <spacer name="detectSpacer">
+              <property name="orientation"><enum>Qt::Orientation::Vertical</enum></property>
+              <property name="sizeHint" stdset="0">
+               <size><width>20</width><height>0</height></size>
+              </property>
+             </spacer>
+            </item>
            </layout>
           </widget>
-         </item>
-         <!-- Vertical spacer to push content to top -->
-         <item>
-          <spacer name="verticalSpacer">
-           <property name="orientation">
-            <enum>Qt::Orientation::Vertical</enum>
-           </property>
-           <property name="sizeHint" stdset="0">
-            <size>
-             <width>20</width>
-             <height>40</height>
-            </size>
-           </property>
-          </spacer>
-         </item>
-        </layout>
-       </widget>
+         </widget>
+        </item>
+
+        <!-- Spacer -->
+        <item>
+         <spacer name="menuSpacer">
+          <property name="orientation"><enum>Qt::Orientation::Vertical</enum></property>
+          <property name="sizeHint" stdset="0">
+           <size><width>20</width><height>40</height></size>
+          </property>
+         </spacer>
+        </item>
+
+        <!-- Log panel -->
+        <item>
+         <widget class="QTextEdit" name="statusLogEdit">
+          <property name="readOnly"><bool>true</bool></property>
+          <property name="minimumSize"><size><width>0</width><height>80</height></size></property>
+          <property name="maximumSize"><size><width>16777215</width><height>200</height></size></property>
+          <property name="placeholderText"><string>系统日志...</string></property>
+         </widget>
+        </item>
+       </layout>
       </widget>
-      <!-- ===== RIGHT: vertical QSplitter ===== -->
-      <widget class="QSplitter" name="rightSplitter">
-       <property name="orientation">
-        <enum>Qt::Orientation::Vertical</enum>
-       </property>
-       <widget class="QLabel" name="cameraImageLabel">
-        <property name="minimumSize">
-         <size>
-          <width>320</width>
-          <height>200</height>
-         </size>
-        </property>
-        <property name="text">
-         <string>相机预览</string>
-        </property>
-        <property name="alignment">
-         <set>Qt::AlignmentFlag::AlignCenter</set>
-        </property>
-       </widget>
-       <widget class="QLabel" name="stitchImageLabel">
-        <property name="minimumSize">
-         <size>
-          <width>160</width>
-          <height>80</height>
-         </size>
-        </property>
-        <property name="text">
-         <string>等待拼接...</string>
-        </property>
-        <property name="alignment">
-         <set>Qt::AlignmentFlag::AlignCenter</set>
-        </property>
-       </widget>
+
+      <!-- RIGHT: Toolbar + Work Area -->
+      <widget class="QWidget" name="workArea">
+       <layout class="QVBoxLayout" name="workAreaLayout">
+        <property name="spacing"><number>2</number></property>
+        <property name="leftMargin"><number>0</number></property>
+        <property name="topMargin"><number>0</number></property>
+        <property name="rightMargin"><number>0</number></property>
+        <property name="bottomMargin"><number>0</number></property>
+
+        <!-- Quick-access toolbar -->
+        <item>
+         <widget class="QWidget" name="quickToolbar" native="true">
+          <property name="minimumSize"><size><width>0</width><height>36</height></size></property>
+          <property name="maximumSize"><size><width>16777215</width><height>36</height></size></property>
+          <layout class="QHBoxLayout" name="quickToolbarLayout">
+           <property name="spacing"><number>4</number></property>
+           <property name="leftMargin"><number>4</number></property>
+           <property name="topMargin"><number>2</number></property>
+           <property name="rightMargin"><number>4</number></property>
+           <property name="bottomMargin"><number>2</number></property>
+           <item>
+            <widget class="QPushButton" name="quickCaptureBtn">
+             <property name="text"><string>拍照</string></property>
+             <property name="minimumSize"><size><width>48</width><height>0</height></size></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="quickScanBtn">
+             <property name="text"><string>开始扫描</string></property>
+             <property name="minimumSize"><size><width>68</width><height>0</height></size></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="quickPauseBtn">
+             <property name="enabled"><bool>false</bool></property>
+             <property name="text"><string>暂停</string></property>
+             <property name="minimumSize"><size><width>48</width><height>0</height></size></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QFrame" name="toolbarSeparator1">
+             <property name="frameShape"><enum>QFrame::Shape::VLine</enum></property>
+             <property name="frameShadow"><enum>QFrame::Shadow::Sunken</enum></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="quickStitchBtn">
+             <property name="text"><string>开始拼接</string></property>
+             <property name="minimumSize"><size><width>68</width><height>0</height></size></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="quickSaveBtn">
+             <property name="text"><string>保存结果</string></property>
+             <property name="minimumSize"><size><width>68</width><height>0</height></size></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QFrame" name="toolbarSeparator2">
+             <property name="frameShape"><enum>QFrame::Shape::VLine</enum></property>
+             <property name="frameShadow"><enum>QFrame::Shadow::Sunken</enum></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="quickDetectBtn">
+             <property name="text"><string>开始检测</string></property>
+             <property name="minimumSize"><size><width>68</width><height>0</height></size></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="enableDetectionCheck">
+             <property name="text"><string>实时检测</string></property>
+             <property name="checked"><bool>true</bool></property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="toolbarSpacer">
+             <property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property>
+             <property name="sizeHint" stdset="0">
+              <size><width>40</width><height>20</height></size>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </widget>
+        </item>
+
+        <!-- Work Splitter: Grid (left) + Preview (right) -->
+        <item>
+         <widget class="QSplitter" name="workSplitter">
+          <property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property>
+
+          <widget class="QTableWidget" name="topCellsTable">
+           <property name="editTriggers">
+            <set>QAbstractItemView::EditTrigger::NoEditTriggers</set>
+           </property>
+          </widget>
+
+          <widget class="QSplitter" name="rightPreviewSplitter">
+           <property name="orientation"><enum>Qt::Orientation::Vertical</enum></property>
+
+           <widget class="QLabel" name="stitchImageLabel">
+            <property name="minimumSize">
+             <size><width>320</width><height>120</height></size>
+            </property>
+            <property name="text"><string>等待拼接...</string></property>
+            <property name="alignment">
+             <set>Qt::AlignmentFlag::AlignCenter</set>
+            </property>
+            <property name="frameShape"><enum>QFrame::Shape::StyledPanel</enum></property>
+           </widget>
+
+           <widget class="QLabel" name="detectImageLabel">
+            <property name="minimumSize">
+             <size><width>320</width><height>120</height></size>
+            </property>
+            <property name="text"><string>等待检测...</string></property>
+            <property name="alignment">
+             <set>Qt::AlignmentFlag::AlignCenter</set>
+            </property>
+            <property name="frameShape"><enum>QFrame::Shape::StyledPanel</enum></property>
+           </widget>
+          </widget>
+         </widget>
+        </item>
+       </layout>
       </widget>
      </widget>
     </item>
    </layout>
   </widget>
-  <!-- ===== Menu Bar ===== -->
+
+  <!-- ===== MENU BAR ===== -->
   <widget class="QMenuBar" name="menuBar">
    <property name="geometry">
-    <rect>
-     <x>0</x>
-     <y>0</y>
-     <width>1200</width>
-     <height>22</height>
-    </rect>
+    <rect><x>0</x><y>0</y><width>1200</width><height>22</height></rect>
    </property>
    <widget class="QMenu" name="menuFile">
-    <property name="title">
-     <string>文件(&amp;F)</string>
-    </property>
+    <property name="title"><string>文件(&amp;F)</string></property>
     <addaction name="actionOpenImage"/>
     <addaction name="actionSaveStitch"/>
     <addaction name="separator"/>
+    <addaction name="actionImportConfig"/>
     <addaction name="actionExportConfig"/>
     <addaction name="separator"/>
     <addaction name="actionExit"/>
    </widget>
-   <widget class="QMenu" name="menuOperation">
-    <property name="title">
-     <string>操作(&amp;O)</string>
-    </property>
-    <addaction name="actionStartScan"/>
-    <addaction name="actionStopScan"/>
+   <widget class="QMenu" name="menuView">
+    <property name="title"><string>视图(&amp;V)</string></property>
+    <addaction name="actionViewScan"/>
+    <addaction name="actionViewStitch"/>
+    <addaction name="actionViewDetect"/>
     <addaction name="separator"/>
-    <addaction name="actionCaptureOnce"/>
-    <addaction name="actionRunStitch"/>
-    <addaction name="actionRunDetect"/>
+    <addaction name="actionToggleSidebar"/>
+    <addaction name="actionToggleLog"/>
    </widget>
    <widget class="QMenu" name="menuSettings">
-    <property name="title">
-     <string>设置(&amp;S)</string>
-    </property>
-    <addaction name="actionDetSettings"/>
+    <property name="title"><string>设置(&amp;S)</string></property>
     <addaction name="actionStitchSettings"/>
-   </widget>
-   <widget class="QMenu" name="menuTools">
-    <property name="title">
-     <string>工具(&amp;T)</string>
-    </property>
+    <addaction name="actionDetSettings"/>
+    <addaction name="separator"/>
     <addaction name="actionLoadModel"/>
     <addaction name="actionArmZero"/>
    </widget>
-   <widget class="QMenu" name="menuView">
-    <property name="title">
-     <string>视图(&amp;V)</string>
-    </property>
-    <addaction name="actionViewArmPanel"/>
-   </widget>
    <widget class="QMenu" name="menuHelp">
-    <property name="title">
-     <string>帮助(&amp;H)</string>
-    </property>
+    <property name="title"><string>帮助(&amp;H)</string></property>
+    <addaction name="actionUserGuide"/>
+    <addaction name="separator"/>
     <addaction name="actionAbout"/>
    </widget>
    <addaction name="menuFile"/>
-   <addaction name="menuOperation"/>
-   <addaction name="menuSettings"/>
-   <addaction name="menuTools"/>
    <addaction name="menuView"/>
+   <addaction name="menuSettings"/>
    <addaction name="menuHelp"/>
   </widget>
-  <!-- ===== Status Bar ===== -->
+
+  <!-- ===== STATUS BAR ===== -->
   <widget class="QStatusBar" name="statusBar">
    <widget class="QLabel" name="statusLabel">
-    <property name="text">
-     <string>就绪</string>
-    </property>
-   </widget>
-   <widget class="QProgressBar" name="unifiedProgressBar">
-    <property name="maximum">
-     <number>100</number>
-    </property>
-    <property name="value">
-     <number>0</number>
-    </property>
-    <property name="maximumSize">
-     <size>
-      <width>16777215</width>
-      <height>16</height>
-     </size>
-    </property>
-   </widget>
-   <widget class="QPlainTextEdit" name="unifiedStatusLog">
-    <property name="readOnly">
-     <bool>true</bool>
-    </property>
-    <property name="maximumSize">
-     <size>
-      <width>16777215</width>
-      <height>60</height>
-     </size>
-    </property>
+    <property name="text"><string>就绪</string></property>
    </widget>
   </widget>
-  <!-- ===== Actions ===== -->
+
+  <!-- ===== ACTIONS ===== -->
   <action name="actionOpenImage">
-   <property name="text">
-    <string>打开图像文件...</string>
-   </property>
-   <property name="shortcut">
-    <string>Ctrl+O</string>
-   </property>
+   <property name="text"><string>打开图像文件...</string></property>
+   <property name="shortcut"><string>Ctrl+O</string></property>
   </action>
   <action name="actionSaveStitch">
-   <property name="text">
-    <string>保存拼接结果...</string>
-   </property>
-   <property name="shortcut">
-    <string>Ctrl+S</string>
-   </property>
+   <property name="text"><string>保存拼接结果...</string></property>
+   <property name="shortcut"><string>Ctrl+S</string></property>
+  </action>
+  <action name="actionImportConfig">
+   <property name="text"><string>导入配置...</string></property>
+   <property name="shortcut"><string>Ctrl+Shift+O</string></property>
   </action>
   <action name="actionExportConfig">
-   <property name="text">
-    <string>导出配置...</string>
-   </property>
+   <property name="text"><string>导出配置...</string></property>
   </action>
   <action name="actionExit">
-   <property name="text">
-    <string>退出</string>
-   </property>
-   <property name="shortcut">
-    <string>Ctrl+Q</string>
-   </property>
+   <property name="text"><string>退出</string></property>
+   <property name="shortcut"><string>Ctrl+Q</string></property>
   </action>
-  <action name="actionStartScan">
-   <property name="text">
-    <string>开始S型扫描</string>
-   </property>
-   <property name="shortcut">
-    <string>F5</string>
-   </property>
+  <action name="actionViewScan">
+   <property name="text"><string>扫描模式</string></property>
+   <property name="shortcut"><string>Ctrl+1</string></property>
+   <property name="checkable"><bool>true</bool></property>
+   <property name="checked"><bool>true</bool></property>
   </action>
-  <action name="actionStopScan">
-   <property name="text">
-    <string>停止扫描</string>
-   </property>
-   <property name="shortcut">
-    <string>F6</string>
-   </property>
+  <action name="actionViewStitch">
+   <property name="text"><string>拼接模式</string></property>
+   <property name="shortcut"><string>Ctrl+2</string></property>
+   <property name="checkable"><bool>true</bool></property>
   </action>
-  <action name="actionCaptureOnce">
-   <property name="text">
-    <string>拍照</string>
-   </property>
-   <property name="shortcut">
-    <string>Ctrl+P</string>
-   </property>
+  <action name="actionViewDetect">
+   <property name="text"><string>检测模式</string></property>
+   <property name="shortcut"><string>Ctrl+3</string></property>
+   <property name="checkable"><bool>true</bool></property>
   </action>
-  <action name="actionRunStitch">
-   <property name="text">
-    <string>执行拼接</string>
-   </property>
-   <property name="shortcut">
-    <string>Ctrl+R</string>
-   </property>
+  <action name="actionToggleSidebar">
+   <property name="text"><string>侧边栏</string></property>
+   <property name="checkable"><bool>true</bool></property>
+   <property name="checked"><bool>true</bool></property>
   </action>
-  <action name="actionRunDetect">
-   <property name="text">
-    <string>执行检测</string>
-   </property>
-   <property name="shortcut">
-    <string>Ctrl+E</string>
-   </property>
-  </action>
-  <action name="actionDetSettings">
-   <property name="text">
-    <string>检测参数...</string>
-   </property>
+  <action name="actionToggleLog">
+   <property name="text"><string>日志面板</string></property>
+   <property name="checkable"><bool>true</bool></property>
+   <property name="checked"><bool>true</bool></property>
   </action>
   <action name="actionStitchSettings">
-   <property name="text">
-    <string>拼接参数...</string>
-   </property>
+   <property name="text"><string>拼接参数...</string></property>
   </action>
-  <action name="actionArmZero">
-   <property name="text">
-    <string>机械臂归零</string>
-   </property>
+  <action name="actionDetSettings">
+   <property name="text"><string>检测参数...</string></property>
   </action>
   <action name="actionLoadModel">
-   <property name="text">
-    <string>加载检测模型...</string>
-   </property>
+   <property name="text"><string>加载检测模型...</string></property>
   </action>
-  <action name="actionViewArmPanel">
-   <property name="checkable">
-    <bool>true</bool>
-   </property>
-   <property name="checked">
-    <bool>true</bool>
-   </property>
-   <property name="text">
-    <string>机械臂面板</string>
-   </property>
+  <action name="actionArmZero">
+   <property name="text"><string>机械臂归零</string></property>
+  </action>
+  <action name="actionUserGuide">
+   <property name="text"><string>使用说明...</string></property>
+   <property name="shortcut"><string>F1</string></property>
   </action>
   <action name="actionAbout">
-   <property name="text">
-    <string>关于 ArmSightStitch...</string>
-   </property>
+   <property name="text"><string>关于 ArmSightStitch...</string></property>
   </action>
  </widget>
  <resources/>

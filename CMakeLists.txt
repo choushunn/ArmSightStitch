@@ -29,9 +29,15 @@ else()
     endif()
 endif()
 
-# OpenCV
-find_package(OpenCV REQUIRED)
+# OpenCV — only link modules we actually use
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
 message(STATUS "Found OpenCV: ${OpenCV_VERSION} at ${OpenCV_DIR}")
+
+# Optimize: strip dead code from statically linked libraries
+if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-ffunction-sections -fdata-sections)
+    add_link_options(-Wl,--gc-sections)
+endif()
 
 # spdlog
 find_package(spdlog REQUIRED)
@@ -201,6 +207,12 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMENT "Copying model files..."
 )
 
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/industrial_theme.qss $<TARGET_FILE_DIR:${PROJECT_NAME}>
+    COMMENT "Copying stylesheet..."
+)
+
 if(HAS_TOUPCAM)
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -222,6 +234,9 @@ if(WINDEPLOYQT_EXECUTABLE)
     get_filename_component(MINGW_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
 
     add_custom_target(deploy
+        COMMAND ${CMAKE_COMMAND} -E echo "=== Step 0: Clean nested bin dirs ==="
+        COMMAND ${CMAKE_COMMAND} -E rm -rf
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/bin
         COMMAND ${CMAKE_COMMAND} -E echo "=== Step 1: Deploying Qt runtime ==="
         COMMAND ${WINDEPLOYQT_EXECUTABLE}
             --dir $<TARGET_FILE_DIR:${PROJECT_NAME}>
@@ -231,6 +246,47 @@ if(WINDEPLOYQT_EXECUTABLE)
             "${MINGW_BIN_DIR}/libgcc_s_seh-1.dll"    $<TARGET_FILE_DIR:${PROJECT_NAME}>
             "${MINGW_BIN_DIR}/libstdc++-6.dll"       $<TARGET_FILE_DIR:${PROJECT_NAME}>
             "${MINGW_BIN_DIR}/libwinpthread-1.dll"   $<TARGET_FILE_DIR:${PROJECT_NAME}>
+            "${MINGW_BIN_DIR}/libgomp-1.dll"         $<TARGET_FILE_DIR:${PROJECT_NAME}>
+        COMMAND ${CMAKE_COMMAND} -E echo "=== Step 2a: Copying libtiff runtime DLL ==="
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "C:/Programs/miniforge3/Library/bin/tiff.dll" $<TARGET_FILE_DIR:${PROJECT_NAME}>
+        COMMAND ${CMAKE_COMMAND} -E echo "=== Step 3: Clean up unnecessary files ==="
+        COMMAND ${CMAKE_COMMAND} -E rm -f
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/opengl32sw.dll
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/D3Dcompiler_47.dll
+        COMMAND ${CMAKE_COMMAND} -E echo "=== Step 4: Remove unused translations ==="
+        COMMAND ${CMAKE_COMMAND} -E rm -f
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ar.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_bg.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ca.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_cs.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_da.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_de.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_en.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_es.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_fa.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_fi.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_fr.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_gd.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_he.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_hr.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_hu.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_it.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ja.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ka.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ko.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_lg.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_lv.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_nl.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_nn.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_pl.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_pt_BR.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ru.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_sk.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_sv.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_tr.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_uk.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_zh_TW.qm
         COMMAND ${CMAKE_COMMAND} -E echo "=== Deploy complete ==="
         COMMENT "Deploy: Qt + MinGW runtime DLLs"
         DEPENDS ${PROJECT_NAME}

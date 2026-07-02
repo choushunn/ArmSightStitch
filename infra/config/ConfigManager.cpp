@@ -4,6 +4,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QDir>
 #include <cstdlib>
 #include <spdlog/spdlog.h>
@@ -140,6 +141,23 @@ bool ConfigManager::loadFromJson(const QJsonObject& json) {
     readStr("image_save_base_path", image_save_base_path_);
     readStr("log_path", log_path_);
 
+    auto readIntArray = [&](const QString& key, int* target, int count) {
+        if (json.contains(key) && json[key].isArray()) {
+            QJsonArray arr = json[key].toArray();
+            for (int i = 0; i < qMin(count, arr.size()); ++i) {
+                if (arr[i].isDouble()) target[i] = arr[i].toInt();
+            }
+        }
+    };
+    readIntArray("axis_min_pos", axis_min_pos_, 5);
+    readIntArray("axis_max_pos", axis_max_pos_, 5);
+
+    readFloat("position_tolerance", position_tolerance_);
+
+    if (json.contains("modbus_debug") && json["modbus_debug"].isBool()) {
+        modbus_debug_ = json["modbus_debug"].toBool();
+    }
+
     if (!validateConfig()) {
         return false;
     }
@@ -188,6 +206,17 @@ QJsonObject ConfigManager::toJson() const {
     json["z_height"] = z_height_;
     json["image_save_base_path"] = QString::fromStdString(image_save_base_path_);
     json["log_path"] = QString::fromStdString(log_path_);
+
+    QJsonArray minArr, maxArr;
+    for (int i = 0; i < 5; ++i) {
+        minArr.append(axis_min_pos_[i]);
+        maxArr.append(axis_max_pos_[i]);
+    }
+    json["axis_min_pos"] = minArr;
+    json["axis_max_pos"] = maxArr;
+    json["position_tolerance"] = position_tolerance_;
+    json["modbus_debug"] = modbus_debug_;
+
     return json;
 }
 
@@ -310,4 +339,30 @@ void ConfigManager::setLogPath(const std::string& path) {
     if (isValidFilePath(path)) {
         log_path_ = path;
     }
+}
+
+int ConfigManager::axisMinPos(int axis) const {
+    if (axis >= 0 && axis < 5) return axis_min_pos_[axis];
+    return -1000000;
+}
+
+int ConfigManager::axisMaxPos(int axis) const {
+    if (axis >= 0 && axis < 5) return axis_max_pos_[axis];
+    return 1000000;
+}
+
+void ConfigManager::setAxisMinPos(int axis, int value) {
+    if (axis >= 0 && axis < 5) axis_min_pos_[axis] = value;
+}
+
+void ConfigManager::setAxisMaxPos(int axis, int value) {
+    if (axis >= 0 && axis < 5) axis_max_pos_[axis] = value;
+}
+
+void ConfigManager::setPositionTolerance(float t) {
+    if (t > 0) position_tolerance_ = t;
+}
+
+void ConfigManager::setModbusDebug(bool enabled) {
+    modbus_debug_ = enabled;
 }

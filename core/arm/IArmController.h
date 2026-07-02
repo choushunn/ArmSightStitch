@@ -18,6 +18,11 @@ struct AxisConfig {
     std::string name;
 };
 
+struct AxisLimits {
+    int32_t min_pos = -1000000;
+    int32_t max_pos = 1000000;
+};
+
 struct ArmStatus {
     std::vector<int32_t> current_positions;
     std::vector<int32_t> target_positions;
@@ -62,6 +67,9 @@ public:
     virtual bool moveToPosition(int axis_id, double target_position) = 0;
     virtual bool stopAllMovements(int axis_id) = 0;
 
+    virtual void setSafetyLimits(int axis_id, const AxisLimits& limits) = 0;
+    virtual AxisLimits getSafetyLimits(int axis_id) const = 0;
+
     virtual void startAutoRead(float interval = 0.5f) = 0;
     virtual void stopAutoRead() = 0;
 
@@ -88,6 +96,7 @@ public:
     virtual void setStatusCallback(std::function<void(const SMovementStatus&)> callback) = 0;
 
     virtual void setSaveDirectory(const std::string& save_dir) = 0;
+    virtual void setPositionTolerance(double tolerance) = 0;
     virtual SMovementStatus getStatus() const = 0;
     virtual std::vector<SMovementPoint> getMovementPath() const = 0;
     virtual int getSavedImagesCount() const = 0;

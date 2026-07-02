@@ -4,6 +4,7 @@
 #include <string>
 #include <opencv2/opencv.hpp>
 #include <net.h>
+#include <spdlog/spdlog.h>
 
 namespace detector {
 
@@ -47,59 +48,59 @@ std::vector<Detection> YoloDetector::detect(const cv::Mat& image) {
     try {
         std::vector<Detection> detections;
         if (!model_loaded_) {
-            std::cerr << "YoloDetector::detect: Model not loaded" << std::endl;
+            SPDLOG_ERROR("Model not loaded");
             return detections;
         }
 
-        std::cerr << "YoloDetector::detect: Starting detection..." << std::endl;
-        std::cerr << "YoloDetector::detect: Input image size - width=" << image.cols << ", height=" << image.rows << ", channels=" << image.channels() << std::endl;
+        SPDLOG_DEBUG("Starting detection...");
+        SPDLOG_DEBUG("Input image size - width={}, height={}, channels={}", image.cols, image.rows, image.channels());
 
         // Preprocess image
-        std::cerr << "YoloDetector::detect: Preprocessing image..." << std::endl;
+        SPDLOG_DEBUG("Preprocessing image...");
         ncnn::Mat in = preprocess(image);
-        std::cerr << "YoloDetector::detect: Preprocessed image size - w=" << in.w << ", h=" << in.h << ", c=" << in.c << std::endl;
+        SPDLOG_DEBUG("Preprocessed image size - w={}, h={}, c={}", in.w, in.h, in.c);
 
-        std::cerr << "YoloDetector::detect: Creating extractor..." << std::endl;
+        SPDLOG_DEBUG("Creating extractor...");
         ncnn::Extractor ex = yolo_net_.create_extractor();
         
         // Enable light mode for faster inference
         ex.set_light_mode(true);
         
-        std::cerr << "YoloDetector::detect: Setting input..." << std::endl;
+        SPDLOG_DEBUG("Setting input...");
         ex.input("in0", in);
 
         // Run inference
-        std::cerr << "YoloDetector::detect: Running inference..." << std::endl;
+        SPDLOG_DEBUG("Running inference...");
         ncnn::Mat out;
         int ret = ex.extract("out0", out);
-        std::cerr << "YoloDetector::detect: Inference completed, ret=" << ret << std::endl;
+        SPDLOG_DEBUG("Inference completed, ret={}", ret);
         
         if (ret != 0) {
-            std::cerr << "YoloDetector::detect: Failed to extract output, ret=" << ret << std::endl;
+            SPDLOG_ERROR("Failed to extract output, ret={}", ret);
             return detections;
         }
 
-        std::cerr << "YoloDetector::detect: Output shape - w=" << out.w << ", h=" << out.h << ", c=" << out.c << std::endl;
-        std::cerr << "YoloDetector::detect: Output total elements - " << out.total() << std::endl;
+        SPDLOG_DEBUG("Output shape - w={}, h={}, c={}", out.w, out.h, out.c);
+        SPDLOG_DEBUG("Output total elements - {}", out.total());
 
         // Process output
     
     // Check if output is empty
     if (out.w <= 0 || out.data == nullptr) {
-        std::cerr << "YoloDetector::detect: Invalid output - w=" << out.w << ", data=" << out.data << std::endl;
+        SPDLOG_ERROR("Invalid output - w={}, data={}", out.w, fmt::ptr(out.data));
         return detections;
     }
     
     // YOLOv5 output parsing based on Python script
     // Model output format: [8, 25200] for NCNN, but each detection is 8 values
     // The output is stored as [out.w=8, out.h=25200], so we need to process it correctly
-    std::cerr << "YoloDetector::detect: Processing YOLOv5 output based on Python script..." << std::endl;
+    SPDLOG_DEBUG("Processing YOLOv5 output based on Python script...");
     
     // Get output dimensions
     int output_channels = out.w; // Should be 8 for this model
     int total_detections = out.h; // Should be 25200 for YOLOv5
     
-    std::cerr << "YoloDetector::detect: Output channels=" << output_channels << ", total detections=" << total_detections << std::endl;
+    SPDLOG_DEBUG("Output channels={}, total detections={}", output_channels, total_detections);
     
     float* data = (float*)out.data;
     
@@ -111,7 +112,7 @@ std::vector<Detection> YoloDetector::detect(const cv::Mat& image) {
     float scale_w = static_cast<float>(img_width) / input_width_;
     float scale_h = static_cast<float>(img_height) / input_height_;
     
-    std::cerr << "YoloDetector::detect: Scale factors - scale_w=" << scale_w << ", scale_h=" << scale_h << std::endl;
+    SPDLOG_DEBUG("Scale factors - scale_w={}, scale_h={}", scale_w, scale_h);
     
     // Process each detection
     for (int i = 0; i < total_detections; i++) {
@@ -189,38 +190,33 @@ std::vector<Detection> YoloDetector::detect(const cv::Mat& image) {
             detections.push_back(det);
             
             // Log detection details
-            std::cerr << "YoloDetector::detect: Detection " << i << ": "
-                    << "Center(x,y)=[" << x_center << ", " << y_center << "], "
-                    << "Size(w,h)=[" << box_width << ", " << box_height << "], "
-                    << "ObjConf=" << obj_conf << ", ClsConf=" << max_cls_conf << ", FinalConf=" << final_conf << ", "
-                    << "ClassID=" << class_id << ", "
-                    << "Bounding box=[" << width << "x" << height 
-                    << " from (" << x1 << ", " << y1 << ")]" << std::endl;
+            SPDLOG_DEBUG("Detection {}: Center(x,y)=[{}, {}], Size(w,h)=[{}, {}], ObjConf={}, ClsConf={}, FinalConf={}, ClassID={}, Bounding box=[{}x{} from ({}, {})]",
+                         i, x_center, y_center, box_width, box_height, obj_conf, max_cls_conf, final_conf, class_id, width, height, x1, y1);
             
         } catch (const std::exception& e) {
-            std::cerr << "YoloDetector::detect: Exception processing detection " << i << ": " << e.what() << std::endl;
+            SPDLOG_ERROR("Exception processing detection {}: {}", i, e.what());
             continue;
         } catch (...) {
-            std::cerr << "YoloDetector::detect: Unknown exception processing detection " << i << std::endl;
+            SPDLOG_ERROR("Unknown exception processing detection {}", i);
             continue;
         }
     }
 
         // Apply NMS if we have detections
         if (!detections.empty()) {
-            std::cerr << "YoloDetector::detect: Applying NMS on " << detections.size() << " detections..." << std::endl;
+            SPDLOG_DEBUG("Applying NMS on {} detections...", detections.size());
             detections = applyNMS(detections);
-            std::cerr << "YoloDetector::detect: NMS completed, remaining detections=" << detections.size() << std::endl;
+            SPDLOG_DEBUG("NMS completed, remaining detections={}", detections.size());
         } else {
-            std::cerr << "YoloDetector::detect: No detections to apply NMS on" << std::endl;
+            SPDLOG_DEBUG("No detections to apply NMS on");
         }
         
         return detections;
     } catch (const std::exception& e) {
-        std::cerr << "YoloDetector::detect: Exception in detect function: " << e.what() << std::endl;
+        SPDLOG_ERROR("Exception in detect function: {}", e.what());
         return std::vector<Detection>();
     } catch (...) {
-        std::cerr << "YoloDetector::detect: Unknown exception in detect function" << std::endl;
+        SPDLOG_ERROR("Unknown exception in detect function");
         return std::vector<Detection>();
     }
 }

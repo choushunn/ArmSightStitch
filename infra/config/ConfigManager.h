@@ -62,6 +62,20 @@ public:
     std::string logPath() const { return log_path_; }
     void setLogPath(const std::string& path);
 
+    // Safety limits
+    int axisMinPos(int axis) const;
+    int axisMaxPos(int axis) const;
+    void setAxisMinPos(int axis, int value);
+    void setAxisMaxPos(int axis, int value);
+
+    // Position tolerance
+    float positionTolerance() const { return position_tolerance_; }
+    void setPositionTolerance(float t);
+
+    // Modbus debug
+    bool modbusDebug() const { return modbus_debug_; }
+    void setModbusDebug(bool enabled);
+
 private:
     ConfigManager();
     ConfigManager(const ConfigManager&) = delete;
@@ -94,4 +108,9 @@ private:
     std::string image_save_base_path_;
     std::string log_path_;
     mutable std::string last_error_;
+
+    int axis_min_pos_[5] = {-1000000, -1000000, -1000000, -180000, -180000};
+    int axis_max_pos_[5] = {1000000, 1000000, 1000000, 180000, 180000};
+    float position_tolerance_ = 100.0f;
+    bool modbus_debug_ = false;
 };

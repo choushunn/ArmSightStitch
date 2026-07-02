@@ -4,9 +4,7 @@
   "description": "ArmSightStitch - Robotic Arm Control with Visual Detection and Image Stitching",
   "dependencies": [
     {
-      "name": "opencv4",
-      "default-features": false,
-      "features": ["highgui", "fs", "jpeg", "png", "tiff", "webp"]
+      "name": "opencv4"
     },
     "fmt",
     "spdlog",

@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QFileInfo>
 #include <QDir>
+#include <QString>
 
 #include "ui/MainWindow.h"
 #include "ui/AppController.h"
@@ -38,7 +39,8 @@ int main(int argc, char *argv[]) {
     // Create application controller and main window (MVP)
     AppController ctrl;
     MainWindow w(ctrl);
-    w.show();
+    w.resize(1728, 972);   // 1920*0.9 × 1080*0.9
+    w.showMaximized();
 
     SPDLOG_INFO("Application entering event loop");
     int result = a.exec();

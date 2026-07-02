@@ -1,6 +1,6 @@
 #include "SMovementController.h"
 
-#include <iostream>
+#include <spdlog/spdlog.h>
 #include <cmath>
 #include <chrono>
 #include <thread>
@@ -56,7 +56,7 @@ bool SMovementController::initialize(const cv::Size& grid_size,
         updateStatus("Initialized successfully");
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "Error initializing S-movement controller: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error initializing S-movement controller: {}", e.what());
         updateStatus(std::string("Initialization error: ") + e.what());
         return false;
     }
@@ -85,7 +85,7 @@ bool SMovementController::start() {
         
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "Error starting S-movement: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error starting S-movement: {}", e.what());
         updateStatus(std::string("Failed to start: ") + e.what());
         running_ = false;
         return false;
@@ -137,13 +137,14 @@ void SMovementController::setStatusCallback(std::function<void(const SMovementSt
 void SMovementController::setSaveDirectory(const std::string& save_dir) {
     save_directory_ = save_dir;
     
-    // Create directory if it doesn't exist
     if (!save_directory_.empty() && !std::filesystem::exists(save_directory_)) {
         std::filesystem::create_directories(save_directory_);
-        std::cout << "SMovementController: Created save directory: " << save_directory_ << std::endl;
-    } else if (!save_directory_.empty() && std::filesystem::exists(save_directory_)) {
-        std::cout << "SMovementController: Save directory already exists: " << save_directory_ << std::endl;
+        SPDLOG_INFO("Created save directory: {}", save_directory_);
     }
+}
+
+void SMovementController::setPositionTolerance(double tolerance) {
+    if (tolerance > 0) position_tolerance_ = tolerance;
 }
 
 SMovementStatus SMovementController::getStatus() const {
@@ -186,10 +187,10 @@ std::vector<SMovementPoint> SMovementController::generateFixedPointSMovementPath
         double x_step = static_cast<double>(end_pos.x - start_pos.x) / (width - 1);
         double y_step = static_cast<double>(end_pos.y - start_pos.y) / (height - 1);
         
-        std::cout << "SMovementController: Grid size: " << width << "x" << height << std::endl;
-        std::cout << "SMovementController: Start position: (" << start_pos.x << ", " << start_pos.y << ")" << std::endl;
-        std::cout << "SMovementController: End position: (" << end_pos.x << ", " << end_pos.y << ")" << std::endl;
-        std::cout << "SMovementController: Step sizes: X=" << x_step << ", Y=" << y_step << std::endl;
+        SPDLOG_INFO("Grid size: {}x{}", width, height);
+        SPDLOG_INFO("Start position: ({}, {})", start_pos.x, start_pos.y);
+        SPDLOG_INFO("End position: ({}, {})", end_pos.x, end_pos.y);
+        SPDLOG_INFO("Step sizes: X={}, Y={}", x_step, y_step);
         
         // Generate grid points in S-curve order (zig-zag pattern)
         for (int y_idx = 0; y_idx < height; ++y_idx) {
@@ -208,14 +209,14 @@ std::vector<SMovementPoint> SMovementController::generateFixedPointSMovementPath
                 point.col = actual_x_idx;
                 
                 path.push_back(point);
-                std::cout << "SMovementController: Added point (" << point.x << ", " << point.y << ") at row " << point.row << ", col " << point.col << std::endl;
+                SPDLOG_DEBUG("Added point ({}, {}) at row {}, col {}", point.x, point.y, point.row, point.col);
             }
         }
         
-        std::cout << "SMovementController: Generated " << path.size() << " points for S-movement" << std::endl;
+        SPDLOG_INFO("Generated {} points for S-movement", path.size());
         
     } catch (const std::exception& e) {
-        std::cerr << "Error generating S-movement path: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error generating S-movement path: {}", e.what());
     }
     
     return path;
@@ -224,15 +225,15 @@ std::vector<SMovementPoint> SMovementController::generateFixedPointSMovementPath
 void SMovementController::movementThread() {
     try {
         updateAction("Starting movement");
-        std::cout << "SMovementController: Starting S-movement thread" << std::endl;
+        SPDLOG_INFO("Starting S-movement thread");
         
         // Set movement speed for all axes
         for (int axis = 0; axis < 5; ++axis) {
             try {
                 arm_controller_.setSpeed(axis, movement_speed_);
-                std::cout << "SMovementController: Set speed for axis " << axis << " to " << movement_speed_ << std::endl;
+                SPDLOG_INFO("Set speed for axis {} to {}", axis, movement_speed_.load());
             } catch (const std::exception& e) {
-                std::cerr << "SMovementController: Error setting speed for axis " << axis << ": " << e.what() << std::endl;
+                SPDLOG_ERROR("Error setting speed for axis {}: {}", axis, e.what());
             }
         }
         
@@ -240,7 +241,7 @@ void SMovementController::movementThread() {
         for (size_t i = 0; i < movement_path_.size() && !stop_requested_; ++i) {
             try {
                 if (stop_requested_) {
-                    std::cout << "SMovementController: Movement stopped by user" << std::endl;
+                    SPDLOG_DEBUG("Movement stopped by user");
                     break;
                 }
                 
@@ -259,7 +260,7 @@ void SMovementController::movementThread() {
                 updateAction("Moving");
                 
                 // 直接向机械臂发送固定点
-                std::cout << "SMovementController: Sending fixed point " << i + 1 << " to arm: (" << point.x << ", " << point.y << ", " << point.z << ")" << std::endl;
+                SPDLOG_DEBUG("Sending fixed point {} to arm: ({}, {}, {})", i + 1, point.x, point.y, point.z);
                 
                 // 并行移动X轴和Y轴
                 bool success_x = false, success_y = false, success_z = false, success_a = false, success_b = false;
@@ -270,22 +271,22 @@ void SMovementController::movementThread() {
                     success_a = arm_controller_.moveToPosition(3, point.a); // A轴是轴ID 3
                     success_b = arm_controller_.moveToPosition(4, point.b); // B轴是轴ID 4
                 } catch (const std::exception& e) {
-                    std::cerr << "SMovementController: Error sending movement commands: " << e.what() << std::endl;
+                    SPDLOG_ERROR("Error sending movement commands: {}", e.what());
                 }
                 
                 // 检查是否有轴移动失败
                 if (!success_x || !success_y || !success_z || !success_a || !success_b) {
-                    if (!success_x) std::cerr << "SMovementController: X axis movement failed" << std::endl;
-                    if (!success_y) std::cerr << "SMovementController: Y axis movement failed" << std::endl;
-                    if (!success_z) std::cerr << "SMovementController: Z axis movement failed" << std::endl;
-                    if (!success_a) std::cerr << "SMovementController: A axis movement failed" << std::endl;
-                    if (!success_b) std::cerr << "SMovementController: B axis movement failed" << std::endl;
+                    if (!success_x) SPDLOG_ERROR("X axis movement failed");
+                    if (!success_y) SPDLOG_ERROR("Y axis movement failed");
+                    if (!success_z) SPDLOG_ERROR("Z axis movement failed");
+                    if (!success_a) SPDLOG_ERROR("A axis movement failed");
+                    if (!success_b) SPDLOG_ERROR("B axis movement failed");
                     updateStatus("Failed to move to point " + std::to_string(i + 1) + ", skipping to next point");
-                    std::cerr << "SMovementController: Failed to move to point " << i + 1 << ", skipping to next point" << std::endl;
+                    SPDLOG_ERROR("Failed to move to point {}, skipping to next point", i + 1);
                     continue;
                 }
                 
-                std::cout << "SMovementController: All axis movement commands sent successfully" << std::endl;
+                SPDLOG_DEBUG("All axis movement commands sent successfully");
                 
                 // 等待机械臂到达目标位置
                 double max_wait_time = 5.0; // 最大等待时间5秒
@@ -296,14 +297,14 @@ void SMovementController::movementThread() {
                 while (std::chrono::duration<double>(std::chrono::steady_clock::now() - wait_start).count() < max_wait_time) {
                     // 首先检查是否已经被停止
                     if (stop_requested_) {
-                        std::cout << "SMovementController: Movement stopped by user" << std::endl;
+                        SPDLOG_DEBUG("Movement stopped by user");
                         arrived = false;
                         break;
                     }
                     
                     // 检查是否暂停
                     while (paused_ && !stop_requested_) {
-                        std::cout << "SMovementController: Movement paused" << std::endl;
+                        SPDLOG_DEBUG("Movement paused");
                         std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     }
                     if (stop_requested_) {
@@ -317,16 +318,16 @@ void SMovementController::movementThread() {
                         current_x = arm_controller_.readPosition(0);
                         current_y = arm_controller_.readPosition(1);
                     } catch (const std::exception& e) {
-                        std::cerr << "SMovementController: Error reading position: " << e.what() << std::endl;
+                        SPDLOG_ERROR("Error reading position: {}", e.what());
                         std::this_thread::sleep_for(std::chrono::milliseconds(50));
                         continue;
                     }
                     
                     // 检查位置是否在合理范围内
-                    const double tolerance = 50.0; // 位置容差
+                    const double tolerance = position_tolerance_;
                     if (std::abs(current_x - point.x) <= tolerance && std::abs(current_y - point.y) <= tolerance) {
                         arrived = true;
-                        std::cout << "SMovementController: Arm reached target position" << std::endl;
+                        SPDLOG_DEBUG("Arm reached target position");
                         break;
                     }
                     
@@ -362,7 +363,7 @@ void SMovementController::movementThread() {
                                     std::this_thread::sleep_for(std::chrono::milliseconds(20));
                                 }
                             } catch (const std::exception& e) {
-                                std::cerr << "SMovementController: Error capturing image: " << e.what() << std::endl;
+                                SPDLOG_ERROR("Error capturing image: {}", e.what());
                                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
                             }
                         } else {
@@ -389,7 +390,7 @@ void SMovementController::movementThread() {
                                         std::this_thread::sleep_for(std::chrono::milliseconds(20));
                                     }
                                 } catch (const std::exception& e) {
-                                    std::cerr << "SMovementController: Error saving image: " << e.what() << std::endl;
+                                    SPDLOG_ERROR("Error saving image: {}", e.what());
                                     std::this_thread::sleep_for(std::chrono::milliseconds(20));
                                 }
                             } else {
@@ -408,13 +409,13 @@ void SMovementController::movementThread() {
                     while (std::chrono::duration<double>(std::chrono::steady_clock::now() - stay_start).count() < 0.1) {
                         // 首先检查是否已经被停止
                         if (stop_requested_) {
-                            std::cout << "SMovementController: Movement stopped by user" << std::endl;
+                            SPDLOG_DEBUG("Movement stopped by user");
                             break;
                         }
                         
                         // 检查是否暂停
                         while (paused_ && !stop_requested_) {
-                            std::cout << "SMovementController: Movement paused" << std::endl;
+                            SPDLOG_DEBUG("Movement paused");
                             std::this_thread::sleep_for(std::chrono::milliseconds(50));
                         }
                         if (stop_requested_) {
@@ -427,15 +428,15 @@ void SMovementController::movementThread() {
                 
                 // 检查是否暂停
                 while (paused_ && !stop_requested_) {
-                    std::cout << "SMovementController: Movement paused" << std::endl;
+                    SPDLOG_DEBUG("Movement paused");
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 }
                 
                 // Wait before next move (minimized to 20ms)
-                std::cout << "SMovementController: Waiting 20ms before next move" << std::endl;
+                SPDLOG_DEBUG("Waiting 20ms before next move");
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
             } catch (const std::exception& e) {
-                std::cerr << "SMovementController: Error processing point " << i + 1 << ": " << e.what() << std::endl;
+                SPDLOG_ERROR("Error processing point {}: {}", i + 1, e.what());
                 updateStatus("Error processing point " + std::to_string(i + 1) + ", skipping to next point");
                 // 继续处理下一个点
                 continue;
@@ -444,21 +445,21 @@ void SMovementController::movementThread() {
         
         if (stop_requested_) {
             updateStatus("Movement stopped by user");
-            std::cout << "SMovementController: Movement stopped by user" << std::endl;
+            SPDLOG_INFO("Movement stopped by user");
         } else {
             updateStatus("Movement completed successfully");
-            std::cout << "SMovementController: Movement completed successfully" << std::endl;
-            std::cout << "SMovementController: Saved " << saved_images_count_ << " images out of " << movement_path_.size() << " points" << std::endl;
+            SPDLOG_INFO("Movement completed successfully");
+            SPDLOG_INFO("Saved {} images out of {} points", saved_images_count_, movement_path_.size());
         }
         
         updateAction("Idle");
         
     } catch (const std::exception& e) {
-        std::cerr << "Error in movement thread: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error in movement thread: {}", e.what());
         updateStatus(std::string("Movement error: ") + e.what());
         updateAction("Error");
     } catch (...) {
-        std::cerr << "Unknown error in movement thread" << std::endl;
+        SPDLOG_ERROR("Unknown error in movement thread");
         updateStatus("Unknown movement error");
         updateAction("Error");
     }
@@ -467,53 +468,56 @@ void SMovementController::movementThread() {
     running_ = false;
     current_status_.running = false;
     current_status_.paused = false;
-    std::cout << "SMovementController: Exiting movement thread" << std::endl;
+    SPDLOG_INFO("Exiting movement thread");
 }
 
 bool SMovementController::moveToPoint(const SMovementPoint& point) {
     try {
-        std::cout << "SMovementController: Moving to point (" << point.x << ", " << point.y << ", " << point.z << ")" << std::endl;
+        SPDLOG_INFO("Moving to point ({}, {}, {})", point.x, point.y, point.z);
         
         // 检查机械臂连接状态
         if (!arm_controller_.isConnected()) {
-            std::cerr << "SMovementController: Arm is not connected" << std::endl;
+            SPDLOG_ERROR("Arm is not connected");
             return false;
         }
         
         // 直接向机械臂发送固定点命令
-        std::cout << "SMovementController: Sending fixed position to arm" << std::endl;
+        SPDLOG_INFO("Sending fixed position to arm");
         
         // 按照顺序发送各轴位置命令
         // 先发送X轴
-        std::cout << "SMovementController: Sending X axis position: " << point.x << std::endl;
+        SPDLOG_INFO("Sending X axis position: {}", point.x);
         bool x_ok = arm_controller_.moveToPosition(0, point.x);
         
         // 再发送Y轴
-        std::cout << "SMovementController: Sending Y axis position: " << point.y << std::endl;
+        SPDLOG_INFO("Sending Y axis position: {}", point.y);
         bool y_ok = arm_controller_.moveToPosition(1, point.y);
         
         // 再发送Z轴
-        std::cout << "SMovementController: Sending Z axis position: " << point.z << std::endl;
+        SPDLOG_INFO("Sending Z axis position: {}", point.z);
         bool z_ok = arm_controller_.moveToPosition(2, point.z);
         
         // 再发送A轴
-        std::cout << "SMovementController: Sending A axis position: " << point.a << std::endl;
+        SPDLOG_INFO("Sending A axis position: {}", point.a);
         bool a_ok = arm_controller_.moveToPosition(3, point.a);
         
         // 最后发送B轴
-        std::cout << "SMovementController: Sending B axis position: " << point.b << std::endl;
+        SPDLOG_INFO("Sending B axis position: {}", point.b);
         bool b_ok = arm_controller_.moveToPosition(4, point.b);
         
         if (!x_ok || !y_ok || !z_ok || !a_ok || !b_ok) {
-            std::cerr << "SMovementController: Failed to send position to arm" << std::endl;
-            std::cerr << "SMovementController: X: " << (x_ok ? "OK" : "FAILED") << ", Y: " << (y_ok ? "OK" : "FAILED") << ", Z: " << (z_ok ? "OK" : "FAILED") << ", A: " << (a_ok ? "OK" : "FAILED") << ", B: " << (b_ok ? "OK" : "FAILED") << std::endl;
+            SPDLOG_ERROR("Failed to send position to arm");
+            SPDLOG_ERROR("X: {}, Y: {}, Z: {}, A: {}, B: {}",
+                x_ok ? "OK" : "FAILED", y_ok ? "OK" : "FAILED",
+                z_ok ? "OK" : "FAILED", a_ok ? "OK" : "FAILED",
+                b_ok ? "OK" : "FAILED");
             return false;
         }
         
-        std::cout << "SMovementController: All target positions sent successfully" << std::endl;
+        SPDLOG_INFO("All target positions sent successfully");
         
         // 最小化等待时间，确保机械臂到达目标位置
-        std::cout << "SMovementController: Waiting for arm to reach position..." << std::endl;
+        SPDLOG_INFO("Waiting for arm to reach position...");
         std::this_thread::sleep_for(std::chrono::milliseconds(200)); // 最小化等待时间，确保机械臂到达位置
         
         // 验证机械臂是否到达目标位置
@@ -523,45 +527,45 @@ bool SMovementController::moveToPoint(const SMovementPoint& point) {
         double current_a = arm_controller_.readPosition(3);
         double current_b = arm_controller_.readPosition(4);
         
-        std::cout << "SMovementController: Current position: (" << current_x << ", " << current_y << ", " << current_z << ", " << current_a << ", " << current_b << ")" << std::endl;
+        SPDLOG_INFO("Current position: ({}, {}, {}, {}, {})", current_x, current_y, current_z, current_a, current_b);
         
         // 检查位置是否在合理范围内
-        const double tolerance = 10.0; // 位置容差
+        const double tolerance = position_tolerance_;
         bool position_reached = true;
         
         if (std::abs(current_x - point.x) > tolerance) {
-            std::cerr << "SMovementController: X axis did not reach target position" << std::endl;
+            SPDLOG_ERROR("X axis did not reach target position");
             position_reached = false;
         }
         if (std::abs(current_y - point.y) > tolerance) {
-            std::cerr << "SMovementController: Y axis did not reach target position" << std::endl;
+            SPDLOG_ERROR("Y axis did not reach target position");
             position_reached = false;
         }
         if (std::abs(current_z - point.z) > tolerance) {
-            std::cerr << "SMovementController: Z axis did not reach target position" << std::endl;
+            SPDLOG_ERROR("Z axis did not reach target position");
             position_reached = false;
         }
         if (std::abs(current_a - point.a) > tolerance) {
-            std::cerr << "SMovementController: A axis did not reach target position" << std::endl;
+            SPDLOG_ERROR("A axis did not reach target position");
             position_reached = false;
         }
         if (std::abs(current_b - point.b) > tolerance) {
-            std::cerr << "SMovementController: B axis did not reach target position" << std::endl;
+            SPDLOG_ERROR("B axis did not reach target position");
             position_reached = false;
         }
         
         if (!position_reached) {
-            std::cerr << "SMovementController: Arm did not reach target position" << std::endl;
-            std::cerr << "SMovementController: Target: (" << point.x << ", " << point.y << ", " << point.z << ", " << point.a << ", " << point.b << ")" << std::endl;
-            std::cerr << "SMovementController: Current: (" << current_x << ", " << current_y << ", " << current_z << ", " << current_a << ", " << current_b << ")" << std::endl;
+            SPDLOG_ERROR("Arm did not reach target position");
+            SPDLOG_ERROR("Target: ({}, {}, {}, {}, {})", point.x, point.y, point.z, point.a, point.b);
+            SPDLOG_ERROR("Current: ({}, {}, {}, {}, {})", current_x, current_y, current_z, current_a, current_b);
             return false;
         }
         
-        std::cout << "SMovementController: Successfully moved to point" << std::endl;
+        SPDLOG_INFO("Successfully moved to point");
         return true;
         
     } catch (const std::exception& e) {
-        std::cerr << "Error moving to point: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error moving to point: {}", e.what());
         return false;
     }
 }
@@ -575,7 +579,7 @@ bool SMovementController::captureImageAtPosition() {
         cv::Mat frame;
         return image_capture_callback_(frame);
     } catch (const std::exception& e) {
-        std::cerr << "Error capturing image: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error capturing image: {}", e.what());
         return false;
     }
 }
@@ -590,7 +594,7 @@ bool SMovementController::saveCapturedImage(const cv::Mat& image, const SMovemen
         
         return image_save_callback_(image, save_directory_, point.row, point.col);
     } catch (const std::exception& e) {
-        std::cerr << "Error saving image: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error saving image: {}", e.what());
         return false;
     }
 }

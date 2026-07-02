@@ -37,11 +37,16 @@ AppController::~AppController() {
 }
 
 bool AppController::connectArm(const std::string& ip, int port) {
+    arm_controller_.setDebugEnabled(ConfigManager::instance().modbusDebug());
     bool ok = arm_controller_.connect(ip, port);
     if (ok) {
         int speed = ConfigManager::instance().defaultSpeed();
         for (int i = 0; i < 5; ++i) {
             arm_controller_.setSpeed(i, speed);
+            arm::AxisLimits limits;
+            limits.min_pos = ConfigManager::instance().axisMinPos(i);
+            limits.max_pos = ConfigManager::instance().axisMaxPos(i);
+            arm_controller_.setSafetyLimits(i, limits);
         }
         emit statusMessage(QString::fromStdString("Arm connected to " + ip));
     } else {
@@ -103,6 +108,7 @@ bool AppController::startSMovement(const cv::Size& gridSize, int stepSize, int z
     s_movement_controller_.setSaveDirectory(savePath);
     s_movement_controller_.setRunNumber(runNumber);
     s_movement_controller_.setMovementSpeed(cfg.defaultSpeed());
+    s_movement_controller_.setPositionTolerance(cfg.positionTolerance());
 
     arm::SMovementPoint startPos = {0, 0, zHeight, 0, 0, 0, 0};
     arm::SMovementPoint endPos = {endX, endY, zHeight, 0, 0,

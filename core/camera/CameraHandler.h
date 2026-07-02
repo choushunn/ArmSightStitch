@@ -94,6 +94,19 @@ public:
     float getExposure() const;
 
     /**
+     * @brief Enable or disable auto exposure
+     * @param enable true to enable, false to disable
+     * @return true if success, false otherwise
+     */
+    bool setAutoExposure(bool enable);
+
+    /**
+     * @brief Check if auto exposure is enabled
+     * @return true if auto exposure is enabled, false otherwise
+     */
+    bool getAutoExposure() const;
+
+    /**
      * @brief Set camera gain
      * @param gain Gain value
      * @return true if success, false otherwise

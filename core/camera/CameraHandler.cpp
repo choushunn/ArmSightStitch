@@ -1,6 +1,6 @@
 #include "CameraHandler.h"
 
-#include <iostream>
+#include <spdlog/spdlog.h>
 #include <thread>
 #include <chrono>
 #include <QString>
@@ -12,7 +12,7 @@ namespace camera {
 #define TDIBWIDTHBYTES(bits) ((DWORD)(((bits) + 31) & (~31)) / 8)
 
 CameraHandler::CameraHandler() {
-    std::cout << "CameraHandler: Constructor called" << std::endl;
+    SPDLOG_INFO("Constructor called");
     
     // Initialize status
     current_status_.connected = false;
@@ -25,7 +25,7 @@ CameraHandler::CameraHandler() {
     capturing_ = false;
     is_callback_active_ = false;
     
-    std::cout << "CameraHandler: Constructor completed" << std::endl;
+    SPDLOG_INFO("Constructor completed");
 }
 
 CameraHandler::~CameraHandler() {
@@ -33,19 +33,19 @@ CameraHandler::~CameraHandler() {
 }
 
 std::vector<CameraDevice> CameraHandler::enumerateCameras() {
-    std::cout << "CameraHandler: enumerateCameras called" << std::endl;
+    SPDLOG_DEBUG("enumerateCameras called");
     available_cameras_.clear();
     
     try {
-        std::cout << "CameraHandler: Creating devices array" << std::endl;
+        SPDLOG_DEBUG("Creating devices array");
         ToupcamDeviceV2 devices[TOUPCAM_MAX];
         
-        std::cout << "CameraHandler: Calling Toupcam_EnumV2..." << std::endl;
+        SPDLOG_DEBUG("Calling Toupcam_EnumV2...");
         unsigned count = Toupcam_EnumV2(devices);
-        std::cout << "CameraHandler: Toupcam_EnumV2 returned " << count << " cameras" << std::endl;
+        SPDLOG_DEBUG("Toupcam_EnumV2 returned {} cameras", count);
         
         for (unsigned i = 0; i < count; ++i) {
-            std::cout << "CameraHandler: Processing camera " << i << "..." << std::endl;
+            SPDLOG_DEBUG("Processing camera {}...", i);
             CameraDevice device;
             #if defined(_WIN32)
             device.id = QString::fromWCharArray(devices[i].id).toStdString();
@@ -59,16 +59,16 @@ std::vector<CameraDevice> CameraHandler::enumerateCameras() {
             device.width = devices[i].model->res[0].width;
             device.height = devices[i].model->res[0].height;
             
-            std::cout << "CameraHandler: Camera " << i << ": ID=" << device.id << ", Name=" << device.display_name << ", Model=" << device.model_name << std::endl;
+            SPDLOG_DEBUG("Camera {}: ID={}, Name={}, Model={}", i, device.id, device.display_name, device.model_name);
             available_cameras_.push_back(device);
         }
     } catch (const std::exception& e) {
-        std::cerr << "Error enumerating cameras: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error enumerating cameras: {}", e.what());
     } catch (...) {
-        std::cerr << "Unknown error enumerating cameras" << std::endl;
+        SPDLOG_ERROR("Unknown error enumerating cameras");
     }
     
-    std::cout << "CameraHandler: enumerateCameras completed, found " << available_cameras_.size() << " cameras" << std::endl;
+    SPDLOG_DEBUG("enumerateCameras completed, found {} cameras", available_cameras_.size());
     return available_cameras_;
 }
 
@@ -77,7 +77,7 @@ bool CameraHandler::connect(const std::string& device_id) {
     
     try {
         // 参考项目使用索引打开相机，忽略device_id参数
-        std::cout << "CameraHandler: Attempting to open camera by index 0" << std::endl;
+        SPDLOG_INFO("Attempting to open camera by index 0");
         hcam_ = Toupcam_OpenByIndex(0);
         
         if (!hcam_) {
@@ -97,19 +97,19 @@ bool CameraHandler::connect(const std::string& device_id) {
             image_height_ = 1080;
         }
         
-        std::cout << "CameraHandler: Camera resolution: " << image_width_ << "x" << image_height_ << std::endl;
+        SPDLOG_INFO("Camera resolution: {}x{}", image_width_, image_height_);
         
         // 参考项目使用TDIBWIDTHBYTES计算缓冲区大小
         buffer_size_ = TDIBWIDTHBYTES(image_width_ * 24) * image_height_;
-        std::cout << "CameraHandler: Buffer size: " << buffer_size_ << std::endl;
+        SPDLOG_DEBUG("Buffer size: {}", buffer_size_);
         image_buffer_.resize(buffer_size_);
         
         // 参考项目设置字节序为RGB
-        std::cout << "CameraHandler: Setting byte order to RGB" << std::endl;
+        SPDLOG_DEBUG("Setting byte order to RGB");
         Toupcam_put_Option(hcam_, TOUPCAM_OPTION_BYTEORDER, 0);
         
         // 参考项目启用自动曝光
-        std::cout << "CameraHandler: Enabling auto exposure" << std::endl;
+        SPDLOG_DEBUG("Enabling auto exposure");
         Toupcam_put_AutoExpoEnable(hcam_, 1);
         
         connected_ = true;
@@ -119,7 +119,7 @@ bool CameraHandler::connect(const std::string& device_id) {
         
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "Error connecting to camera: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error connecting to camera: {}", e.what());
         updateStatus(false, std::string("Connection error: ") + e.what());
         return false;
     }
@@ -141,49 +141,49 @@ void CameraHandler::disconnect() {
 }
 
 bool CameraHandler::startCapture() {
-    std::cout << "CameraHandler: startCapture called" << std::endl;
+    SPDLOG_DEBUG("startCapture called");
     
     if (!connected_) {
-        std::cout << "CameraHandler: startCapture failed - camera not connected" << std::endl;
+        SPDLOG_DEBUG("startCapture failed - camera not connected");
         return false;
     }
     
     try {
         // If already capturing, return true
         if (capturing_) {
-            std::cout << "CameraHandler: startCapture skipped - already capturing" << std::endl;
+            SPDLOG_DEBUG("startCapture skipped - already capturing");
             return true;
         }
         
         // Start pull mode with callback
-        std::cout << "CameraHandler: Starting pull mode with callback" << std::endl;
+        SPDLOG_DEBUG("Starting pull mode with callback");
         HRESULT result = Toupcam_StartPullModeWithCallback(hcam_, reinterpret_cast<PTOUPCAM_EVENT_CALLBACK>(cameraCallback), this);
         if (FAILED(result)) {
-            std::cerr << "CameraHandler: Failed to start pull mode, HRESULT: " << result << std::endl;
+            SPDLOG_ERROR("Failed to start pull mode, HRESULT: {}", result);
             updateStatus(false, "Failed to start capture");
             return false;
         }
         
-        std::cout << "CameraHandler: Pull mode started successfully" << std::endl;
+        SPDLOG_DEBUG("Pull mode started successfully");
         
         capturing_ = true;
         is_callback_active_ = true;
         
         updateStatus(true, "Capture started");
-        std::cout << "CameraHandler: startCapture completed successfully" << std::endl;
+        SPDLOG_DEBUG("startCapture completed successfully");
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "Error starting capture: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error starting capture: {}", e.what());
         updateStatus(false, std::string("Failed to start capture: ") + e.what());
         return false;
     }
 }
 
 void CameraHandler::stopCapture() {
-    std::cout << "CameraHandler: stopCapture called" << std::endl;
+    SPDLOG_DEBUG("stopCapture called");
     
     if (!capturing_) {
-        std::cout << "CameraHandler: stopCapture skipped - not capturing" << std::endl;
+        SPDLOG_DEBUG("stopCapture skipped - not capturing");
         return;
     }
     
@@ -191,12 +191,12 @@ void CameraHandler::stopCapture() {
     is_callback_active_ = false;
     
     if (hcam_) {
-        std::cout << "CameraHandler: Stopping camera" << std::endl;
+        SPDLOG_DEBUG("Stopping camera");
         Toupcam_Stop(hcam_);
     }
     
     updateStatus(true, "Capture stopped");
-    std::cout << "CameraHandler: stopCapture completed" << std::endl;
+    SPDLOG_DEBUG("stopCapture completed");
 }
 
 bool CameraHandler::captureSingleFrame(cv::Mat& frame) {
@@ -274,7 +274,7 @@ bool CameraHandler::setExposure(float exposure) {
         }
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "Error setting exposure: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error setting exposure: {}", e.what());
         return false;
     }
 }
@@ -291,8 +291,41 @@ float CameraHandler::getExposure() const {
         }
         return 0.0f;
     } catch (const std::exception& e) {
-        std::cerr << "Error getting exposure: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error getting exposure: {}", e.what());
         return 0.0f;
+    }
+}
+
+bool CameraHandler::setAutoExposure(bool enable) {
+    if (!connected_) {
+        return false;
+    }
+
+    try {
+        if (FAILED(Toupcam_put_AutoExpoEnable(hcam_, enable ? 1 : 0))) {
+            return false;
+        }
+        return true;
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("Error setting auto exposure: {}", e.what());
+        return false;
+    }
+}
+
+bool CameraHandler::getAutoExposure() const {
+    if (!connected_) {
+        return false;
+    }
+
+    try {
+        int mode = 0;
+        if (SUCCEEDED(Toupcam_get_AutoExpoEnable(hcam_, &mode))) {
+            return mode != 0;
+        }
+        return false;
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("Error getting auto exposure: {}", e.what());
+        return false;
     }
 }
 
@@ -308,7 +341,7 @@ bool CameraHandler::setGain(float gain) {
         }
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "Error setting gain: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error setting gain: {}", e.what());
         return false;
     }
 }
@@ -325,7 +358,7 @@ float CameraHandler::getGain() const {
         }
         return 0.0f;
     } catch (const std::exception& e) {
-        std::cerr << "Error getting gain: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error getting gain: {}", e.what());
         return 0.0f;
     }
 }
@@ -356,7 +389,7 @@ bool CameraHandler::setResolution(int width, int height) {
         
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "Error setting resolution: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error setting resolution: {}", e.what());
         return false;
     }
 }
@@ -375,24 +408,24 @@ void __stdcall CameraHandler::cameraCallback(unsigned nEvent, void* ctx) {
     // Process camera events
     switch (nEvent) {
         case TOUPCAM_EVENT_IMAGE:
-            std::cout << "CameraHandler: Received TOUPCAM_EVENT_IMAGE event" << std::endl;
+            SPDLOG_DEBUG("Received TOUPCAM_EVENT_IMAGE event");
             break; // Handled by pullImage thread
         case TOUPCAM_EVENT_EXPOSURE:
-            std::cout << "CameraHandler: Received TOUPCAM_EVENT_EXPOSURE event" << std::endl;
+            SPDLOG_DEBUG("Received TOUPCAM_EVENT_EXPOSURE event");
             break;
         case TOUPCAM_EVENT_ERROR:
-            std::cout << "CameraHandler: Received TOUPCAM_EVENT_ERROR event" << std::endl;
+            SPDLOG_ERROR("Received TOUPCAM_EVENT_ERROR event");
             handler->updateStatus(false, "Camera error");
             break;
         case TOUPCAM_EVENT_STILLIMAGE:
-            std::cout << "CameraHandler: Received TOUPCAM_EVENT_STILLIMAGE event" << std::endl;
+            SPDLOG_DEBUG("Received TOUPCAM_EVENT_STILLIMAGE event");
             break;
         case TOUPCAM_EVENT_DISCONNECTED:
-            std::cout << "CameraHandler: Received TOUPCAM_EVENT_DISCONNECTED event" << std::endl;
+            SPDLOG_DEBUG("Received TOUPCAM_EVENT_DISCONNECTED event");
             handler->updateStatus(false, "Camera disconnected");
             break;
         default:
-            std::cout << "CameraHandler: Received unknown event: " << nEvent << std::endl;
+            SPDLOG_DEBUG("Received unknown event: {}", nEvent);
             break;
     }
 }

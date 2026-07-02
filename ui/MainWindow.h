@@ -2,9 +2,11 @@
 
 #include <QMainWindow>
 #include <QLabel>
-#include <QButtonGroup>
+#include <QPushButton>
+#include <QStackedWidget>
 #include <QFuture>
 #include <QTimer>
+#include <QTextEdit>
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrent>
 #include <opencv2/opencv.hpp>
@@ -53,31 +55,58 @@ private slots:
     // Timer / Callbacks
     void updateCameraImage();
     void onStitchingFinished();
+    void onDetectionFinished();
+    void onArmConnectFinished();
+    void onArmMoveFinished();
     void onArmStatusChanged(const arm::ArmStatus& status);
     void onMovementStatus(const arm::SMovementStatus& status);
 
     // Grid click
     void on_topCellsTable_cellClicked(int row, int column);
-    void on_bottomCellClicked(int id);
+
+    // Menu navigation
+    void onMenuButtonClicked(int id);
 
 private:
-    void setupUI();
+    void setupMenuNavigation();
     void connectSignals();
     void initGridTables();
     void displayImage(const cv::Mat& image, QLabel* label);
+    void displayImageFullQuality(const cv::Mat& image, QLabel* label, QPixmap& storage);
     QImage cvMatToQImage(const cv::Mat& mat);
+    void appendLog(const QString& msg, const QString& level = "INFO");
+    void showImageFullscreen(const QPixmap& pixmap);
+
+    bool eventFilter(QObject* obj, QEvent* event) override;
 
     AppController& ctrl_;
     Ui::MainWindow* ui_;
-    QButtonGroup* bottom_cells_group_;
+
+    // Log panel
+    QTextEdit* status_log_edit_;
 
     // State
     std::map<std::pair<int, int>, std::string> s_movement_images_;
     cv::Mat current_image_, stitched_result_;
+    QPixmap stitched_pixmap_, detected_pixmap_;
+    QLabel* fullscreen_dlg_ = nullptr;
     bool model_loaded_ = false;
     bool image_detection_enabled_ = true;
 
     QTimer* camera_update_timer_;
     QFuture<cv::Mat> stitching_future_;
     QFutureWatcher<cv::Mat> stitching_watcher_;
+
+    struct DetectionResult {
+        cv::Mat frame;
+        std::vector<detector::Detection> detections;
+    };
+    QFuture<DetectionResult> detection_future_;
+    QFutureWatcher<DetectionResult> detection_watcher_;
+    std::atomic<bool> detection_busy_{false};
+
+    QFuture<bool> arm_connect_future_;
+    QFutureWatcher<bool> arm_connect_watcher_;
+    QFuture<void> arm_move_future_;
+    QFutureWatcher<void> arm_move_watcher_;
 };

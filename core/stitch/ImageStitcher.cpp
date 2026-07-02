@@ -3,7 +3,7 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <filesystem>
-#include <iostream>
+#include <spdlog/spdlog.h>
 #include <regex>
 #include <algorithm>
 
@@ -48,7 +48,7 @@ bool ImageStitcher::stitchImagesFromDirectory(const std::string& input_dir,
         updateStatus("Stitching completed successfully");
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "Error stitching images from directory: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error stitching images from directory: {}", e.what());
         updateStatus(std::string("Stitching error: ") + e.what());
         return false;
     }
@@ -58,22 +58,22 @@ cv::Mat ImageStitcher::stitchImages(const std::vector<cv::Mat>& images,
                                    const cv::Size& grid_size) {
     if (images.empty()) {
         std::string log_msg = "No images to stitch";
-        std::cerr << "ImageStitcher: " << log_msg << std::endl;
+        SPDLOG_ERROR("{}", log_msg);
         updateStatus(log_msg);
         return cv::Mat();
     }
 
     try {
+        SPDLOG_INFO("Stitching {} images with grid size {}x{}", images.size(), grid_size.width, grid_size.height);
         std::string log_msg = "Stitching " + std::to_string(images.size()) + " images with grid size " +
                             std::to_string(grid_size.width) + "x" + std::to_string(grid_size.height);
-        std::cerr << "ImageStitcher: " << log_msg << std::endl;
         updateStatus(log_msg);
         updateProgress(0, 100);
 
         int expected_images = grid_size.width * grid_size.height;
         if (static_cast<int>(images.size()) < expected_images) {
+            SPDLOG_ERROR("Not enough images. Expected {}, got {}", expected_images, images.size());
             log_msg = "Not enough images. Expected " + std::to_string(expected_images) + ", got " + std::to_string(images.size());
-            std::cerr << "ImageStitcher: " << log_msg << std::endl;
             updateStatus(log_msg);
             updateProgress(100, 100);
             return cv::Mat();
@@ -83,8 +83,8 @@ cv::Mat ImageStitcher::stitchImages(const std::vector<cv::Mat>& images,
         int total_width = grid_size.width * img_size.width;
         int total_height = grid_size.height * img_size.height;
 
+        SPDLOG_INFO("Creating stitched image with size {}x{}", total_width, total_height);
         log_msg = "Creating stitched image with size " + std::to_string(total_width) + "x" + std::to_string(total_height);
-        std::cerr << "ImageStitcher: " << log_msg << std::endl;
         updateStatus(log_msg);
         updateProgress(20, 100);
 
@@ -123,13 +123,13 @@ cv::Mat ImageStitcher::stitchImages(const std::vector<cv::Mat>& images,
         updateProgress(100, 100);
 
         log_msg = "Stitching completed successfully";
-        std::cerr << "ImageStitcher: " << log_msg << std::endl;
+        SPDLOG_INFO("{}", log_msg);
         updateStatus(log_msg);
 
         return result;
     } catch (const std::exception& e) {
+        SPDLOG_ERROR("Error stitching images: {}", e.what());
         std::string log_msg = "Error stitching images: " + std::string(e.what());
-        std::cerr << "ImageStitcher: " << log_msg << std::endl;
         updateStatus(log_msg);
         updateProgress(100, 100);
         return cv::Mat();
@@ -153,7 +153,7 @@ std::vector<cv::Mat> ImageStitcher::loadImagesFromDirectory(const std::string& i
 
     try {
         if (!std::filesystem::exists(input_dir)) {
-            std::cerr << "Directory does not exist: " << input_dir << std::endl;
+            SPDLOG_ERROR("Directory does not exist: {}", input_dir);
             return images;
         }
 
@@ -181,7 +181,7 @@ std::vector<cv::Mat> ImageStitcher::loadImagesFromDirectory(const std::string& i
             }
         }
     } catch (const std::exception& e) {
-        std::cerr << "Error loading images from directory: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error loading images from directory: {}", e.what());
     }
 
     return images;
@@ -226,7 +226,7 @@ std::vector<cv::Mat> ImageStitcher::sortImagesInSCurveOrder(const std::vector<cv
             }
         }
     } catch (const std::exception& e) {
-        std::cerr << "Error sorting images in S-curve order: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error sorting images in S-curve order: {}", e.what());
     }
 
     return sorted_images;
@@ -243,7 +243,7 @@ bool ImageStitcher::saveStitchedImage(const cv::Mat& image, const std::string& o
         }
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "Error saving stitched image: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error saving stitched image: {}", e.what());
         return false;
     }
 }
