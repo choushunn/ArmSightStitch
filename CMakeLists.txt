@@ -247,9 +247,6 @@ if(WINDEPLOYQT_EXECUTABLE)
             "${MINGW_BIN_DIR}/libstdc++-6.dll"       $<TARGET_FILE_DIR:${PROJECT_NAME}>
             "${MINGW_BIN_DIR}/libwinpthread-1.dll"   $<TARGET_FILE_DIR:${PROJECT_NAME}>
             "${MINGW_BIN_DIR}/libgomp-1.dll"         $<TARGET_FILE_DIR:${PROJECT_NAME}>
-        COMMAND ${CMAKE_COMMAND} -E echo "=== Step 2a: Copying libtiff runtime DLL ==="
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "C:/Programs/miniforge3/Library/bin/tiff.dll" $<TARGET_FILE_DIR:${PROJECT_NAME}>
         COMMAND ${CMAKE_COMMAND} -E echo "=== Step 3: Clean up unnecessary files ==="
         COMMAND ${CMAKE_COMMAND} -E rm -f
             $<TARGET_FILE_DIR:${PROJECT_NAME}>/opengl32sw.dll

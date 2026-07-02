@@ -203,6 +203,15 @@ void MainWindow::connectSignals() {
         ctrl_.cameraHandler().setRotation(degrees);
     });
 
+    // ---- 相机分辨率控制 ----
+    connect(ui_->resolutionCombo, &QComboBox::currentIndexChanged, this, [this](int idx) {
+        if (idx < 0) return;
+        QVariant data = ui_->resolutionCombo->currentData();
+        if (!data.isValid()) return;
+        QSize res = data.toSize();
+        ctrl_.cameraHandler().setResolution(res.width(), res.height());
+    });
+
     // ---- Quick toolbar ----
     connect(ui_->quickCaptureBtn, &QPushButton::clicked, this, &MainWindow::on_captureImage);
     connect(ui_->quickScanBtn, &QPushButton::clicked, this, &MainWindow::on_toggleStartStopSMovement);
@@ -354,6 +363,24 @@ void MainWindow::on_connectCamera() {
         int rot = ctrl_.cameraHandler().getRotation();
         ui_->rotationCombo->setCurrentIndex(rot / 90);
         ui_->rotationCombo->setEnabled(true);
+
+        // Populate resolution combo from camera's supported resolutions
+        auto* res_combo = ui_->resolutionCombo;
+        res_combo->clear();
+        res_combo->setEnabled(true);
+        auto resolutions = ctrl_.cameraHandler().getSupportedResolutions();
+        int cur_w = 0, cur_h = 0;
+        ctrl_.cameraHandler().getResolution(cur_w, cur_h);
+        int select_idx = 0;
+        for (size_t i = 0; i < resolutions.size(); ++i) {
+            auto [w, h] = resolutions[i];
+            QString label = QString("%1x%2").arg(w).arg(h);
+            res_combo->addItem(label, QVariant(QSize(w, h)));
+            if (w == cur_w && h == cur_h) {
+                select_idx = static_cast<int>(i);
+            }
+        }
+        res_combo->setCurrentIndex(select_idx);
     }
 }
 
@@ -370,6 +397,7 @@ void MainWindow::on_disconnectCamera() {
     ui_->exposureSlider->setEnabled(false);
     ui_->exposureValueLabel->setEnabled(false);
     ui_->rotationCombo->setEnabled(false);
+    ui_->resolutionCombo->setEnabled(false);
 }
 
 void MainWindow::on_enumerateCameras() {

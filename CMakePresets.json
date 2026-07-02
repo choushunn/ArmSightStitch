@@ -15,7 +15,7 @@
         "PATH": "C:/Programs/Qt/Tools/mingw1310_64/bin;C:/Programs/Qt/Tools/Ninja;$penv{PATH}"
       },
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_MANIFEST_MODE": "ON",
         "VCPKG_TARGET_TRIPLET": "x64-mingw-static",
