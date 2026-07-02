@@ -94,6 +94,20 @@ public:
     float getExposure() const;
 
     /**
+     * @brief Get actual exposure time from the camera hardware
+     * @return actual exposure time in milliseconds
+     */
+    float getRealExposure() const;
+
+    /**
+     * @brief Get the camera's valid exposure time range
+     * @param min_ms output minimum exposure in ms
+     * @param max_ms output maximum exposure in ms
+     * @param def_ms output default exposure in ms
+     */
+    void getExposureRange(float& min_ms, float& max_ms, float& def_ms) const;
+
+    /**
      * @brief Enable or disable auto exposure
      * @param enable true to enable, false to disable
      * @return true if success, false otherwise
@@ -105,6 +119,19 @@ public:
      * @return true if auto exposure is enabled, false otherwise
      */
     bool getAutoExposure() const;
+
+    /**
+     * @brief Set camera rotation angle
+     * @param degrees Rotation angle (0, 90, 180, 270)
+     * @return true if success, false otherwise
+     */
+    bool setRotation(int degrees);
+
+    /**
+     * @brief Get current camera rotation
+     * @return Rotation angle in degrees (0, 90, 180, 270)
+     */
+    int getRotation() const;
 
     /**
      * @brief Set camera gain
@@ -133,6 +160,12 @@ public:
      * @param height Output height in pixels
      */
     void getResolution(int& width, int& height) const;
+
+    /**
+     * @brief Get list of all supported resolutions from the camera
+     * @return vector of (width, height) pairs
+     */
+    std::vector<std::pair<int, int>> getSupportedResolutions() const;
 
 private:
     /**

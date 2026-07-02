@@ -106,7 +106,7 @@
          <string>图像保存路径</string>
         </property>
         <property name="text">
-         <string notr="true">./images</string>
+         <string notr="true">./captured_images</string>
         </property>
        </widget>
       </item>

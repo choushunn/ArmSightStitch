@@ -74,6 +74,7 @@ private:
     void displayImage(const cv::Mat& image, QLabel* label);
     void displayImageFullQuality(const cv::Mat& image, QLabel* label, QPixmap& storage);
     QImage cvMatToQImage(const cv::Mat& mat);
+    void addCameraOverlay(cv::Mat& image);
     void appendLog(const QString& msg, const QString& level = "INFO");
     void showImageFullscreen(const QPixmap& pixmap);
 
@@ -104,6 +105,11 @@ private:
     QFuture<DetectionResult> detection_future_;
     QFutureWatcher<DetectionResult> detection_watcher_;
     std::atomic<bool> detection_busy_{false};
+
+    // FPS tracking for camera overlay
+    qint64 last_fps_timestamp_ = 0;
+    int fps_frame_count_ = 0;
+    float current_fps_ = 0.0f;
 
     QFuture<bool> arm_connect_future_;
     QFutureWatcher<bool> arm_connect_watcher_;

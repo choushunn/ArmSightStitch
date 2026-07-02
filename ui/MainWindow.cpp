@@ -12,6 +12,7 @@
 #include <QMessageBox>
 #include <QStatusBar>
 #include <QHeaderView>
+#include <QDateTime>
 #include <QTimer>
 #include <QDir>
 #include <QDialog>
@@ -31,7 +32,7 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     ui_->setupUi(this);
 
     // Main splitter ratio: sidebar (1) : work area (5.4)
-    ui_->mainSplitter->setStretchFactor(0, 8);
+    ui_->mainSplitter->setStretchFactor(0, 10);
     ui_->mainSplitter->setStretchFactor(1, 27);
 
     // Work splitter ratio: table (2) : right preview (1)
@@ -175,10 +176,31 @@ void MainWindow::connectSignals() {
     connect(ui_->autoExposureCheck, &QCheckBox::checkStateChanged, this, [this](Qt::CheckState s) {
         bool auto_on = (s == Qt::Checked);
         ctrl_.cameraHandler().setAutoExposure(auto_on);
-        ui_->exposureTimeSpin->setEnabled(!auto_on);
+        ui_->exposureSlider->setEnabled(!auto_on);
+        ui_->exposureValueLabel->setEnabled(!auto_on);
+        if (auto_on) {
+            // When switching to auto, immediately sync real exposure value from camera hardware
+            float expo = ctrl_.cameraHandler().getRealExposure();
+            int slider_val = qBound(ui_->exposureSlider->minimum(),
+                                    static_cast<int>(expo * 100.0f),
+                                    ui_->exposureSlider->maximum());
+            ui_->exposureSlider->setValue(slider_val);
+            ui_->exposureValueLabel->setText(QString::number(expo, 'f', 2) + " ms");
+        }
     });
-    connect(ui_->exposureTimeSpin, &QDoubleSpinBox::valueChanged, this, [this](double val) {
-        ctrl_.cameraHandler().setExposure(static_cast<float>(val));
+    connect(ui_->exposureSlider, &QSlider::valueChanged, this, [this](int val) {
+        float exposure = static_cast<float>(val) / 100.0f;
+        ui_->exposureValueLabel->setText(QString::number(exposure, 'f', 2) + " ms");
+        // Only apply to camera when not in auto-exposure mode, to avoid overriding auto exposure
+        if (!ctrl_.cameraHandler().getAutoExposure()) {
+            ctrl_.cameraHandler().setExposure(exposure);
+        }
+    });
+
+    // ---- 相机旋转控制 ----
+    connect(ui_->rotationCombo, &QComboBox::currentIndexChanged, this, [this](int idx) {
+        int degrees = idx * 90;
+        ctrl_.cameraHandler().setRotation(degrees);
     });
 
     // ---- Quick toolbar ----
@@ -309,11 +331,29 @@ void MainWindow::on_connectCamera() {
         // Sync exposure UI state from camera
         bool auto_on = ctrl_.cameraHandler().getAutoExposure();
         ui_->autoExposureCheck->setChecked(auto_on);
-        ui_->exposureTimeSpin->setEnabled(!auto_on);
-        float expo = ctrl_.cameraHandler().getExposure();
-        ui_->exposureTimeSpin->setValue(expo);
+        auto& slider = ui_->exposureSlider;
+        auto& label = ui_->exposureValueLabel;
+
+        // Configure slider range from camera's actual exposure range (SDK: Toupcam_get_ExpTimeRange)
+        float expo_min_ms = 0.01f, expo_max_ms = 100.0f, expo_def_ms = 10.0f;
+        ctrl_.cameraHandler().getExposureRange(expo_min_ms, expo_max_ms, expo_def_ms);
+        slider->setMinimum(qMax(1, static_cast<int>(expo_min_ms * 100.0f)));
+        slider->setMaximum(static_cast<int>(expo_max_ms * 100.0f));
+
+        // Set current value from camera (use RealExpoTime for actual hardware value)
+        float expo = auto_on ? ctrl_.cameraHandler().getRealExposure()
+                             : ctrl_.cameraHandler().getExposure();
+        int slider_val = qBound(slider->minimum(), static_cast<int>(expo * 100.0f), slider->maximum());
+        slider->setValue(slider_val);
+        label->setText(QString::number(expo, 'f', 2) + " ms");
+        slider->setEnabled(!auto_on);
+        label->setEnabled(!auto_on);
         ui_->autoExposureCheck->setEnabled(true);
-        ui_->exposureTimeSpin->setEnabled(true);
+
+        // Sync rotation state from camera
+        int rot = ctrl_.cameraHandler().getRotation();
+        ui_->rotationCombo->setCurrentIndex(rot / 90);
+        ui_->rotationCombo->setEnabled(true);
     }
 }
 
@@ -327,7 +367,9 @@ void MainWindow::on_disconnectCamera() {
     ui_->cameraImageLabel->setPixmap({});
     ui_->statusLabel->setText("相机已断开");
     ui_->autoExposureCheck->setEnabled(false);
-    ui_->exposureTimeSpin->setEnabled(false);
+    ui_->exposureSlider->setEnabled(false);
+    ui_->exposureValueLabel->setEnabled(false);
+    ui_->rotationCombo->setEnabled(false);
 }
 
 void MainWindow::on_enumerateCameras() {
@@ -577,8 +619,33 @@ void MainWindow::updateCameraImage() {
     cv::Mat frame;
     if (ctrl_.captureImage(frame)) {
         current_image_ = frame;
+
+        // Calculate FPS
+        fps_frame_count_++;
+        qint64 now = QDateTime::currentMSecsSinceEpoch();
+        if (now - last_fps_timestamp_ >= 1000) {
+            current_fps_ = fps_frame_count_ * 1000.0f / (now - last_fps_timestamp_);
+            fps_frame_count_ = 0;
+            last_fps_timestamp_ = now;
+        }
+        if (last_fps_timestamp_ == 0) {
+            last_fps_timestamp_ = now;
+        }
+
+        // When auto exposure is on, sync slider and label with camera's actual hardware value
+        if (ctrl_.cameraHandler().getAutoExposure()) {
+            float expo = ctrl_.cameraHandler().getRealExposure();
+            int slider_val = qBound(ui_->exposureSlider->minimum(),
+                                    static_cast<int>(expo * 100.0f),
+                                    ui_->exposureSlider->maximum());
+            ui_->exposureSlider->setValue(slider_val);
+            ui_->exposureValueLabel->setText(QString::number(expo, 'f', 2) + " ms");
+        }
+
         if (image_detection_enabled_ && model_loaded_ && !detection_busy_) {
             detection_busy_ = true;
+            cv::Mat frame_with_overlay = frame.clone();
+            addCameraOverlay(frame_with_overlay);
             auto* ctrl = &ctrl_;
             detection_future_ = QtConcurrent::run([ctrl, frame]() -> DetectionResult {
                 DetectionResult result;
@@ -587,7 +654,9 @@ void MainWindow::updateCameraImage() {
                 return result;
             });
             detection_watcher_.setFuture(detection_future_);
+            displayImage(frame_with_overlay, ui_->cameraImageLabel);
         } else if (!image_detection_enabled_ || !model_loaded_) {
+            addCameraOverlay(frame);
             displayImage(frame, ui_->cameraImageLabel);
         }
     }
@@ -669,6 +738,48 @@ QImage MainWindow::cvMatToQImage(const cv::Mat& mat) {
     cv::Mat rgb;
     mat.convertTo(rgb, CV_8UC3);
     return QImage(rgb.data, rgb.cols, rgb.rows, rgb.step, QImage::Format_RGB888).rgbSwapped();
+}
+
+void MainWindow::addCameraOverlay(cv::Mat& image) {
+    if (image.empty()) return;
+
+    auto status = ctrl_.cameraHandler().getStatus();
+    int rot = ctrl_.cameraHandler().getRotation();
+
+    // Line 1: resolution | rotation
+    std::string line1 = std::to_string(status.width) + "x" + std::to_string(status.height)
+                     + " | " + std::to_string(rot) + "°";
+    // Line 2: FPS
+    std::string line2 = std::to_string(static_cast<int>(current_fps_)) + " FPS";
+
+    int font = cv::FONT_HERSHEY_SIMPLEX;
+    double scale = 0.7;          // much bigger than 0.45
+    cv::Scalar color(0, 0, 0);       // black text
+    cv::Scalar bg(255, 255, 255);    // white background
+    int thickness = 2;
+    int baseline = 0;
+
+    cv::Size size1 = cv::getTextSize(line1, font, scale, thickness, &baseline);
+    cv::Size size2 = cv::getTextSize(line2, font, scale, thickness, &baseline);
+
+    int margin = 10;
+    int line_gap = 6;
+    int bg_pad = 4;
+
+    // Background rectangle covering both lines
+    int bg_w = std::max(size1.width, size2.width) + bg_pad * 2;
+    int bg_h = size1.height + size2.height + line_gap + bg_pad * 2;
+    cv::Point bg_tl(margin, image.rows - margin - bg_h);
+    cv::Point bg_br(margin + bg_w, image.rows - margin);
+    cv::rectangle(image, bg_tl, bg_br, bg, -1);
+
+    // Line 1: resolution | rotation
+    cv::Point origin1(margin + bg_pad, image.rows - margin - bg_h + size1.height + bg_pad);
+    cv::putText(image, line1, origin1, font, scale, color, thickness);
+
+    // Line 2: FPS
+    cv::Point origin2(margin + bg_pad, origin1.y + size1.height + line_gap);
+    cv::putText(image, line2, origin2, font, scale, color, thickness);
 }
 
 void MainWindow::displayImageFullQuality(const cv::Mat& image, QLabel* label, QPixmap& storage) {

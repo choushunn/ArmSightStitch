@@ -296,6 +296,46 @@ float CameraHandler::getExposure() const {
     }
 }
 
+float CameraHandler::getRealExposure() const {
+    if (!connected_) {
+        return 0.0f;
+    }
+
+    try {
+        unsigned exposure_us = 0;
+        if (SUCCEEDED(Toupcam_get_RealExpoTime(hcam_, &exposure_us))) {
+            return static_cast<float>(exposure_us) / 1000.0f; // Convert us to ms
+        }
+        return 0.0f;
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("Error getting real exposure: {}", e.what());
+        return 0.0f;
+    }
+}
+
+void CameraHandler::getExposureRange(float& min_ms, float& max_ms, float& def_ms) const {
+    if (!connected_) {
+        min_ms = 0.01f;
+        max_ms = 100.0f;
+        def_ms = 10.0f;
+        return;
+    }
+
+    try {
+        unsigned nMin = 0, nMax = 0, nDef = 0;
+        if (SUCCEEDED(Toupcam_get_ExpTimeRange(hcam_, &nMin, &nMax, &nDef))) {
+            min_ms = static_cast<float>(nMin) / 1000.0f;
+            max_ms = static_cast<float>(nMax) / 1000.0f;
+            def_ms = static_cast<float>(nDef) / 1000.0f;
+        }
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("Error getting exposure range: {}", e.what());
+        min_ms = 0.01f;
+        max_ms = 100.0f;
+        def_ms = 10.0f;
+    }
+}
+
 bool CameraHandler::setAutoExposure(bool enable) {
     if (!connected_) {
         return false;
@@ -326,6 +366,45 @@ bool CameraHandler::getAutoExposure() const {
     } catch (const std::exception& e) {
         SPDLOG_ERROR("Error getting auto exposure: {}", e.what());
         return false;
+    }
+}
+
+bool CameraHandler::setRotation(int degrees) {
+    if (!connected_) {
+        return false;
+    }
+
+    // Valid angles: 0, 90, 180, 270
+    int valid_degrees = ((degrees % 360) + 360) % 360;
+    if (valid_degrees % 90 != 0) {
+        return false;
+    }
+
+    try {
+        if (FAILED(Toupcam_put_Option(hcam_, TOUPCAM_OPTION_ROTATE, valid_degrees))) {
+            return false;
+        }
+        return true;
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("Error setting rotation: {}", e.what());
+        return false;
+    }
+}
+
+int CameraHandler::getRotation() const {
+    if (!connected_) {
+        return 0;
+    }
+
+    try {
+        int val = 0;
+        if (SUCCEEDED(Toupcam_get_Option(hcam_, TOUPCAM_OPTION_ROTATE, &val))) {
+            return val;
+        }
+        return 0;
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("Error getting rotation: {}", e.what());
+        return 0;
     }
 }
 
@@ -397,6 +476,30 @@ bool CameraHandler::setResolution(int width, int height) {
 void CameraHandler::getResolution(int& width, int& height) const {
     width = image_width_;
     height = image_height_;
+}
+
+std::vector<std::pair<int, int>> CameraHandler::getSupportedResolutions() const {
+    std::vector<std::pair<int, int>> resolutions;
+    if (!connected_ || !hcam_) {
+        return resolutions;
+    }
+
+    try {
+        HRESULT hr = Toupcam_get_ResolutionNumber(hcam_);
+        if (FAILED(hr)) {
+            return resolutions;
+        }
+        unsigned count = static_cast<unsigned>(hr);
+        for (unsigned i = 0; i < count; ++i) {
+            int w = 0, h = 0;
+            if (SUCCEEDED(Toupcam_get_Resolution(hcam_, i, &w, &h))) {
+                resolutions.emplace_back(w, h);
+            }
+        }
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("Error enumerating resolutions: {}", e.what());
+    }
+    return resolutions;
 }
 
 void __stdcall CameraHandler::cameraCallback(unsigned nEvent, void* ctx) {

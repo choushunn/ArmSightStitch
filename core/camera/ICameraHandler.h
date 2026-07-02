@@ -44,12 +44,17 @@ public:
 
     virtual bool setExposure(float exposure) = 0;
     virtual float getExposure() const = 0;
+    virtual float getRealExposure() const = 0;
+    virtual void getExposureRange(float& min_ms, float& max_ms, float& def_ms) const = 0;
     virtual bool setAutoExposure(bool enable) = 0;
     virtual bool getAutoExposure() const = 0;
+    virtual bool setRotation(int degrees) = 0;
+    virtual int getRotation() const = 0;
     virtual bool setGain(float gain) = 0;
     virtual float getGain() const = 0;
     virtual bool setResolution(int width, int height) = 0;
     virtual void getResolution(int& width, int& height) const = 0;
+    virtual std::vector<std::pair<int, int>> getSupportedResolutions() const = 0;
 };
 
 } // namespace camera
