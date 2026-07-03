@@ -10,12 +10,16 @@
 #include <QFileDialog>
 #include <QKeyEvent>
 #include <QMessageBox>
+#include <QStandardPaths>
 #include <QStatusBar>
 #include <QHeaderView>
 #include <QDateTime>
 #include <QTimer>
 #include <QDir>
 #include <QDialog>
+#include <QBoxLayout>
+#include <QGridLayout>
+#include <QProgressBar>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -30,6 +34,21 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     , ui_(new Ui::MainWindow)
 {
     ui_->setupUi(this);
+
+    // Minimum preview size — ensures valid scaling target before layout settles
+    ui_->cameraImageLabel->setMinimumSize(320, 240);
+    ui_->stitchImageLabel->setMinimumSize(320, 240);
+    ui_->detectImageLabel->setMinimumSize(320, 240);
+
+    // Context-sensitive initial button states — enabled only when prerequisites met
+    ui_->quickDetectBtn->setEnabled(false);
+    ui_->stitchSaveButton->setEnabled(false);
+    ui_->quickSaveBtn->setEnabled(false);
+    ui_->moveToPosButton->setEnabled(false);
+    ui_->readPosButton->setEnabled(false);
+    ui_->xPosSpin->setEnabled(false);
+    ui_->yPosSpin->setEnabled(false);
+    ui_->zPosSpin->setEnabled(false);
 
     // Main splitter ratio: sidebar (1) : work area (5.4)
     ui_->mainSplitter->setStretchFactor(0, 10);
@@ -52,6 +71,14 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     connect(camera_update_timer_, &QTimer::timeout, this, &MainWindow::updateCameraImage);
     connect(&stitching_watcher_, &QFutureWatcher<cv::Mat>::finished, this, &MainWindow::onStitchingFinished);
     connect(&detection_watcher_, &QFutureWatcher<DetectionResult>::finished, this, &MainWindow::onDetectionFinished);
+    connect(&manual_detect_watcher_, &QFutureWatcher<DetectionResult>::finished, this, [this]() {
+        DetectionResult result = manual_detect_future_.result();
+        if (!result.frame.empty()) {
+            cv::Mat annotated = ctrl_.drawDetections(result.frame, result.detections);
+            displayImageFullQuality(annotated, ui_->detectImageLabel, detected_pixmap_);
+            appendLog(QString("手动检测完成: %1 个目标").arg(result.detections.size()), "INFO");
+        }
+    });
     connect(&arm_connect_watcher_, &QFutureWatcher<bool>::finished, this, &MainWindow::onArmConnectFinished);
     connect(&arm_move_watcher_, &QFutureWatcher<void>::finished, this, &MainWindow::onArmMoveFinished);
 
@@ -59,6 +86,64 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     status_log_edit_ = ui_->statusLogEdit;
 
     initGridTables();
+
+    // Real-time detection only meaningful with a camera connected
+    ui_->enableDetectionCheck->setChecked(false);
+    ui_->enableDetectionCheck->setEnabled(false);
+
+    // Rename camera-area button, hide redundant toolbar one
+    ui_->captureImageButton->setText("捕获");
+    ui_->quickCaptureBtn->setVisible(false);
+
+    // FPS label next to resolution combo — red text, updated in updateCameraImage
+    fps_label_ = new QLabel("-- FPS", this);
+    fps_label_->setStyleSheet("color: #D9534F; font-weight: bold;");
+    fps_label_->setMinimumWidth(60);
+    {
+        // Find cameraResolutionRow and add FPS label at the end
+        for (auto* w : this->findChildren<QLayout*>()) {
+            if (w->objectName() == "cameraResolutionRow") {
+                auto* lay = qobject_cast<QBoxLayout*>(w);
+                if (lay) lay->addWidget(fps_label_);
+                break;
+            }
+        }
+    }
+
+    // Stitch progress bar — placed below stitch preview
+    stitch_progress_ = new QProgressBar(this);
+    stitch_progress_->setRange(0, 100);
+    stitch_progress_->setValue(0);
+    stitch_progress_->setTextVisible(true);
+    stitch_progress_->setFormat("拼接进度: %p%");
+    stitch_progress_->setVisible(false);
+    QWidget* stitch_parent = ui_->stitchImageLabel->parentWidget();
+    if (stitch_parent && stitch_parent->layout()) {
+        // Find stitchImageLabel index and insert progress bar after it
+        QBoxLayout* lay = qobject_cast<QBoxLayout*>(stitch_parent->layout());
+        if (!lay) {
+            // If parent uses a grid/splitter, use a vertical container
+            auto* container = new QWidget(this);
+            auto* vlay = new QVBoxLayout(container);
+            vlay->setContentsMargins(0, 0, 0, 0);
+            vlay->addWidget(ui_->stitchImageLabel);
+            vlay->addWidget(stitch_progress_);
+            // Replace stitchImageLabel in the parent layout with the container
+            if (auto* gl = qobject_cast<QGridLayout*>(stitch_parent->layout())) {
+                int idx = gl->indexOf(ui_->stitchImageLabel);
+                if (idx >= 0) {
+                    int row, col, rs, cs;
+                    gl->getItemPosition(idx, &row, &col, &rs, &cs);
+                    gl->removeWidget(ui_->stitchImageLabel);
+                    gl->addWidget(container, row, col, rs, cs);
+                }
+            }
+        } else {
+            int idx = lay->indexOf(ui_->stitchImageLabel);
+            if (idx >= 0) lay->insertWidget(idx + 1, stitch_progress_);
+        }
+    }
+
     setupMenuNavigation();
     connectSignals();
 
@@ -71,7 +156,10 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
         QMetaObject::invokeMethod(this, "onMovementStatus", Q_ARG(const arm::SMovementStatus&, s));
     });
     ctrl_.stitcher().setProgressCallback([this](int cur, int total) {
-        appendLog(QString("拼接进度: %1/%2").arg(cur).arg(total), "INFO");
+        int pct = total > 0 ? cur * 100 / total : 0;
+        QMetaObject::invokeMethod(this, [this, pct]() {
+            stitch_progress_->setValue(pct);
+        }, Qt::QueuedConnection);
     });
     ctrl_.stitcher().setStatusCallback([this](const std::string& msg) {
         appendLog(QString::fromStdString(msg), "INFO");
@@ -79,6 +167,16 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
 
     // Auto-scan cameras on startup
     on_enumerateCameras();
+
+    // Check if model was already auto-loaded by AppController
+    if (ctrl_.isModelLoaded()) {
+        model_loaded_ = true;
+        appendLog("默认检测模型已加载", "INFO");
+    }
+
+    // Rename: "开始检测" → "检测单帧" (vs real-time = continuous)
+    ui_->detectRunButton->setText("检测单帧");
+    ui_->quickDetectBtn->setText("检测单帧");
 
     appendLog("Application initialized", "INFO");
     SPDLOG_INFO("MainWindow initialized");
@@ -109,7 +207,10 @@ void MainWindow::connectSignals() {
         QString path = QFileDialog::getOpenFileName(this, "打开图像", "", "图像 (*.jpg *.png *.bmp)");
         if (!path.isEmpty()) {
             current_image_ = cv::imread(path.toStdString());
-            if (!current_image_.empty()) displayImage(current_image_, ui_->cameraImageLabel);
+            if (!current_image_.empty()) {
+                displayImage(current_image_, ui_->cameraImageLabel);
+                ui_->quickDetectBtn->setEnabled(true);
+            }
         }
     });
     connect(ui_->actionSaveStitch, &QAction::triggered, this, &MainWindow::on_saveStitch);
@@ -126,10 +227,11 @@ void MainWindow::connectSignals() {
     });
     connect(ui_->actionExit, &QAction::triggered, this, &QWidget::close);
 
-    // ---- 视图: 模式切换 ----
-    connect(ui_->actionViewScan, &QAction::triggered, this, [this]() { onMenuButtonClicked(0); });
-    connect(ui_->actionViewStitch, &QAction::triggered, this, [this]() { onMenuButtonClicked(1); });
-    connect(ui_->actionViewDetect, &QAction::triggered, this, [this]() { onMenuButtonClicked(2); });
+    // ---- 视图 ----
+    // View-switching actions removed — sidebar buttons already handle page switching
+    ui_->actionViewScan->setVisible(false);
+    ui_->actionViewStitch->setVisible(false);
+    ui_->actionViewDetect->setVisible(false);
     connect(ui_->actionToggleSidebar, &QAction::toggled, this, [this](bool visible) { ui_->menuPanel->setVisible(visible); });
     connect(ui_->actionToggleLog, &QAction::toggled, this, [this](bool visible) { ui_->statusLogEdit->setVisible(visible); });
 
@@ -200,7 +302,18 @@ void MainWindow::connectSignals() {
     // ---- 相机旋转控制 ----
     connect(ui_->rotationCombo, &QComboBox::currentIndexChanged, this, [this](int idx) {
         int degrees = idx * 90;
+        bool was_capturing = ctrl_.cameraHandler().isCapturing();
+        if (was_capturing) ctrl_.stopCameraCapture();
         ctrl_.cameraHandler().setRotation(degrees);
+        if (was_capturing) ctrl_.startCameraCapture();
+    });
+
+    // ---- 相机翻转控制 ----
+    connect(ui_->hflipCheck, &QCheckBox::toggled, this, [this](bool checked) {
+        ctrl_.cameraHandler().setHFlip(checked);
+    });
+    connect(ui_->vflipCheck, &QCheckBox::toggled, this, [this](bool checked) {
+        ctrl_.cameraHandler().setVFlip(checked);
     });
 
     // ---- 相机分辨率控制 ----
@@ -218,16 +331,14 @@ void MainWindow::connectSignals() {
     connect(ui_->quickPauseBtn, &QPushButton::clicked, this, &MainWindow::on_togglePauseSMovement);
     connect(ui_->quickStitchBtn, &QPushButton::clicked, this, &MainWindow::on_stitchRun);
     connect(ui_->quickSaveBtn, &QPushButton::clicked, this, &MainWindow::on_saveStitch);
-    connect(ui_->quickDetectBtn, &QPushButton::clicked, this, [this]() {
-        if (!current_image_.empty()) {
-            auto dets = ctrl_.detect(current_image_);
-            displayImage(ctrl_.drawDetections(current_image_, dets), ui_->detectImageLabel);
-        } else {
-            QMessageBox::warning(this, "警告", "请先打开或拍摄一张图像");
-        }
-    });
+    connect(ui_->quickDetectBtn, &QPushButton::clicked, this, &MainWindow::on_manualDetect);
     connect(ui_->enableDetectionCheck, &QCheckBox::checkStateChanged, this, [this](Qt::CheckState s) {
         image_detection_enabled_ = (s == Qt::Checked);
+        if (!image_detection_enabled_) {
+            ui_->detectImageLabel->setPixmap({});
+            ui_->detectImageLabel->setText("等待检测...");
+            detected_pixmap_ = QPixmap();
+        }
     });
 
     // ---- 扫描页面: 机械臂 ----
@@ -253,17 +364,13 @@ void MainWindow::connectSignals() {
     // ---- 拼接预览: 双击全屏 ----
     ui_->stitchImageLabel->installEventFilter(this);
 
+    // ---- 相机预览: 双击全屏 ----
+    ui_->cameraImageLabel->installEventFilter(this);
+
     // ---- 检测页面 ----
     connect(ui_->detectModelButton, &QPushButton::clicked, this, &MainWindow::on_loadModel);
     connect(ui_->detectSettingsButton, &QPushButton::clicked, this, &MainWindow::on_detSettings);
-    connect(ui_->detectRunButton, &QPushButton::clicked, this, [this]() {
-        if (!current_image_.empty()) {
-            auto dets = ctrl_.detect(current_image_);
-            displayImageFullQuality(ctrl_.drawDetections(current_image_, dets), ui_->detectImageLabel, detected_pixmap_);
-        } else {
-            QMessageBox::warning(this, "警告", "请先打开或拍摄一张图像");
-        }
-    });
+    connect(ui_->detectRunButton, &QPushButton::clicked, this, &MainWindow::on_manualDetect);
 
     // ---- 检测预览: 双击全屏 ----
     ui_->detectImageLabel->installEventFilter(this);
@@ -276,9 +383,16 @@ void MainWindow::connectSignals() {
         ui_->statusLabel->setText("错误: " + msg);
         QMessageBox::critical(this, "错误", msg);
     });
+    connect(&ctrl_, &AppController::modelLoaded, this, [this]() {
+        model_loaded_ = true;
+        ui_->statusLabel->setText("默认模型已加载");
+        appendLog("自动加载默认检测模型成功", "INFO");
+    });
     connect(&ctrl_, &AppController::stitchingFinished, this, [this](const cv::Mat& result) {
         stitched_result_ = result;
         displayImageFullQuality(result, ui_->stitchImageLabel, stitched_pixmap_);
+        ui_->stitchSaveButton->setEnabled(true);
+        ui_->quickSaveBtn->setEnabled(true);
     });
 }
 
@@ -295,6 +409,8 @@ void MainWindow::initGridTables() {
     ui_->topCellsTable->setVerticalHeaderLabels(headers);
     ui_->topCellsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     ui_->topCellsTable->verticalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    ui_->topCellsTable->horizontalHeader()->setDefaultAlignment(Qt::AlignCenter);
+    ui_->topCellsTable->verticalHeader()->setDefaultAlignment(Qt::AlignCenter);
 
     for (int r = 0; r < gy; ++r) {
         for (int c = 0; c < gx; ++c) {
@@ -329,12 +445,44 @@ void MainWindow::on_connectCamera() {
     if (ctrl_.connectCamera(id.toStdString())) {
         ui_->cameraToggleButton->setText("断开");
         ui_->captureImageButton->setEnabled(true);
+        ui_->quickDetectBtn->setEnabled(true);
+        ui_->enableDetectionCheck->setEnabled(true);
         // Clear placeholder text so preview area shows immediately
         ui_->cameraImageLabel->setText({});
+
+        // ── Set rotation BEFORE starting capture (ToupCam SDK requirement) ──
+        int rot = ctrl_.cameraHandler().getRotation();
+        ui_->rotationCombo->setCurrentIndex(rot / 90);
+        ui_->rotationCombo->setEnabled(true);
+
+        // Sync flip states from camera hardware
+        if (ui_->hflipCheck) ui_->hflipCheck->setChecked(ctrl_.cameraHandler().getHFlip());
+        if (ui_->vflipCheck) ui_->vflipCheck->setChecked(ctrl_.cameraHandler().getVFlip());
+
+        // Populate resolution combo from camera's supported resolutions
+        // (also before capture — Toupcam_put_Size must be called before start)
+        auto* res_combo = ui_->resolutionCombo;
+        res_combo->clear();
+        res_combo->setEnabled(true);
+        auto resolutions = ctrl_.cameraHandler().getSupportedResolutions();
+        int cur_w = 0, cur_h = 0;
+        ctrl_.cameraHandler().getResolution(cur_w, cur_h);
+        int select_idx = 0;
+        for (size_t i = 0; i < resolutions.size(); ++i) {
+            auto [w, h] = resolutions[i];
+            QString label = QString("%1x%2").arg(w).arg(h);
+            res_combo->addItem(label, QVariant(QSize(w, h)));
+            if (w == cur_w && h == cur_h) {
+                select_idx = static_cast<int>(i);
+            }
+        }
+        res_combo->setCurrentIndex(select_idx);
+
         ctrl_.startCameraCapture();
         camera_update_timer_->start(33);
-        // Grab first frame immediately to avoid initial blank delay
-        updateCameraImage();
+        // Defer first frame to next event-loop iteration so Qt layouts settle
+        // and the label has its final size — avoids a visible "growing" effect
+        QTimer::singleShot(0, this, &MainWindow::updateCameraImage);
         ui_->statusLabel->setText("相机已连接");
 
         // Sync exposure UI state from camera
@@ -358,29 +506,8 @@ void MainWindow::on_connectCamera() {
         slider->setEnabled(!auto_on);
         label->setEnabled(!auto_on);
         ui_->autoExposureCheck->setEnabled(true);
-
-        // Sync rotation state from camera
-        int rot = ctrl_.cameraHandler().getRotation();
-        ui_->rotationCombo->setCurrentIndex(rot / 90);
-        ui_->rotationCombo->setEnabled(true);
-
-        // Populate resolution combo from camera's supported resolutions
-        auto* res_combo = ui_->resolutionCombo;
-        res_combo->clear();
-        res_combo->setEnabled(true);
-        auto resolutions = ctrl_.cameraHandler().getSupportedResolutions();
-        int cur_w = 0, cur_h = 0;
-        ctrl_.cameraHandler().getResolution(cur_w, cur_h);
-        int select_idx = 0;
-        for (size_t i = 0; i < resolutions.size(); ++i) {
-            auto [w, h] = resolutions[i];
-            QString label = QString("%1x%2").arg(w).arg(h);
-            res_combo->addItem(label, QVariant(QSize(w, h)));
-            if (w == cur_w && h == cur_h) {
-                select_idx = static_cast<int>(i);
-            }
-        }
-        res_combo->setCurrentIndex(select_idx);
+        if (ui_->hflipCheck) ui_->hflipCheck->setEnabled(true);
+        if (ui_->vflipCheck) ui_->vflipCheck->setEnabled(true);
     }
 }
 
@@ -390,6 +517,9 @@ void MainWindow::on_disconnectCamera() {
     ctrl_.disconnectCamera();
     ui_->cameraToggleButton->setText("连接");
     ui_->captureImageButton->setEnabled(false);
+    ui_->quickDetectBtn->setEnabled(false);
+    ui_->enableDetectionCheck->setChecked(false);
+    ui_->enableDetectionCheck->setEnabled(false);
     ui_->cameraImageLabel->setText("相机预览");
     ui_->cameraImageLabel->setPixmap({});
     ui_->statusLabel->setText("相机已断开");
@@ -398,6 +528,8 @@ void MainWindow::on_disconnectCamera() {
     ui_->exposureValueLabel->setEnabled(false);
     ui_->rotationCombo->setEnabled(false);
     ui_->resolutionCombo->setEnabled(false);
+    if (ui_->hflipCheck) ui_->hflipCheck->setEnabled(false);
+    if (ui_->vflipCheck) ui_->vflipCheck->setEnabled(false);
 }
 
 void MainWindow::on_enumerateCameras() {
@@ -412,6 +544,15 @@ void MainWindow::on_captureImage() {
     if (ctrl_.captureImage(frame)) {
         current_image_ = frame;
         displayImage(frame, ui_->cameraImageLabel);
+
+        // Save capture to Documents with timestamp
+        QString dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
+                      + "/ArmSightStitch/captures";
+        QDir().mkpath(dir);
+        auto now = QDateTime::currentDateTime();
+        QString filename = dir + "/capture_" + now.toString("yyyyMMdd_HHmmss") + ".jpg";
+        cv::imwrite(filename.toStdString(), frame);
+        appendLog(QString("捕获已保存: %1").arg(filename), "INFO");
     }
 }
 
@@ -438,6 +579,11 @@ void MainWindow::onArmConnectFinished() {
         ui_->armToggleButton->setText("断开");
         ui_->armStatusLabel->setText("已连接");
         ui_->armStatusLabel->setProperty("connStatus", "connected");
+        ui_->moveToPosButton->setEnabled(true);
+        ui_->readPosButton->setEnabled(true);
+        ui_->xPosSpin->setEnabled(true);
+        ui_->yPosSpin->setEnabled(true);
+        ui_->zPosSpin->setEnabled(true);
     } else {
         ui_->armStatusLabel->setText("连接失败");
         ui_->armStatusLabel->setProperty("connStatus", "disconnected");
@@ -453,6 +599,11 @@ void MainWindow::on_disconnectArm() {
     ui_->armStatusLabel->setProperty("connStatus", "disconnected");
     ui_->armStatusLabel->style()->unpolish(ui_->armStatusLabel);
     ui_->armStatusLabel->style()->polish(ui_->armStatusLabel);
+    ui_->moveToPosButton->setEnabled(false);
+    ui_->readPosButton->setEnabled(false);
+    ui_->xPosSpin->setEnabled(false);
+    ui_->yPosSpin->setEnabled(false);
+    ui_->zPosSpin->setEnabled(false);
 }
 
 void MainWindow::on_moveToPosition() {
@@ -506,12 +657,16 @@ void MainWindow::on_toggleStartStopSMovement() {
         ctrl_.stopSMovement();
         ui_->quickScanBtn->setText("开始扫描");
         ui_->quickPauseBtn->setEnabled(false);
-        ui_->quickPauseBtn->setText("暂停");
+        ui_->quickPauseBtn->setText("暂停扫描");
         return;
     }
 
-    if (!ctrl_.armController().isConnected() || !ctrl_.cameraHandler().isConnected()) {
-        QMessageBox::warning(this, "警告", "请先连接机械臂和相机");
+    if (!ctrl_.cameraHandler().isConnected()) {
+        QMessageBox::warning(this, "警告", "请先连接相机");
+        return;
+    }
+    if (!ctrl_.armController().isConnected()) {
+        QMessageBox::warning(this, "警告", "请先连接机械臂");
         return;
     }
     ctrl_.startCameraCapture();
@@ -544,7 +699,7 @@ void MainWindow::on_toggleStartStopSMovement() {
     if (ctrl_.startSMovement(gs, cfg.stepSize(), cfg.zHeight())) {
         ui_->quickScanBtn->setText("停止扫描");
         ui_->quickPauseBtn->setEnabled(true);
-        ui_->quickPauseBtn->setText("暂停");
+        ui_->quickPauseBtn->setText("暂停扫描");
         appendLog("S-movement started", "INFO");
     }
 }
@@ -552,10 +707,10 @@ void MainWindow::on_toggleStartStopSMovement() {
 void MainWindow::on_togglePauseSMovement() {
     if (ctrl_.movementController().getStatus().paused) {
         ctrl_.resumeSMovement();
-        ui_->quickPauseBtn->setText("暂停");
+        ui_->quickPauseBtn->setText("暂停扫描");
     } else {
         ctrl_.pauseSMovement();
-        ui_->quickPauseBtn->setText("继续");
+        ui_->quickPauseBtn->setText("继续扫描");
     }
 }
 
@@ -587,20 +742,64 @@ void MainWindow::on_detSettings() {
     }
 }
 
+void MainWindow::on_manualDetect() {
+    if (!model_loaded_) {
+        QMessageBox::warning(this, "警告", "请先加载检测模型");
+        return;
+    }
+    if (current_image_.empty()) {
+        QMessageBox::warning(this, "警告", "请先打开或拍摄一张图像");
+        return;
+    }
+
+    // Single-frame detection: clone current frame, run async, show result once
+    cv::Mat img = current_image_.clone();
+    auto* ctrl = &ctrl_;
+    manual_detect_future_ = QtConcurrent::run([ctrl, img]() -> DetectionResult {
+        DetectionResult result;
+        result.frame = img;
+        result.detections = ctrl->detect(img);
+        return result;
+    });
+    manual_detect_watcher_.setFuture(manual_detect_future_);
+}
+
 // ==================== Stitching ====================
 
 void MainWindow::on_stitchRun() {
     auto& cfg = ConfigManager::instance();
-    std::string dir = cfg.imageSaveBasePath();
+    std::string basePath = cfg.imageSaveBasePath();
     cv::Size gs(cfg.gridSizeX(), cfg.gridSizeY());
 
-    auto images = ctrl_.loadImages(dir);
+    // Find the latest numbered run subdirectory (same logic as AppController::startSMovement)
+    QDir baseDir(QString::fromStdString(basePath));
+    int runNumber = 0;
+    if (baseDir.exists()) {
+        for (const QString& d : baseDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+            bool ok;
+            int n = d.toInt(&ok);
+            if (ok && n > runNumber) runNumber = n;
+        }
+    } else {
+        baseDir.mkpath(".");
+        QMessageBox::warning(this, "警告", "图像目录不存在，已自动创建。\n请先执行扫描采集图像");
+        return;
+    }
+
+    std::string loadPath = runNumber > 0
+        ? basePath + "/" + std::to_string(runNumber)
+        : basePath;
+
+    auto images = ctrl_.loadImages(loadPath);
     if (images.empty()) {
-        QMessageBox::warning(this, "警告", "没有图像可拼接，请先在设置中指定目录");
+        QMessageBox::warning(this, "警告",
+            QString("目录 %1 中没有图像。\n请先执行扫描采集图像").arg(QString::fromStdString(loadPath)));
         return;
     }
 
     ui_->stitchRunButton->setEnabled(false);
+    stitch_progress_->setValue(0);
+    stitch_progress_->setVisible(true);
     stitching_future_ = QtConcurrent::run([this, images, gs]() {
         auto sorted = ctrl_.stitcher().sortImagesInSCurveOrder(images, gs);
         return ctrl_.stitcher().stitchImages(sorted, gs);
@@ -609,6 +808,7 @@ void MainWindow::on_stitchRun() {
 }
 
 void MainWindow::onStitchingFinished() {
+    stitch_progress_->setVisible(false);
     ui_->stitchRunButton->setEnabled(true);
     cv::Mat result = stitching_future_.result();
     if (!result.empty()) {
@@ -659,6 +859,9 @@ void MainWindow::updateCameraImage() {
         if (last_fps_timestamp_ == 0) {
             last_fps_timestamp_ = now;
         }
+        if (fps_label_) {
+            fps_label_->setText(QString::number(static_cast<int>(current_fps_)) + " FPS");
+        }
 
         // When auto exposure is on, sync slider and label with camera's actual hardware value
         if (ctrl_.cameraHandler().getAutoExposure()) {
@@ -672,8 +875,6 @@ void MainWindow::updateCameraImage() {
 
         if (image_detection_enabled_ && model_loaded_ && !detection_busy_) {
             detection_busy_ = true;
-            cv::Mat frame_with_overlay = frame.clone();
-            addCameraOverlay(frame_with_overlay);
             auto* ctrl = &ctrl_;
             detection_future_ = QtConcurrent::run([ctrl, frame]() -> DetectionResult {
                 DetectionResult result;
@@ -682,10 +883,14 @@ void MainWindow::updateCameraImage() {
                 return result;
             });
             detection_watcher_.setFuture(detection_future_);
-            displayImage(frame_with_overlay, ui_->cameraImageLabel);
-        } else if (!image_detection_enabled_ || !model_loaded_) {
-            addCameraOverlay(frame);
-            displayImage(frame, ui_->cameraImageLabel);
+        }
+        displayImage(frame, ui_->cameraImageLabel);
+
+        // Keep camera fullscreen live — update the fullscreen pixmap every frame
+        if (camera_fullscreen_active_ && fullscreen_dlg_) {
+            QPixmap pix = QPixmap::fromImage(cvMatToQImage(current_image_));
+            fullscreen_dlg_->setPixmap(pix.scaled(fullscreen_dlg_->screen()->size(),
+                                                  Qt::KeepAspectRatio, Qt::FastTransformation));
         }
     }
 }
@@ -694,7 +899,17 @@ void MainWindow::onDetectionFinished() {
     detection_busy_ = false;
     DetectionResult result = detection_future_.result();
     if (!result.frame.empty()) {
-        displayImage(ctrl_.drawDetections(result.frame, result.detections), ui_->cameraImageLabel);
+        cv::Mat annotated = ctrl_.drawDetections(result.frame, result.detections);
+        // Detection overlay ONLY on the detection preview panel (bottom-right),
+        // NOT on the camera preview (left) — camera stays clean
+        displayImageFullQuality(annotated, ui_->detectImageLabel, detected_pixmap_);
+
+        // Keep detection fullscreen live — continues updating in real-time
+        if (detect_fullscreen_active_ && fullscreen_dlg_) {
+            QPixmap pix = QPixmap::fromImage(cvMatToQImage(annotated));
+            fullscreen_dlg_->setPixmap(pix.scaled(fullscreen_dlg_->screen()->size(),
+                                                  Qt::KeepAspectRatio, Qt::FastTransformation));
+        }
     }
 }
 
@@ -713,6 +928,15 @@ void MainWindow::onMovementStatus(const arm::SMovementStatus& status) {
     appendLog(QString::fromStdString(status.status_message), "INFO");
     if (status.total_points > 0) {
         appendLog(QString("采集进度: %1/%2").arg(status.current_point).arg(status.total_points), "INFO");
+    }
+
+    // Reset UI when S-movement completes naturally
+    if (!status.running && !status.paused && status.total_points > 0) {
+        ui_->quickScanBtn->setText("开始扫描");
+        ui_->quickPauseBtn->setEnabled(false);
+        ui_->quickPauseBtn->setText("暂停扫描");
+        appendLog("S型扫描完成", "INFO");
+        ui_->statusLabel->setText("扫描完成");
     }
 }
 
@@ -754,7 +978,7 @@ void MainWindow::on_topCellsTable_cellClicked(int row, int column) {
 void MainWindow::displayImage(const cv::Mat& image, QLabel* label) {
     if (image.empty()) return;
     QPixmap pix = QPixmap::fromImage(cvMatToQImage(image));
-    label->setPixmap(pix.scaled(label->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    label->setPixmap(pix.scaled(label->size(), Qt::KeepAspectRatio, Qt::FastTransformation));
 }
 
 QImage MainWindow::cvMatToQImage(const cv::Mat& mat) {
@@ -782,48 +1006,25 @@ void MainWindow::addCameraOverlay(cv::Mat& image) {
     if (image.empty()) return;
 
     auto status = ctrl_.cameraHandler().getStatus();
-    int rot = ctrl_.cameraHandler().getRotation();
 
-    // Line 1: resolution | rotation
-    std::string line1 = std::to_string(status.width) + "x" + std::to_string(status.height)
-                     + " | " + std::to_string(rot) + "°";
-    // Line 2: FPS
-    std::string line2 = std::to_string(static_cast<int>(current_fps_)) + " FPS";
+    // Red text: resolution + FPS
+    std::string text = std::to_string(status.width) + "x" + std::to_string(status.height)
+                     + "  " + std::to_string(static_cast<int>(current_fps_)) + " FPS";
 
     int font = cv::FONT_HERSHEY_SIMPLEX;
-    double scale = 0.7;          // much bigger than 0.45
-    cv::Scalar color(0, 0, 0);       // black text
-    cv::Scalar bg(255, 255, 255);    // white background
-    int thickness = 2;
-    int baseline = 0;
-
-    cv::Size size1 = cv::getTextSize(line1, font, scale, thickness, &baseline);
-    cv::Size size2 = cv::getTextSize(line2, font, scale, thickness, &baseline);
+    double scale = 1.3;
+    cv::Scalar color(0, 0, 255);        // red text (BGR)
+    int thickness = 3;
 
     int margin = 10;
-    int line_gap = 6;
-    int bg_pad = 4;
-
-    // Background rectangle covering both lines
-    int bg_w = std::max(size1.width, size2.width) + bg_pad * 2;
-    int bg_h = size1.height + size2.height + line_gap + bg_pad * 2;
-    cv::Point bg_tl(margin, image.rows - margin - bg_h);
-    cv::Point bg_br(margin + bg_w, image.rows - margin);
-    cv::rectangle(image, bg_tl, bg_br, bg, -1);
-
-    // Line 1: resolution | rotation
-    cv::Point origin1(margin + bg_pad, image.rows - margin - bg_h + size1.height + bg_pad);
-    cv::putText(image, line1, origin1, font, scale, color, thickness);
-
-    // Line 2: FPS
-    cv::Point origin2(margin + bg_pad, origin1.y + size1.height + line_gap);
-    cv::putText(image, line2, origin2, font, scale, color, thickness);
+    cv::Point origin(margin, image.rows - margin);
+    cv::putText(image, text, origin, font, scale, color, thickness);
 }
 
 void MainWindow::displayImageFullQuality(const cv::Mat& image, QLabel* label, QPixmap& storage) {
     if (image.empty()) return;
     storage = QPixmap::fromImage(cvMatToQImage(image));
-    label->setPixmap(storage.scaled(label->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    label->setPixmap(storage.scaled(label->size(), Qt::KeepAspectRatio, Qt::FastTransformation));
 }
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
@@ -834,12 +1035,16 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             if (ke->key() == Qt::Key_Escape) {
                 fullscreen_dlg_->close();
                 fullscreen_dlg_ = nullptr;
+                camera_fullscreen_active_ = false;
+                detect_fullscreen_active_ = false;
                 return true;
             }
         }
         if (event->type() == QEvent::MouseButtonPress) {
             fullscreen_dlg_->close();
             fullscreen_dlg_ = nullptr;
+            camera_fullscreen_active_ = false;
+            detect_fullscreen_active_ = false;
             return true;
         }
         return false;
@@ -847,13 +1052,24 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
 
     // Preview labels: double-click to fullscreen
     if (event->type() == QEvent::MouseButtonDblClick) {
+        if (obj == ui_->cameraImageLabel && !current_image_.empty()) {
+            showImageFullscreen(QPixmap::fromImage(cvMatToQImage(current_image_)));
+            camera_fullscreen_active_ = true;
+            return true;
+        }
         if (obj == ui_->stitchImageLabel && !stitched_pixmap_.isNull()) {
             showImageFullscreen(stitched_pixmap_);
             return true;
         }
-        if (obj == ui_->detectImageLabel && !detected_pixmap_.isNull()) {
-            showImageFullscreen(detected_pixmap_);
-            return true;
+        if (obj == ui_->detectImageLabel) {
+            QPixmap pix = !detected_pixmap_.isNull() ? detected_pixmap_
+                : !current_image_.empty() ? QPixmap::fromImage(cvMatToQImage(current_image_))
+                : QPixmap();
+            if (!pix.isNull()) {
+                showImageFullscreen(pix);
+                detect_fullscreen_active_ = true;
+                return true;
+            }
         }
     }
     return QMainWindow::eventFilter(obj, event);

@@ -3,6 +3,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QStandardPaths>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDir>
@@ -37,8 +38,11 @@ void ConfigManager::loadDefaults() {
     step_size_ = 43000;
     z_height_ = 50000;
 
-    image_save_base_path_ = "./captured_images";
-    log_path_ = "./logs/armsightstitch.log";
+{
+    QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    image_save_base_path_ = (docs + "/ArmSightStitch/captured_images").toStdString();
+    log_path_ = (docs + "/ArmSightStitch/logs/armsightstitch.log").toStdString();
+}
 }
 
 void ConfigManager::applyEnvironmentOverrides() {

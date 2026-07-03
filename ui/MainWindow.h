@@ -6,6 +6,8 @@
 #include <QStackedWidget>
 #include <QFuture>
 #include <QTimer>
+#include <QCheckBox>
+#include <QProgressBar>
 #include <QTextEdit>
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrent>
@@ -46,6 +48,7 @@ private slots:
     // Detection
     void on_loadModel();
     void on_detSettings();
+    void on_manualDetect();
 
     // Stitching
     void on_stitchRun();
@@ -91,8 +94,10 @@ private:
     cv::Mat current_image_, stitched_result_;
     QPixmap stitched_pixmap_, detected_pixmap_;
     QLabel* fullscreen_dlg_ = nullptr;
+    bool camera_fullscreen_active_ = false;
+    bool detect_fullscreen_active_ = false;
     bool model_loaded_ = false;
-    bool image_detection_enabled_ = true;
+    bool image_detection_enabled_ = false;
 
     QTimer* camera_update_timer_;
     QFuture<cv::Mat> stitching_future_;
@@ -105,6 +110,16 @@ private:
     QFuture<DetectionResult> detection_future_;
     QFutureWatcher<DetectionResult> detection_watcher_;
     std::atomic<bool> detection_busy_{false};
+
+    // Manual (one-shot) detection
+    QFuture<DetectionResult> manual_detect_future_;
+    QFutureWatcher<DetectionResult> manual_detect_watcher_;
+
+    // Stitching progress
+    QProgressBar* stitch_progress_ = nullptr;
+
+    // FPS label next to resolution combo
+    QLabel* fps_label_ = nullptr;
 
     // FPS tracking for camera overlay
     qint64 last_fps_timestamp_ = 0;

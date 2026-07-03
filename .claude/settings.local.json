@@ -3,7 +3,22 @@
     "allow": [
       "Bash(git push *)",
       "Bash(du -sh vcpkg_installed/)",
-      "Bash(find vcpkg_installed -maxdepth 0 -type d)"
+      "Bash(find vcpkg_installed -maxdepth 0 -type d)",
+      "Bash(cmake --preset default -DCMAKE_BUILD_TYPE=Release)",
+      "Bash(sleep 5 && cat /c/Users/SP/AppData/Local/Temp/claude/d--CPP-ArmSightStitch/5c9e2dfb-becd-4654-9e0d-35d267d23840/tasks/bxiu01pmz.output 2>/dev/null | tail -30)",
+      "Read(//c/Users/SP/AppData/Local/Temp/claude/d--CPP-ArmSightStitch/5c9e2dfb-becd-4654-9e0d-35d267d23840/tasks/**)",
+      "Bash(cmake --build build/vcpkg-mingw --config Release --parallel)",
+      "Bash(./ArmSightStitch.exe)",
+      "Bash(disown)",
+      "Bash(powershell -Command \"Get-Process ArmSightStitch -ErrorAction SilentlyContinue | Stop-Process -Force\")",
+      "Bash(where makensis *)",
+      "Bash(PATH='/c/Program Files \\(x86\\)/NSIS:__TRACKED_VAR__' cmake --build build/vcpkg-mingw --config Release --target deploy)",
+      "Bash(xmllint --noout ui/MainWindow.ui)",
+      "Bash(git checkout *)",
+      "Bash(python3 -c ' *)",
+      "Bash(cmake --build build/vcpkg-mingw --config Release --target deploy --parallel)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'feat: 架构重构、bug修复与UI优化 *)"
     ]
   }
 }

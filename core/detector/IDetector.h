@@ -2,7 +2,8 @@
 
 #include <vector>
 #include <string>
-#include <opencv2/opencv.hpp>
+#include <opencv2/core/mat.hpp>
+#include <opencv2/core/types.hpp>
 
 namespace detector {
 
@@ -18,6 +19,7 @@ public:
     virtual ~IDetector() = default;
 
     virtual bool loadModel(const std::string& param_path, const std::string& bin_path) = 0;
+    virtual bool isModelLoaded() const = 0;
     virtual std::vector<Detection> detect(const cv::Mat& image) = 0;
     virtual cv::Mat drawDetections(const cv::Mat& image, const std::vector<Detection>& detections) = 0;
 

@@ -1,5 +1,6 @@
 #include "YoloDetector.h"
 #include <algorithm>
+#include <cstdio>
 #include <vector>
 #include <string>
 #include <opencv2/opencv.hpp>
@@ -226,15 +227,19 @@ cv::Mat YoloDetector::drawDetections(const cv::Mat& image, const std::vector<Det
 
     for (const auto& detection : detections) {
         // Draw bounding box
-        cv::rectangle(result, detection.bounding_box, cv::Scalar(0, 255, 0), 2);
+        cv::rectangle(result, detection.bounding_box, cv::Scalar(0, 255, 0), 3);
 
-        // Draw label
-        std::string label = detection.class_name + " " + std::to_string(detection.confidence);
+        // Draw label with larger font — confidence rounded to 2 decimal places
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%.2f", detection.confidence);
+        std::string label = detection.class_name + " " + buf;
         int baseLine;
-        cv::Size label_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
+        double font_scale = 1.2;
+        int thickness = 2;
+        cv::Size label_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, font_scale, thickness, &baseLine);
         cv::Point label_org(detection.bounding_box.x, detection.bounding_box.y - label_size.height - baseLine);
         cv::rectangle(result, label_org, cv::Point(detection.bounding_box.x + label_size.width, detection.bounding_box.y), cv::Scalar(0, 255, 0), -1);
-        cv::putText(result, label, cv::Point(detection.bounding_box.x, detection.bounding_box.y - baseLine), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
+        cv::putText(result, label, cv::Point(detection.bounding_box.x, detection.bounding_box.y - baseLine), cv::FONT_HERSHEY_SIMPLEX, font_scale, cv::Scalar(0, 0, 0), thickness);
     }
 
     return result;

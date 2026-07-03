@@ -1,53 +1,115 @@
 #include "AppController.h"
 #include "infra/config/ConfigManager.h"
 
+#include "core/arm/ModbusArmController.h"
+#include "core/arm/SMovementController.h"
+#include "core/camera/CameraHandler.h"
+#include "core/detector/YoloDetector.h"
+#include "core/stitch/ImageStitcher.h"
+#include "ui/WorkflowManager.h"
+
 #include <spdlog/spdlog.h>
+#include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
 #include <filesystem>
 
+// ── pimpl: concrete implementations are hidden from the header ────────
+struct AppController::Impl {
+    arm::ModbusArmController arm_controller_;
+    arm::SMovementController s_movement_controller_;
+    camera::CameraHandler camera_handler_;
+    detector::YoloDetector yolo_detector_;
+    stitch::ImageStitcher image_stitcher_;
+    WorkflowManager* workflow_mgr_ = nullptr;
+
+    Impl() : s_movement_controller_(arm_controller_) {}
+};
+
+// ── Module accessors ──────────────────────────────────────────────────
+arm::IArmController& AppController::armController() {
+    return pimpl_->arm_controller_;
+}
+arm::ISMovementController& AppController::movementController() {
+    return pimpl_->s_movement_controller_;
+}
+camera::ICameraHandler& AppController::cameraHandler() {
+    return pimpl_->camera_handler_;
+}
+detector::IDetector& AppController::detector() {
+    return pimpl_->yolo_detector_;
+}
+stitch::IStitcher& AppController::stitcher() {
+    return pimpl_->image_stitcher_;
+}
+WorkflowManager& AppController::workflow() {
+    return *pimpl_->workflow_mgr_;
+}
+
+// ── Constructor / Destructor ──────────────────────────────────────────
 AppController::AppController(QObject* parent)
     : QObject(parent)
-    , s_movement_controller_(arm_controller_)
+    , pimpl_(std::make_unique<Impl>())
 {
     auto& cfg = ConfigManager::instance();
 
-    workflow_mgr_ = new WorkflowManager(
-        arm_controller_, s_movement_controller_,
-        camera_handler_, image_stitcher_, this);
+    pimpl_->workflow_mgr_ = new WorkflowManager(
+        pimpl_->arm_controller_, pimpl_->s_movement_controller_,
+        pimpl_->camera_handler_, pimpl_->image_stitcher_, this);
 
-    connect(workflow_mgr_, &WorkflowManager::statusMessage,
+    connect(pimpl_->workflow_mgr_, &WorkflowManager::statusMessage,
             this, &AppController::statusMessage);
-    connect(workflow_mgr_, &WorkflowManager::workflowError,
+    connect(pimpl_->workflow_mgr_, &WorkflowManager::workflowError,
             this, &AppController::errorMessage);
-    connect(workflow_mgr_, &WorkflowManager::stitchingFinished,
+    connect(pimpl_->workflow_mgr_, &WorkflowManager::stitchingFinished,
             this, &AppController::stitchingFinished);
+
+    // Auto-load default model from config paths
+    std::string paramPath = cfg.modelParamPath();
+    std::string binPath = cfg.modelBinPath();
+    if (!paramPath.empty() && !binPath.empty()) {
+        QString fullParam = QDir(QCoreApplication::applicationDirPath())
+                            .absoluteFilePath(QString::fromStdString(paramPath));
+        QString fullBin = QDir(QCoreApplication::applicationDirPath())
+                          .absoluteFilePath(QString::fromStdString(binPath));
+        if (QFileInfo::exists(fullParam) && QFileInfo::exists(fullBin)) {
+            bool ok = pimpl_->yolo_detector_.loadModel(
+                fullParam.toStdString(), fullBin.toStdString());
+            if (ok) {
+                emit modelLoaded();
+                SPDLOG_INFO("Auto-loaded default model");
+            }
+        }
+    }
 
     SPDLOG_INFO("AppController initialized");
 }
 
 AppController::~AppController() {
-    workflow_mgr_->stopAutoWorkflow();
-    s_movement_controller_.stop();
-    camera_handler_.stopCapture();
-    camera_handler_.disconnect();
-    arm_controller_.stopAutoRead();
-    arm_controller_.disconnect();
+    pimpl_->workflow_mgr_->stopAutoWorkflow();
+    pimpl_->s_movement_controller_.stop();
+    pimpl_->camera_handler_.stopCapture();
+    pimpl_->camera_handler_.disconnect();
+    pimpl_->arm_controller_.stopAutoRead();
+    pimpl_->arm_controller_.disconnect();
     SPDLOG_INFO("AppController destroyed");
 }
 
+// ── High-level operations ─────────────────────────────────────────────
 bool AppController::connectArm(const std::string& ip, int port) {
-    arm_controller_.setDebugEnabled(ConfigManager::instance().modbusDebug());
-    bool ok = arm_controller_.connect(ip, port);
+    auto& arm = pimpl_->arm_controller_;
+    arm.setDebugEnabled(ConfigManager::instance().modbusDebug());
+    bool ok = arm.connect(ip, port);
     if (ok) {
         int speed = ConfigManager::instance().defaultSpeed();
         for (int i = 0; i < 5; ++i) {
-            arm_controller_.setSpeed(i, speed);
+            arm.setSpeed(i, speed);
             arm::AxisLimits limits;
             limits.min_pos = ConfigManager::instance().axisMinPos(i);
             limits.max_pos = ConfigManager::instance().axisMaxPos(i);
-            arm_controller_.setSafetyLimits(i, limits);
+            arm.setSafetyLimits(i, limits);
         }
+        arm.startAutoRead();  // periodic position polling → UI spinners stay live
         emit statusMessage(QString::fromStdString("Arm connected to " + ip));
     } else {
         emit errorMessage("Failed to connect arm");
@@ -56,38 +118,39 @@ bool AppController::connectArm(const std::string& ip, int port) {
 }
 
 void AppController::disconnectArm() {
-    arm_controller_.disconnect();
+    pimpl_->arm_controller_.disconnect();
     emit statusMessage("Arm disconnected");
 }
 
 bool AppController::connectCamera(const std::string& deviceId) {
-    bool ok = camera_handler_.connect(deviceId);
+    bool ok = pimpl_->camera_handler_.connect(deviceId);
     emit statusMessage(ok ? "Camera connected" : "Camera connection failed");
     return ok;
 }
 
 void AppController::disconnectCamera() {
-    camera_handler_.disconnect();
+    pimpl_->camera_handler_.disconnect();
     emit statusMessage("Camera disconnected");
 }
 
 bool AppController::startCameraCapture() {
-    bool ok = camera_handler_.startCapture();
+    bool ok = pimpl_->camera_handler_.startCapture();
     emit statusMessage(ok ? "Camera capture started" : "Camera capture failed");
     return ok;
 }
 
 void AppController::stopCameraCapture() {
-    camera_handler_.stopCapture();
+    pimpl_->camera_handler_.stopCapture();
     emit statusMessage("Camera capture stopped");
 }
 
 bool AppController::captureImage(cv::Mat& frame) {
-    return camera_handler_.captureSingleFrame(frame);
+    return pimpl_->camera_handler_.captureSingleFrame(frame);
 }
 
 bool AppController::startSMovement(const cv::Size& gridSize, int stepSize, int zHeight) {
     auto& cfg = ConfigManager::instance();
+    auto& sm = pimpl_->s_movement_controller_;
     int endX = stepSize * (gridSize.width - 1);
     int endY = stepSize * (gridSize.height - 1);
 
@@ -105,25 +168,25 @@ bool AppController::startSMovement(const cv::Size& gridSize, int stepSize, int z
     std::string savePath = basePath + "/" + std::to_string(runNumber);
 
     QDir().mkpath(QString::fromStdString(savePath));
-    s_movement_controller_.setSaveDirectory(savePath);
-    s_movement_controller_.setRunNumber(runNumber);
-    s_movement_controller_.setMovementSpeed(cfg.defaultSpeed());
-    s_movement_controller_.setPositionTolerance(cfg.positionTolerance());
+    sm.setSaveDirectory(savePath);
+    sm.setRunNumber(runNumber);
+    sm.setMovementSpeed(cfg.defaultSpeed());
+    sm.setPositionTolerance(cfg.positionTolerance());
 
     arm::SMovementPoint startPos = {0, 0, zHeight, 0, 0, 0, 0};
     arm::SMovementPoint endPos = {endX, endY, zHeight, 0, 0,
                                   gridSize.height - 1, gridSize.width - 1};
 
-    if (!s_movement_controller_.initialize(gridSize, startPos, endPos)) {
+    if (!sm.initialize(gridSize, startPos, endPos)) {
         emit errorMessage("S-movement initialization failed");
         return false;
     }
 
-    s_movement_controller_.setImageCaptureCallback([this](cv::Mat& frame) {
-        return camera_handler_.captureSingleFrame(frame);
+    sm.setImageCaptureCallback([this](cv::Mat& frame) {
+        return pimpl_->camera_handler_.captureSingleFrame(frame);
     });
 
-    if (!s_movement_controller_.start()) {
+    if (!sm.start()) {
         emit errorMessage("S-movement start failed");
         return false;
     }
@@ -133,23 +196,24 @@ bool AppController::startSMovement(const cv::Size& gridSize, int stepSize, int z
 }
 
 void AppController::stopSMovement() {
-    s_movement_controller_.stop();
+    pimpl_->s_movement_controller_.stop();
     emit statusMessage("S-movement stopped");
 }
 
 void AppController::pauseSMovement() {
-    s_movement_controller_.pause();
+    pimpl_->s_movement_controller_.pause();
     emit statusMessage("S-movement paused");
 }
 
 void AppController::resumeSMovement() {
-    s_movement_controller_.resume();
+    pimpl_->s_movement_controller_.resume();
     emit statusMessage("S-movement resumed");
 }
 
 void AppController::stitchImages(const std::vector<cv::Mat>& images, const cv::Size& gridSize) {
-    std::vector<cv::Mat> sorted = image_stitcher_.sortImagesInSCurveOrder(images, gridSize);
-    cv::Mat result = image_stitcher_.stitchImages(sorted, gridSize);
+    auto& st = pimpl_->image_stitcher_;
+    std::vector<cv::Mat> sorted = st.sortImagesInSCurveOrder(images, gridSize);
+    cv::Mat result = st.stitchImages(sorted, gridSize);
     if (!result.empty()) {
         emit stitchingFinished(result);
         emit statusMessage("Stitching completed");
@@ -159,19 +223,23 @@ void AppController::stitchImages(const std::vector<cv::Mat>& images, const cv::S
 }
 
 std::vector<cv::Mat> AppController::loadImages(const std::string& dir) {
-    return image_stitcher_.loadImagesFromDirectory(dir);
+    return pimpl_->image_stitcher_.loadImagesFromDirectory(dir);
 }
 
 bool AppController::loadDetectorModel(const std::string& paramPath, const std::string& binPath) {
-    bool ok = yolo_detector_.loadModel(paramPath, binPath);
+    bool ok = pimpl_->yolo_detector_.loadModel(paramPath, binPath);
     emit statusMessage(ok ? "Model loaded" : "Model loading failed");
     return ok;
 }
 
+bool AppController::isModelLoaded() const {
+    return pimpl_->yolo_detector_.isModelLoaded();
+}
+
 std::vector<detector::Detection> AppController::detect(const cv::Mat& image) {
-    return yolo_detector_.detect(image);
+    return pimpl_->yolo_detector_.detect(image);
 }
 
 cv::Mat AppController::drawDetections(const cv::Mat& image, const std::vector<detector::Detection>& detections) {
-    return yolo_detector_.drawDetections(image, detections);
+    return pimpl_->yolo_detector_.drawDetections(image, detections);
 }

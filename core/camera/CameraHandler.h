@@ -133,6 +133,11 @@ public:
      */
     int getRotation() const;
 
+    bool setHFlip(bool flip);
+    bool getHFlip() const;
+    bool setVFlip(bool flip);
+    bool getVFlip() const;
+
     /**
      * @brief Set camera gain
      * @param gain Gain value

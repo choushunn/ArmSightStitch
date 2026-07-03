@@ -3,10 +3,19 @@
 #include <spdlog/spdlog.h>
 #include <thread>
 #include <chrono>
-#include <QString>
 #include <windows.h>
 
 namespace camera {
+
+// Convert wide-character string to UTF-8 (replaces QString::fromWCharArray)
+static std::string wcharToUtf8(const wchar_t* wstr) {
+    if (!wstr || !*wstr) return {};
+    int len = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, nullptr, 0, nullptr, nullptr);
+    if (len <= 0) return {};
+    std::string result(len - 1, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wstr, -1, &result[0], len, nullptr, nullptr);
+    return result;
+}
 
 // 计算缓冲区宽度的宏，与参考项目一致
 #define TDIBWIDTHBYTES(bits) ((DWORD)(((bits) + 31) & (~31)) / 8)
@@ -48,9 +57,9 @@ std::vector<CameraDevice> CameraHandler::enumerateCameras() {
             SPDLOG_DEBUG("Processing camera {}...", i);
             CameraDevice device;
             #if defined(_WIN32)
-            device.id = QString::fromWCharArray(devices[i].id).toStdString();
-            device.display_name = QString::fromWCharArray(devices[i].displayname).toStdString();
-            device.model_name = QString::fromWCharArray(devices[i].model->name).toStdString();
+            device.id = wcharToUtf8(devices[i].id);
+            device.display_name = wcharToUtf8(devices[i].displayname);
+            device.model_name = wcharToUtf8(devices[i].model->name);
             #else
             device.id = devices[i].id;
             device.display_name = devices[i].displayname;
@@ -207,32 +216,38 @@ bool CameraHandler::captureSingleFrame(cv::Mat& frame) {
     try {
         std::lock_guard<std::mutex> lock(capture_mutex_);
 
-        std::vector<uint8_t> single_frame_buffer(buffer_size_);
-        
+        // Use final size (accounts for rotation/ROI/binning) to prevent tearing
+        int final_w = 0, final_h = 0;
+        if (FAILED(Toupcam_get_FinalSize(hcam_, &final_w, &final_h))) {
+            final_w = image_width_;
+            final_h = image_height_;
+        }
+        int buf_size = TDIBWIDTHBYTES(final_w * 24) * final_h;
+        std::vector<uint8_t> single_frame_buffer(buf_size);
+
         // 尝试捕获图像，最多尝试3次
         int attempts = 0;
         const int max_attempts = 3;
         HRESULT result;
-        
+
         while (attempts < max_attempts) {
             attempts++;
             result = Toupcam_PullImageV4(hcam_, single_frame_buffer.data(), 0, 24, 0, nullptr);
             if (SUCCEEDED(result)) {
                 break;
             }
-            // 等待50ms后重试
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            // 等待5ms后重试（连接初期取帧更快）
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
-        
+
         if (FAILED(result)) {
             return false;
         }
-        
+
         // 计算实际的步长（考虑内存对齐）
-        int stride = TDIBWIDTHBYTES(image_width_ * 24);
-        
-        // 参考项目使用QImage::Format_BGR888，所以我们直接使用BGR格式
-        cv::Mat bgr(image_height_, image_width_, CV_8UC3, single_frame_buffer.data(), stride);
+        int stride = TDIBWIDTHBYTES(final_w * 24);
+
+        cv::Mat bgr(final_h, final_w, CV_8UC3, single_frame_buffer.data(), stride);
         frame = bgr.clone();
         
         return true;
@@ -405,6 +420,48 @@ int CameraHandler::getRotation() const {
     } catch (const std::exception& e) {
         SPDLOG_ERROR("Error getting rotation: {}", e.what());
         return 0;
+    }
+}
+
+bool CameraHandler::setHFlip(bool flip) {
+    if (!connected_) return false;
+    try {
+        return SUCCEEDED(Toupcam_put_HFlip(hcam_, flip ? 1 : 0));
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("Error setting HFlip: {}", e.what());
+        return false;
+    }
+}
+
+bool CameraHandler::getHFlip() const {
+    if (!connected_) return false;
+    try {
+        int val = 0;
+        return SUCCEEDED(Toupcam_get_HFlip(hcam_, &val)) && val != 0;
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("Error getting HFlip: {}", e.what());
+        return false;
+    }
+}
+
+bool CameraHandler::setVFlip(bool flip) {
+    if (!connected_) return false;
+    try {
+        return SUCCEEDED(Toupcam_put_VFlip(hcam_, flip ? 1 : 0));
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("Error setting VFlip: {}", e.what());
+        return false;
+    }
+}
+
+bool CameraHandler::getVFlip() const {
+    if (!connected_) return false;
+    try {
+        int val = 0;
+        return SUCCEEDED(Toupcam_get_VFlip(hcam_, &val)) && val != 0;
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("Error getting VFlip: {}", e.what());
+        return false;
     }
 }
 

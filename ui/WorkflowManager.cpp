@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include <QCoreApplication>
+#include <QDir>
 #include <chrono>
 #include <thread>
 

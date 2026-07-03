@@ -30,6 +30,14 @@ else()
 endif()
 
 # OpenCV — only link modules we actually use
+# Force TIFF to use FindTIFF.cmake (MODULE mode) with vcpkg's static libtiff.a,
+# instead of finding miniforge3's TiffConfig.cmake (CONFIG mode) which brings MSVC tiff.dll dependency.
+set(CMAKE_FIND_PACKAGE_PREFER_CONFIG OFF)
+set(Tiff_DIR "Tiff_DIR-NOTFOUND" CACHE PATH "" FORCE)
+set(TIFF_INCLUDE_DIR "${CMAKE_PREFIX_PATH}/include" CACHE PATH "" FORCE)
+set(TIFF_LIBRARY "${CMAKE_PREFIX_PATH}/lib/libtiff.a" CACHE FILEPATH "" FORCE)
+set(TIFF_LIBRARY_RELEASE "${CMAKE_PREFIX_PATH}/lib/libtiff.a" CACHE FILEPATH "" FORCE)
+set(TIFF_LIBRARY_DEBUG "${CMAKE_PREFIX_PATH}/debug/lib/libtiffd.a" CACHE FILEPATH "" FORCE)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
 message(STATUS "Found OpenCV: ${OpenCV_VERSION} at ${OpenCV_DIR}")
 
@@ -123,7 +131,7 @@ set(SOURCES
     core/detector/YoloDetector.cpp
     core/stitch/ImageStitcher.cpp
     infra/config/ConfigManager.cpp
-    infra/workflow/WorkflowManager.cpp
+    ui/WorkflowManager.cpp
 )
 
 set(RESOURCES
@@ -137,12 +145,13 @@ file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin)
 # Executable
 # ============================================================
 
-add_executable(${PROJECT_NAME}
+add_executable(${PROJECT_NAME} WIN32
     ${SOURCES}
     ${RESOURCES}
     ui/MainWindow.ui
     ui/DetectionSettingsDialog.ui
     ui/StitchingSettingsDialog.ui
+    resources/app.rc
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
@@ -154,7 +163,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/core/detector
     ${CMAKE_CURRENT_SOURCE_DIR}/core/stitch
     ${CMAKE_CURRENT_SOURCE_DIR}/infra/config
-    ${CMAKE_CURRENT_SOURCE_DIR}/infra/workflow
     ${CMAKE_CURRENT_SOURCE_DIR}/infra/log
 )
 
@@ -293,3 +301,51 @@ if(WINDEPLOYQT_EXECUTABLE)
 else()
     message(WARNING "windeployqt not found. Deploy target will not be available.")
 endif()
+
+# ============================================================
+# Packaging — CPack + NSIS
+# ============================================================
+# Usage:
+#   1. cmake --build . --target deploy   (or just build)
+#   2. cmake --build . --target package  (or: cpack -G NSIS)
+#
+# Requires: NSIS installed (https://nsis.sourceforge.io)
+
+set(CPACK_PACKAGE_NAME             "ArmSightStitch")
+set(CPACK_PACKAGE_VERSION          ${PROJECT_VERSION})
+set(CPACK_PACKAGE_VENDOR           "ArmSight")
+set(CPACK_PACKAGE_DESCRIPTION      "明场显微成像验证组件")
+set(CPACK_PACKAGE_HOMEPAGE_URL     "https://github.com/armsight/armsightstitch")
+set(CPACK_PACKAGE_CONTACT          "support@armsight.com")
+
+set(CPACK_GENERATOR                "NSIS")
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "ArmSightStitch")
+set(CPACK_NSIS_DISPLAY_NAME        "ArmSightStitch ${PROJECT_VERSION}")
+set(CPACK_NSIS_INSTALL_ROOT        "$PROGRAMFILES64")
+set(CPACK_NSIS_PACKAGE_NAME        "ArmSightStitch")
+set(CPACK_NSIS_CREATE_ICONS_EXTRA
+    "CreateShortCut '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\ArmSightStitch.lnk' '$INSTDIR\\\\bin\\\\ArmSightStitch.exe'")
+set(CPACK_NSIS_DELETE_ICONS_EXTRA
+    "Delete '$SMPROGRAMS\\\\$MUI_TEMP\\\\ArmSightStitch.lnk'")
+set(CPACK_NSIS_MENU_LINKS
+    "bin/ArmSightStitch.exe" "ArmSightStitch")
+set(CPACK_NSIS_URL_INFO_ABOUT      "https://github.com/armsight/armsightstitch")
+set(CPACK_NSIS_CONTACT             "support@armsight.com")
+set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
+set(CPACK_NSIS_MODIFY_PATH         OFF)
+set(CPACK_NSIS_EXECUTABLES_DIRECTORY "bin")
+set(CPACK_NSIS_INSTALLED_ICON_NAME "ArmSightStitch.exe")
+set(CPACK_NSIS_MUI_ICON            "${CMAKE_CURRENT_SOURCE_DIR}/resources/logo.ico")
+set(CPACK_NSIS_MUI_UNIICON         "${CMAKE_CURRENT_SOURCE_DIR}/resources/logo.ico")
+set(CPACK_NSIS_MUI_WELCOMEFINISHPAGE_BITMAP
+    "${CMAKE_CURRENT_SOURCE_DIR}/resources/R.bmp")
+set(CPACK_NSIS_MUI_UNWELCOMEFINISHPAGE_BITMAP
+    "${CMAKE_CURRENT_SOURCE_DIR}/resources/R.bmp")
+set(CPACK_RESOURCE_FILE_LICENSE    "${CMAKE_CURRENT_SOURCE_DIR}/resources/License.txt")
+
+# Include entire deploy output
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin/
+        DESTINATION bin
+        USE_SOURCE_PERMISSIONS)
+
+include(CPack)

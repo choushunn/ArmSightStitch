@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 #include <functional>
-#include <opencv2/opencv.hpp>
+#include <opencv2/core/mat.hpp>
 
 namespace camera {
 
@@ -50,6 +50,10 @@ public:
     virtual bool getAutoExposure() const = 0;
     virtual bool setRotation(int degrees) = 0;
     virtual int getRotation() const = 0;
+    virtual bool setHFlip(bool flip) = 0;
+    virtual bool getHFlip() const = 0;
+    virtual bool setVFlip(bool flip) = 0;
+    virtual bool getVFlip() const = 0;
     virtual bool setGain(float gain) = 0;
     virtual float getGain() const = 0;
     virtual bool setResolution(int width, int height) = 0;

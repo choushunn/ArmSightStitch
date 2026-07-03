@@ -1,0 +1,12 @@
+Copyright (c) 2024 SPRING
+
+SPRING retains all rights to this software.
+
+
+No part of this software may be copied, distributed, modified, or used without prior written permission from SPRING.
+
+
+This software is provided "as is" without any express or implied warranty, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement. In no event shall SPRING be liable for any direct, indirect, incidental, special, or consequential damages arising out of the use of this software.
+
+
+By using this software, you agree to the terms of this license agreement.

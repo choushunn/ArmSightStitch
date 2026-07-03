@@ -20,6 +20,7 @@ public:
      * @return true if model loaded successfully, false otherwise
      */
     bool loadModel(const std::string& param_path, const std::string& bin_path);
+    bool isModelLoaded() const override { return model_loaded_; }
 
     /**
      * @brief Detect objects in an image
