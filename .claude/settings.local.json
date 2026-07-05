@@ -18,7 +18,18 @@
       "Bash(python3 -c ' *)",
       "Bash(cmake --build build/vcpkg-mingw --config Release --target deploy --parallel)",
       "Bash(git add *)",
-      "Bash(git commit -m 'feat: 架构重构、bug修复与UI优化 *)"
+      "Bash(git commit -m 'feat: 架构重构、bug修复与UI优化 *)",
+      "Bash(taskkill /f /im cmake.exe)",
+      "Bash(taskkill /f /im ninja.exe)",
+      "Bash(/c/Programs/Qt/6.10.1/mingw_64/bin/uic.exe \"d:/CPP/ArmSightStitch/ui/MainWindow.ui\")",
+      "Bash(/c/Programs/Qt/6.10.1/mingw_64/bin/uic.exe \"d:/CPP/ArmSightStitch/ui/MainWindow.ui\" -o \"d:/CPP/ArmSightStitch/build/vcpkg-mingw/ArmSightStitch_autogen/include/ui_MainWindow.h\")",
+      "Bash(touch ui/MainWindow.ui)",
+      "Bash(/c/Programs/Qt/6.10.1/mingw_64/bin/uic.exe ui/MainWindow.ui -o build/vcpkg-mingw/ArmSightStitch_autogen/include/ui_MainWindow.h)",
+      "Bash(sed -i 's/ui_->stitchSaveButton/\\\\/\\\\/ui_->stitchSaveButton/g; s/ui_->detectRunButton/\\\\/\\\\/ui_->detectRunButton/g; s/ui_->stitchRunButton/\\\\/\\\\/ui_->stitchRunButton/g; s/ui_->stitchSettingsButton/\\\\/\\\\/ui_->stitchSettingsButton/g; s/ui_->detectModelButton/\\\\/\\\\/ui_->detectModelButton/g; s/ui_->detectSettingsButton/\\\\/\\\\/ui_->detectSettingsButton/g; s/ui_->controlStack/\\\\/\\\\/ui_->controlStack/g' ui/MainWindow.cpp)",
+      "Bash(sed -i '460,462s/^/\\\\/\\\\//;471,473s/^/\\\\/\\\\//' ui/MainWindow.cpp)",
+      "Bash(git commit -m 'feat: DRY/LSP/线程安全修复、策略模式拆分、UI重构 *)",
+      "Bash(git commit -m 'fix: 机械臂连接错误提示、IP掩码、默认禁用状态、工具栏紧急停止 *)",
+      "Bash(git commit -m 'docs: 重写 README，适配 GitHub 展示 *)"
     ]
   }
 }

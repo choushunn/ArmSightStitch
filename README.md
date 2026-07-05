@@ -4,14 +4,8 @@
 [![Qt](https://img.shields.io/badge/Qt-6.10-green.svg)](https://www.qt.io/)
 [![OpenCV](https://img.shields.io/badge/OpenCV-4.12-red.svg)](https://opencv.org/)
 
-明场显微成像验证组件 — 集成 YOLO 目标检测、Modbus TCP 五轴机械臂控制、ToupCam 相机采集与图像拼接。
+集成 YOLO 目标检测、Modbus TCP 五轴机械臂控制、ToupCam 相机采集与图像拼接。
 
-## 截图
-
-<!-- 替换为实际截图 -->
-<p align="center">
-  <em>主界面 — 左侧硬件控制面板，右侧网格采集与实时预览</em>
-</p>
 
 ## 功能特性
 
