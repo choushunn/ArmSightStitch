@@ -345,6 +345,19 @@
             </widget>
            </item>
            <item>
+            <widget class="QPushButton" name="toolbarEmergStopBtn">
+             <property name="text"><string>紧急停止</string></property>
+             <property name="minimumSize"><size><width>68</width><height>0</height></size></property>
+             <property name="enabled"><bool>false</bool></property>
+             <property name="styleSheet"><string notr="true">color: #D9534F; font-weight: bold;</string></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QFrame" name="toolbarSepEmerg">
+             <property name="frameShape"><enum>QFrame::Shape::VLine</enum></property>
+            </widget>
+           </item>
+           <item>
             <widget class="QPushButton" name="quickScanBtn">
              <property name="text"><string>开始扫描</string></property>
              <property name="minimumSize"><size><width>68</width><height>0</height></size></property>
@@ -402,6 +415,13 @@
             </spacer>
            </item>
           </layout>
+         </widget>
+        </item>
+
+        <item>
+         <widget class="QCheckBox" name="cellMoveCheck">
+          <property name="text"><string>允许位移</string></property>
+          <property name="enabled"><bool>false</bool></property>
          </widget>
         </item>
 

@@ -11,6 +11,7 @@
 #include <QFileDialog>
 #include <QKeyEvent>
 #include <QMessageBox>
+#include <QRegularExpressionValidator>
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QHeaderView>
@@ -42,13 +43,29 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     ui_->detectImageLabel->setMinimumSize(320, 240);
 
     // Context-sensitive initial button states — enabled only when prerequisites met
+    // Camera-dependent
     ui_->quickDetectBtn->setEnabled(false);
+    ui_->captureImageButton->setEnabled(false);
+    ui_->enableDetectionCheck->setEnabled(false);
+    ui_->autoExposureCheck->setEnabled(false);
+    ui_->exposureSlider->setEnabled(false);
+    ui_->exposureValueLabel->setEnabled(false);
+    ui_->rotationCombo->setEnabled(false);
+    ui_->hflipCheck->setEnabled(false);
+    ui_->vflipCheck->setEnabled(false);
+    ui_->resolutionCombo->setEnabled(false);
+    // Arm-dependent
+    ui_->quickScanBtn->setEnabled(false);
     ui_->quickSaveBtn->setEnabled(false);
     ui_->moveToPosButton->setEnabled(false);
     ui_->readPosButton->setEnabled(false);
     ui_->xPosSpin->setEnabled(false);
     ui_->yPosSpin->setEnabled(false);
     ui_->zPosSpin->setEnabled(false);
+    ui_->zeroButton->setEnabled(false);
+    ui_->cellMoveCheck->setEnabled(false);
+    ui_->cellMoveCheck->setChecked(false);
+    ui_->toolbarEmergStopBtn->setEnabled(false);
 
     // Main splitter ratio: sidebar (1) : work area (5.4)
     ui_->mainSplitter->setStretchFactor(0, 10);
@@ -125,6 +142,12 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     connect(algo2Radio_, &QRadioButton::toggled, this, [this](bool checked) {
         if (checked) { algo1Radio_->setChecked(false); ctrl_.stitcher().setAlgorithm(1); }
     });
+
+    // IP address: validate format without fixed-width mask for natural text flow
+    ui_->armIpEdit->setValidator(new QRegularExpressionValidator(
+        QRegularExpression("^(?:(?:25[0-5]|2[0-4]\\d|1\\d{2}|[1-9]?\\d)\\.){3}"
+                           "(?:25[0-5]|2[0-4]\\d|1\\d{2}|[1-9]?\\d)$"),
+        ui_->armIpEdit));
 
     // FPS label next to resolution combo — red text, updated in updateCameraImage
     fps_label_ = new QLabel("-- FPS", this);
@@ -383,6 +406,38 @@ void MainWindow::connectSignals() {
     connect(ui_->readPosButton, &QPushButton::clicked, this, &MainWindow::on_readPosition);
     connect(ui_->zeroButton, &QPushButton::clicked, this, &MainWindow::on_zeroArm);
 
+    // ---- 机械臂: 速度 / 连续运动 / 紧急停止 ----
+    connect(ui_->setSpeedBtn, &QPushButton::clicked, this, [this]() {
+        int spd = ui_->speedSpin->value();
+        for (int i = 0; i < 5; ++i) ctrl_.armController().setSpeed(i, spd);
+        appendLog(QString("速度已设置: %1").arg(spd), "INFO");
+    });
+    connect(ui_->contMoveBtn, &QPushButton::toggled, this, [this](bool checked) {
+        int axis = ui_->contAxisCombo->currentIndex();
+        if (checked) {
+            bool dir = ui_->contFwdRadio->isChecked();
+            ctrl_.armController().startContinuousMovement(axis, dir);
+            ui_->contMoveBtn->setText("停止");
+            ui_->contAxisCombo->setEnabled(false);
+            ui_->contFwdRadio->setEnabled(false);
+            ui_->contRevRadio->setEnabled(false);
+        } else {
+            ctrl_.armController().stopContinuousMovement(axis);
+            ui_->contMoveBtn->setText("连续移动");
+            ui_->contAxisCombo->setEnabled(true);
+            ui_->contFwdRadio->setEnabled(true);
+            ui_->contRevRadio->setEnabled(true);
+        }
+    });
+    auto emergStop = [this]() {
+        if (ctrl_.movementController().getStatus().running) ctrl_.stopSMovement();
+        for (int i = 0; i < 5; ++i) ctrl_.armController().stopAllMovements(i);
+        if (ui_->contMoveBtn->isChecked()) ui_->contMoveBtn->setChecked(false);
+        appendLog("紧急停止：所有运动已停止", "WARN");
+    };
+    connect(ui_->emergStopBtn, &QPushButton::clicked, this, emergStop);
+    connect(ui_->toolbarEmergStopBtn, &QPushButton::clicked, this, emergStop);
+
     // ---- 扫描页面: 网格 ----
     connect(ui_->topCellsTable, &QTableWidget::cellClicked, this, &MainWindow::on_topCellsTable_cellClicked);
 
@@ -607,6 +662,19 @@ void MainWindow::onArmConnectFinished() {
         ui_->xPosSpin->setEnabled(true);
         ui_->yPosSpin->setEnabled(true);
         ui_->zPosSpin->setEnabled(true);
+        ui_->cellMoveCheck->setEnabled(true);
+        ui_->setSpeedBtn->setEnabled(true);
+        ui_->speedSpin->setEnabled(true);
+        ui_->aPosSpin->setEnabled(true);
+        ui_->bPosSpin->setEnabled(true);
+        ui_->contAxisCombo->setEnabled(true);
+        ui_->contFwdRadio->setEnabled(true);
+        ui_->contRevRadio->setEnabled(true);
+        ui_->contMoveBtn->setEnabled(true);
+        ui_->emergStopBtn->setEnabled(true);
+        ui_->toolbarEmergStopBtn->setEnabled(true);
+        ui_->quickScanBtn->setEnabled(true);
+        ui_->zeroButton->setEnabled(true);
     } else {
         ui_->armStatusLabel->setText("连接失败");
         ui_->armStatusLabel->setProperty("connStatus", "disconnected");
@@ -627,6 +695,20 @@ void MainWindow::on_disconnectArm() {
     ui_->xPosSpin->setEnabled(false);
     ui_->yPosSpin->setEnabled(false);
     ui_->zPosSpin->setEnabled(false);
+    ui_->cellMoveCheck->setEnabled(false);
+    ui_->cellMoveCheck->setChecked(false);
+    ui_->setSpeedBtn->setEnabled(false);
+    ui_->speedSpin->setEnabled(false);
+    ui_->aPosSpin->setEnabled(false);
+    ui_->bPosSpin->setEnabled(false);
+    ui_->contAxisCombo->setEnabled(false);
+    ui_->contFwdRadio->setEnabled(false);
+    ui_->contRevRadio->setEnabled(false);
+    ui_->contMoveBtn->setEnabled(false);
+    ui_->emergStopBtn->setEnabled(false);
+    ui_->toolbarEmergStopBtn->setEnabled(false);
+    ui_->quickScanBtn->setEnabled(false);
+    ui_->zeroButton->setEnabled(false);
 }
 
 void MainWindow::on_moveToPosition() {
@@ -952,8 +1034,8 @@ void MainWindow::onMovementStatus(const arm::SMovementStatus& status) {
 // ==================== Grid ====================
 
 void MainWindow::on_topCellsTable_cellClicked(int row, int column) {
-    // Navigate arm to this cell position
-    if (ctrl_.armController().isConnected()) {
+    // Navigate arm to this cell position (only when checkbox is enabled & checked)
+    if (ui_->cellMoveCheck->isChecked() && ctrl_.armController().isConnected()) {
         int step = ConfigManager::instance().stepSize();
         ctrl_.armController().moveToPosition(0, column * step);
         ctrl_.armController().moveToPosition(1, row * step);

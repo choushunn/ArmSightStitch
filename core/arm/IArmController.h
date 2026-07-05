@@ -76,6 +76,7 @@ public:
 
     virtual ArmStatus getStatus() const = 0;
     virtual void setStatusCallback(std::function<void(const ArmStatus&)> callback) = 0;
+    virtual std::string lastError() const = 0;
 };
 
 class ISMovementController {

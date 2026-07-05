@@ -48,7 +48,8 @@ bool ModbusArmController::connect(const std::string& ip, int port) {
     SPDLOG_INFO("Creating new modbus context with IP: {}, port: {}", ip, port);
     modbus_ = modbus_new_tcp(ip.c_str(), port);
     if (!modbus_) {
-        SPDLOG_ERROR("Failed to create modbus context: {}", modbus_strerror(errno));
+        last_error_ = std::string("无法创建Modbus连接: ") + modbus_strerror(errno);
+        SPDLOG_ERROR("{}", last_error_);
         return false;
     }
 
@@ -67,7 +68,9 @@ bool ModbusArmController::connect(const std::string& ip, int port) {
     // Connect to modbus server
     SPDLOG_INFO("Attempting to connect to modbus server...");
     if (modbus_connect(modbus_) == -1) {
-        SPDLOG_ERROR("Failed to connect to modbus server {}:{}: {}", ip, port, modbus_strerror(errno));
+        last_error_ = std::string("无法连接到 ") + ip + ":" + std::to_string(port)
+                      + " — " + modbus_strerror(errno);
+        SPDLOG_ERROR("{}", last_error_);
         modbus_free(modbus_);
         modbus_ = nullptr;
         return false;

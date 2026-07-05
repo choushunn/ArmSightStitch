@@ -83,6 +83,7 @@ public:
     void setSafetyLimits(int axis_id, const AxisLimits& limits);
     AxisLimits getSafetyLimits(int axis_id) const;
     void setDebugEnabled(bool enabled);
+    std::string lastError() const { return last_error_; }
 
     /**
      * @brief Start auto reading of positions
@@ -214,6 +215,7 @@ private:
     int stored_port_ = 502;
     std::atomic<bool> debug_enabled_{false};
     int consecutive_failures_ = 0;
+    mutable std::string last_error_;
     static constexpr int kMaxConsecutiveFailures = 5;
     static constexpr int kMaxReconnectAttempts = 10;
 

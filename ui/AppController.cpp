@@ -113,7 +113,9 @@ bool AppController::connectArm(const std::string& ip, int port) {
         arm.startAutoRead();  // periodic position polling → UI spinners stay live
         emit statusMessage(QString::fromStdString("Arm connected to " + ip));
     } else {
-        emit errorMessage("Failed to connect arm");
+        std::string errMsg = arm.lastError();
+        if (errMsg.empty()) errMsg = "Failed to connect arm";
+        emit errorMessage(QString::fromStdString(errMsg));
     }
     return ok;
 }
