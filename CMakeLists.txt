@@ -38,7 +38,7 @@ set(TIFF_INCLUDE_DIR "${CMAKE_PREFIX_PATH}/include" CACHE PATH "" FORCE)
 set(TIFF_LIBRARY "${CMAKE_PREFIX_PATH}/lib/libtiff.a" CACHE FILEPATH "" FORCE)
 set(TIFF_LIBRARY_RELEASE "${CMAKE_PREFIX_PATH}/lib/libtiff.a" CACHE FILEPATH "" FORCE)
 set(TIFF_LIBRARY_DEBUG "${CMAKE_PREFIX_PATH}/debug/lib/libtiffd.a" CACHE FILEPATH "" FORCE)
-find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs stitching)
 message(STATUS "Found OpenCV: ${OpenCV_VERSION} at ${OpenCV_DIR}")
 
 # Optimize: strip dead code from statically linked libraries
@@ -124,12 +124,16 @@ set(SOURCES
     ui/MainWindow.cpp
     ui/AppController.cpp
     ui/DetectionSettingsDialog.cpp
+    ui/SphereSettingsDialog.h
     ui/StitchingSettingsDialog.cpp
     core/arm/ModbusArmController.cpp
     core/arm/SMovementController.cpp
     core/camera/CameraHandler.cpp
     core/detector/YoloDetector.cpp
     core/stitch/ImageStitcher.cpp
+    core/stitch/GridStitchAlgorithm.h
+    core/stitch/FeatureStitchAlgorithm.h
+    core/stitch/IStitchAlgorithm.h
     infra/config/ConfigManager.cpp
     ui/WorkflowManager.cpp
 )

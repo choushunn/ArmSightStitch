@@ -5,6 +5,8 @@
 #include <functional>
 
 #include "IStitcher.h"
+#include "IStitchAlgorithm.h"
+#include <memory>
 
 namespace stitch {
 
@@ -13,44 +15,20 @@ public:
     ImageStitcher();
     ~ImageStitcher();
 
-    /**
-     * @brief Stitch images from a directory
-     * @param input_dir Path to input directory containing images
-     * @param output_path Path to save stitched image
-     * @param grid_size Grid size (width, height)
-     * @return true if stitching succeeded, false otherwise
-     */
-    bool stitchImagesFromDirectory(const std::string& input_dir, 
-                                  const std::string& output_path, 
+    bool stitchImagesFromDirectory(const std::string& input_dir,
+                                  const std::string& output_path,
                                   const cv::Size& grid_size = cv::Size(10, 10));
 
-    /**
-     * @brief Stitch images from a vector
-     * @param images Vector of input images
-     * @param output_path Path to save stitched image
-     * @param grid_size Grid size (width, height)
-     * @return Stitched image
-     */
-    cv::Mat stitchImages(const std::vector<cv::Mat>& images, 
+    cv::Mat stitchImages(const std::vector<cv::Mat>& images,
                         const cv::Size& grid_size = cv::Size(10, 10));
 
-    /**
-     * @brief Set stitching progress callback
-     * @param callback Callback function to be called during stitching
-     */
     void setProgressCallback(std::function<void(int, int)> callback);
-
-    /**
-     * @brief Set stitching status callback
-     * @param callback Callback function to be called when stitching status changes
-     */
     void setStatusCallback(std::function<void(const std::string&)> callback);
 
-    /**
-     * @brief Get stitching result
-     * @return Stitched image
-     */
     cv::Mat getResult() const;
+
+    /// Switch stitch strategy: 0=GridStitchAlgorithm, 1=FeatureStitchAlgorithm
+    void setAlgorithm(int algo);
 
     /**
      * @brief Load images from directory
@@ -91,6 +69,9 @@ private:
 
 private:
     cv::Mat result_image_;
+    std::unique_ptr<IStitchAlgorithm> algo1_;  // GridStitchAlgorithm
+    std::unique_ptr<IStitchAlgorithm> algo2_;  // FeatureStitchAlgorithm
+    IStitchAlgorithm* current_algo_ = nullptr;
     std::function<void(int, int)> progress_callback_;
     std::function<void(const std::string&)> status_callback_;
 };

@@ -212,7 +212,7 @@ private:
 
     std::string stored_ip_;
     int stored_port_ = 502;
-    bool debug_enabled_ = false;
+    std::atomic<bool> debug_enabled_{false};
     int consecutive_failures_ = 0;
     static constexpr int kMaxConsecutiveFailures = 5;
     static constexpr int kMaxReconnectAttempts = 10;

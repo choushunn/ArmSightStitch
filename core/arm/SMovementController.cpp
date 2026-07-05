@@ -1,4 +1,5 @@
 #include "SMovementController.h"
+#include "core/arm/ArmUtils.h"
 
 #include <spdlog/spdlog.h>
 #include <cmath>
@@ -166,7 +167,7 @@ void SMovementController::setMovementSpeed(int speed) {
 }
 
 int SMovementController::getSavedImagesCount() const {
-    return saved_images_count_;
+    return saved_images_count_.load();
 }
 
 std::vector<SMovementPoint> SMovementController::generateFixedPointSMovementPath(const cv::Size& grid_size, 
@@ -262,25 +263,8 @@ void SMovementController::movementThread() {
                 // 直接向机械臂发送固定点
                 SPDLOG_DEBUG("Sending fixed point {} to arm: ({}, {}, {})", i + 1, point.x, point.y, point.z);
                 
-                // 并行移动X轴和Y轴
-                bool success_x = false, success_y = false, success_z = false, success_a = false, success_b = false;
-                try {
-                    success_x = arm_controller_.moveToPosition(0, point.x); // X轴是轴ID 0
-                    success_y = arm_controller_.moveToPosition(1, point.y); // Y轴是轴ID 1
-                    success_z = arm_controller_.moveToPosition(2, point.z); // Z轴是轴ID 2
-                    success_a = arm_controller_.moveToPosition(3, point.a); // A轴是轴ID 3
-                    success_b = arm_controller_.moveToPosition(4, point.b); // B轴是轴ID 4
-                } catch (const std::exception& e) {
-                    SPDLOG_ERROR("Error sending movement commands: {}", e.what());
-                }
-                
-                // 检查是否有轴移动失败
-                if (!success_x || !success_y || !success_z || !success_a || !success_b) {
-                    if (!success_x) SPDLOG_ERROR("X axis movement failed");
-                    if (!success_y) SPDLOG_ERROR("Y axis movement failed");
-                    if (!success_z) SPDLOG_ERROR("Z axis movement failed");
-                    if (!success_a) SPDLOG_ERROR("A axis movement failed");
-                    if (!success_b) SPDLOG_ERROR("B axis movement failed");
+                bool all_ok = arm::moveToPoint(arm_controller_, point);
+                if (!all_ok) {
                     updateStatus("Failed to move to point " + std::to_string(i + 1) + ", skipping to next point");
                     SPDLOG_ERROR("Failed to move to point {}, skipping to next point", i + 1);
                     continue;
@@ -449,7 +433,7 @@ void SMovementController::movementThread() {
         } else {
             updateStatus("Movement completed successfully");
             SPDLOG_INFO("Movement completed successfully");
-            SPDLOG_INFO("Saved {} images out of {} points", saved_images_count_, movement_path_.size());
+            SPDLOG_INFO("Saved {} images out of {} points", saved_images_count_.load(), movement_path_.size());
         }
         
         updateAction("Idle");
@@ -484,33 +468,9 @@ bool SMovementController::moveToPoint(const SMovementPoint& point) {
         // 直接向机械臂发送固定点命令
         SPDLOG_INFO("Sending fixed position to arm");
         
-        // 按照顺序发送各轴位置命令
-        // 先发送X轴
-        SPDLOG_INFO("Sending X axis position: {}", point.x);
-        bool x_ok = arm_controller_.moveToPosition(0, point.x);
-        
-        // 再发送Y轴
-        SPDLOG_INFO("Sending Y axis position: {}", point.y);
-        bool y_ok = arm_controller_.moveToPosition(1, point.y);
-        
-        // 再发送Z轴
-        SPDLOG_INFO("Sending Z axis position: {}", point.z);
-        bool z_ok = arm_controller_.moveToPosition(2, point.z);
-        
-        // 再发送A轴
-        SPDLOG_INFO("Sending A axis position: {}", point.a);
-        bool a_ok = arm_controller_.moveToPosition(3, point.a);
-        
-        // 最后发送B轴
-        SPDLOG_INFO("Sending B axis position: {}", point.b);
-        bool b_ok = arm_controller_.moveToPosition(4, point.b);
-        
-        if (!x_ok || !y_ok || !z_ok || !a_ok || !b_ok) {
+        bool all_ok = arm::moveToPoint(arm_controller_, point);
+        if (!all_ok) {
             SPDLOG_ERROR("Failed to send position to arm");
-            SPDLOG_ERROR("X: {}, Y: {}, Z: {}, A: {}, B: {}",
-                x_ok ? "OK" : "FAILED", y_ok ? "OK" : "FAILED",
-                z_ok ? "OK" : "FAILED", a_ok ? "OK" : "FAILED",
-                b_ok ? "OK" : "FAILED");
             return false;
         }
         

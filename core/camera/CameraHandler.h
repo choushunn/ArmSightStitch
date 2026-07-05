@@ -194,6 +194,7 @@ private:
     std::atomic<bool> connected_ = false;
     std::atomic<bool> capturing_ = false;
     std::atomic<bool> is_callback_active_ = false;
+    mutable std::mutex status_mutex_;  // protects current_status_
     std::mutex callback_mutex_;
     std::function<void(const cv::Mat&)> image_callback_;
     std::function<void(const CameraStatus&)> status_callback_;

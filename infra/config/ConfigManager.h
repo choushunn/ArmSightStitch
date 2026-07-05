@@ -43,16 +43,24 @@ public:
     void setModelParamPath(const std::string& path);
     void setModelBinPath(const std::string& path);
 
-    // S-movement default parameters
+    // S-movement / spherical cap parameters (Protocol Section 7.2)
     int gridSizeX() const { return grid_size_x_; }
     int gridSizeY() const { return grid_size_y_; }
     int stepSize() const { return step_size_; }
     int zHeight() const { return z_height_; }
+    int sphereRadius() const { return sphere_radius_; }
+    int sphereCapHeight() const { return sphere_cap_height_; }
+    int sphereHeightOffset() const { return sphere_height_offset_; }
+    int zBaseHeight() const { return z_base_height_; }
 
     void setGridSizeX(int x);
     void setGridSizeY(int y);
     void setStepSize(int s);
     void setZHeight(int z);
+    void setSphereRadius(int r);
+    void setSphereCapHeight(int h);
+    void setSphereHeightOffset(int d);
+    void setZBaseHeight(int z);
 
     // Image save path
     std::string imageSaveBasePath() const { return image_save_base_path_; }
@@ -104,6 +112,11 @@ private:
     int grid_size_y_ = 10;
     int step_size_ = 43000;
     int z_height_ = 50000;
+
+    int sphere_radius_ = 230000;
+    int sphere_cap_height_ = 50000;
+    int sphere_height_offset_ = 0;
+    int z_base_height_ = 80000;
 
     std::string image_save_base_path_;
     std::string log_path_;

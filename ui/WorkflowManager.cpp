@@ -1,5 +1,6 @@
 #include "WorkflowManager.h"
 #include "infra/config/ConfigManager.h"
+#include "infra/config/PathUtils.h"
 #include <spdlog/spdlog.h>
 
 #include <QCoreApplication>
@@ -218,20 +219,8 @@ void WorkflowManager::onSMovementFinished() {
     auto& cfg = ConfigManager::instance();
     std::string basePath = cfg.imageSaveBasePath();
 
-    // Find the latest numbered run subdirectory (same logic as
-    // AppController::startSMovement — images are saved to basePath/N/)
-    QDir baseDir(QString::fromStdString(basePath));
-    int runNumber = 0;
-    if (baseDir.exists()) {
-        for (const QString& dir : baseDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
-            bool ok;
-            int num = dir.toInt(&ok);
-            if (ok && num > runNumber) runNumber = num;
-        }
-    }
-    std::string loadPath = runNumber > 0
-        ? basePath + "/" + std::to_string(runNumber)
-        : basePath;
+    std::string loadPath = infra::findLatestRunDir(basePath);
+    if (loadPath.empty()) loadPath = basePath;
 
     auto images = stitcher_.loadImagesFromDirectory(loadPath);
     if (images.empty()) {

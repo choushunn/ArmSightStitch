@@ -24,6 +24,8 @@ public:
 
     virtual cv::Mat getResult() const = 0;
 
+    virtual void setAlgorithm(int algo) = 0;
+
     virtual std::vector<cv::Mat> loadImagesFromDirectory(const std::string& input_dir) = 0;
     virtual std::vector<cv::Mat> sortImagesInSCurveOrder(const std::vector<cv::Mat>& images,
                                                          const cv::Size& grid_size) = 0;

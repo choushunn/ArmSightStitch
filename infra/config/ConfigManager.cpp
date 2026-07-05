@@ -142,6 +142,11 @@ bool ConfigManager::loadFromJson(const QJsonObject& json) {
     readInt("step_size", step_size_);
     readInt("z_height", z_height_);
 
+    readInt("sphere_radius", sphere_radius_);
+    readInt("sphere_cap_height", sphere_cap_height_);
+    readInt("sphere_height_offset", sphere_height_offset_);
+    readInt("z_base_height", z_base_height_);
+
     readStr("image_save_base_path", image_save_base_path_);
     readStr("log_path", log_path_);
 
@@ -208,6 +213,10 @@ QJsonObject ConfigManager::toJson() const {
     json["grid_size_y"] = grid_size_y_;
     json["step_size"] = step_size_;
     json["z_height"] = z_height_;
+    json["sphere_radius"] = sphere_radius_;
+    json["sphere_cap_height"] = sphere_cap_height_;
+    json["sphere_height_offset"] = sphere_height_offset_;
+    json["z_base_height"] = z_base_height_;
     json["image_save_base_path"] = QString::fromStdString(image_save_base_path_);
     json["log_path"] = QString::fromStdString(log_path_);
 
@@ -331,6 +340,22 @@ void ConfigManager::setStepSize(int s) {
 
 void ConfigManager::setZHeight(int z) {
     z_height_ = z;
+}
+
+void ConfigManager::setSphereRadius(int r) {
+    if (r > 0) sphere_radius_ = r;
+}
+
+void ConfigManager::setSphereCapHeight(int h) {
+    if (h >= 0) sphere_cap_height_ = h;
+}
+
+void ConfigManager::setSphereHeightOffset(int d) {
+    sphere_height_offset_ = d;
+}
+
+void ConfigManager::setZBaseHeight(int z) {
+    z_base_height_ = z;
 }
 
 void ConfigManager::setImageSaveBasePath(const std::string& path) {

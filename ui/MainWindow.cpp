@@ -4,6 +4,7 @@
 #include "ui/DetectionSettingsDialog.h"
 #include "ui/StitchingSettingsDialog.h"
 #include "infra/config/ConfigManager.h"
+#include "infra/config/PathUtils.h"
 
 #include <spdlog/spdlog.h>
 #include <QEvent>
@@ -42,7 +43,6 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
 
     // Context-sensitive initial button states — enabled only when prerequisites met
     ui_->quickDetectBtn->setEnabled(false);
-    ui_->stitchSaveButton->setEnabled(false);
     ui_->quickSaveBtn->setEnabled(false);
     ui_->moveToPosButton->setEnabled(false);
     ui_->readPosButton->setEnabled(false);
@@ -95,16 +95,48 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     ui_->captureImageButton->setText("捕获");
     ui_->quickCaptureBtn->setVisible(false);
 
+    // ── Stitch algorithm radio buttons in toolbar ──
+    algo1Radio_ = new QRadioButton("拼接算法1", this);
+    algo2Radio_ = new QRadioButton("拼接算法2", this);
+    algo1Radio_->setChecked(true);
+    {
+        QWidget* toolbar = ui_->quickScanBtn->parentWidget();
+        if (toolbar && toolbar->layout()) {
+            auto* tlay = qobject_cast<QBoxLayout*>(toolbar->layout());
+            if (tlay) {
+                int spacerIdx = -1;
+                for (int i = 0; i < tlay->count(); ++i) {
+                    if (tlay->itemAt(i)->spacerItem()) { spacerIdx = i; break; }
+                }
+                if (spacerIdx >= 0) {
+                    tlay->insertWidget(spacerIdx, algo1Radio_);
+                    tlay->insertWidget(spacerIdx + 1, algo2Radio_);
+                } else {
+                    tlay->addWidget(algo1Radio_);
+                    tlay->addWidget(algo2Radio_);
+                }
+            }
+        }
+    }
+    // Wire: algo1 → Grid (setAlgorithm 0), algo2 → Feature (setAlgorithm 1)
+    connect(algo1Radio_, &QRadioButton::toggled, this, [this](bool checked) {
+        if (checked) { algo2Radio_->setChecked(false); ctrl_.stitcher().setAlgorithm(0); }
+    });
+    connect(algo2Radio_, &QRadioButton::toggled, this, [this](bool checked) {
+        if (checked) { algo1Radio_->setChecked(false); ctrl_.stitcher().setAlgorithm(1); }
+    });
+
     // FPS label next to resolution combo — red text, updated in updateCameraImage
     fps_label_ = new QLabel("-- FPS", this);
     fps_label_->setStyleSheet("color: #D9534F; font-weight: bold;");
     fps_label_->setMinimumWidth(60);
+    fps_label_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     {
-        // Find cameraResolutionRow and add FPS label at the end
+        // Find cameraResolutionRow, add stretch then FPS label (right-aligned)
         for (auto* w : this->findChildren<QLayout*>()) {
             if (w->objectName() == "cameraResolutionRow") {
                 auto* lay = qobject_cast<QBoxLayout*>(w);
-                if (lay) lay->addWidget(fps_label_);
+                if (lay) { lay->addStretch(); lay->addWidget(fps_label_); }
                 break;
             }
         }
@@ -175,7 +207,6 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     }
 
     // Rename: "开始检测" → "检测单帧" (vs real-time = continuous)
-    ui_->detectRunButton->setText("检测单帧");
     ui_->quickDetectBtn->setText("检测单帧");
 
     appendLog("Application initialized", "INFO");
@@ -185,20 +216,19 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
 MainWindow::~MainWindow() {
     camera_update_timer_->stop();
     ctrl_.stopCameraCapture();
+    // Wait for pending async operations before tearing down UI
+    stitching_watcher_.waitForFinished();
+    detection_watcher_.waitForFinished();
+    manual_detect_watcher_.waitForFinished();
+    arm_connect_watcher_.waitForFinished();
+    arm_move_watcher_.waitForFinished();
     delete ui_;
 }
 
 void MainWindow::setupMenuNavigation() {
-    // Set initial state
-    ui_->controlStack->setCurrentIndex(0);
 }
 
-void MainWindow::onMenuButtonClicked(int id) {
-    ui_->controlStack->setCurrentIndex(id);
-    QString pageNames[] = {"扫描", "拼接", "检测"};
-    if (id >= 0 && id < 3) {
-        ui_->statusLabel->setText(QString("当前页面: %1").arg(pageNames[id]));
-    }
+void MainWindow::onMenuButtonClicked(int) {
 }
 
 void MainWindow::connectSignals() {
@@ -357,9 +387,6 @@ void MainWindow::connectSignals() {
     connect(ui_->topCellsTable, &QTableWidget::cellClicked, this, &MainWindow::on_topCellsTable_cellClicked);
 
     // ---- 拼接页面 ----
-    connect(ui_->stitchRunButton, &QPushButton::clicked, this, &MainWindow::on_stitchRun);
-    connect(ui_->stitchSettingsButton, &QPushButton::clicked, this, &MainWindow::on_stitchSettings);
-    connect(ui_->stitchSaveButton, &QPushButton::clicked, this, &MainWindow::on_saveStitch);
 
     // ---- 拼接预览: 双击全屏 ----
     ui_->stitchImageLabel->installEventFilter(this);
@@ -368,9 +395,6 @@ void MainWindow::connectSignals() {
     ui_->cameraImageLabel->installEventFilter(this);
 
     // ---- 检测页面 ----
-    connect(ui_->detectModelButton, &QPushButton::clicked, this, &MainWindow::on_loadModel);
-    connect(ui_->detectSettingsButton, &QPushButton::clicked, this, &MainWindow::on_detSettings);
-    connect(ui_->detectRunButton, &QPushButton::clicked, this, &MainWindow::on_manualDetect);
 
     // ---- 检测预览: 双击全屏 ----
     ui_->detectImageLabel->installEventFilter(this);
@@ -391,7 +415,6 @@ void MainWindow::connectSignals() {
     connect(&ctrl_, &AppController::stitchingFinished, this, [this](const cv::Mat& result) {
         stitched_result_ = result;
         displayImageFullQuality(result, ui_->stitchImageLabel, stitched_pixmap_);
-        ui_->stitchSaveButton->setEnabled(true);
         ui_->quickSaveBtn->setEnabled(true);
     });
 }
@@ -771,24 +794,12 @@ void MainWindow::on_stitchRun() {
     std::string basePath = cfg.imageSaveBasePath();
     cv::Size gs(cfg.gridSizeX(), cfg.gridSizeY());
 
-    // Find the latest numbered run subdirectory (same logic as AppController::startSMovement)
-    QDir baseDir(QString::fromStdString(basePath));
-    int runNumber = 0;
-    if (baseDir.exists()) {
-        for (const QString& d : baseDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
-            bool ok;
-            int n = d.toInt(&ok);
-            if (ok && n > runNumber) runNumber = n;
-        }
-    } else {
-        baseDir.mkpath(".");
+    std::string loadPath = infra::findLatestRunDir(basePath);
+    if (loadPath.empty()) {
+        QDir().mkpath(QString::fromStdString(basePath));
         QMessageBox::warning(this, "警告", "图像目录不存在，已自动创建。\n请先执行扫描采集图像");
         return;
     }
-
-    std::string loadPath = runNumber > 0
-        ? basePath + "/" + std::to_string(runNumber)
-        : basePath;
 
     auto images = ctrl_.loadImages(loadPath);
     if (images.empty()) {
@@ -797,7 +808,6 @@ void MainWindow::on_stitchRun() {
         return;
     }
 
-    ui_->stitchRunButton->setEnabled(false);
     stitch_progress_->setValue(0);
     stitch_progress_->setVisible(true);
     stitching_future_ = QtConcurrent::run([this, images, gs]() {
@@ -809,7 +819,6 @@ void MainWindow::on_stitchRun() {
 
 void MainWindow::onStitchingFinished() {
     stitch_progress_->setVisible(false);
-    ui_->stitchRunButton->setEnabled(true);
     cv::Mat result = stitching_future_.result();
     if (!result.empty()) {
         stitched_result_ = result;

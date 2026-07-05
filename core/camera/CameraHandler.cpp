@@ -85,9 +85,18 @@ bool CameraHandler::connect(const std::string& device_id) {
     disconnect();
     
     try {
-        // 参考项目使用索引打开相机，忽略device_id参数
-        SPDLOG_INFO("Attempting to open camera by index 0");
-        hcam_ = Toupcam_OpenByIndex(0);
+        // Open by device ID (or first available if ID is empty)
+        SPDLOG_INFO("Opening camera: {}", device_id.empty() ? "(first available)" : device_id);
+        if (device_id.empty()) {
+            hcam_ = Toupcam_Open(nullptr);
+        } else {
+#if defined(_WIN32)
+            std::wstring wid(device_id.begin(), device_id.end());  // approximate
+            hcam_ = Toupcam_Open(wid.c_str());
+#else
+            hcam_ = Toupcam_Open(device_id.c_str());
+#endif
+        }
         
         if (!hcam_) {
             updateStatus(false, "Failed to open camera");
@@ -266,6 +275,7 @@ void CameraHandler::setStatusCallback(std::function<void(const CameraStatus&)> c
 }
 
 CameraStatus CameraHandler::getStatus() const {
+    std::lock_guard<std::mutex> lock(status_mutex_);
     return current_status_;
 }
 
@@ -516,11 +526,16 @@ bool CameraHandler::setResolution(int width, int height) {
         buffer_size_ = TDIBWIDTHBYTES(width * 24) * height;
         image_buffer_.resize(buffer_size_);
         
-        // Update status
-        current_status_.width = width;
-        current_status_.height = height;
+        // Update status (lock, copy, callback outside lock to avoid deadlock)
+        CameraStatus snapshot;
+        {
+            std::lock_guard<std::mutex> lock(status_mutex_);
+            current_status_.width = width;
+            current_status_.height = height;
+            snapshot = current_status_;
+        }
         if (status_callback_) {
-            status_callback_(current_status_);
+            status_callback_(snapshot);
         }
         
         return true;
@@ -593,13 +608,17 @@ void __stdcall CameraHandler::cameraCallback(unsigned nEvent, void* ctx) {
 
 
 void CameraHandler::updateStatus(bool is_connected, const std::string& message) {
-    current_status_.connected = is_connected;
-    current_status_.status_message = message;
-    current_status_.width = image_width_;
-    current_status_.height = image_height_;
-    
+    CameraStatus snap;
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        current_status_.connected = is_connected;
+        current_status_.status_message = message;
+        current_status_.width = image_width_;
+        current_status_.height = image_height_;
+        snap = current_status_;
+    }
     if (status_callback_) {
-        status_callback_(current_status_);
+        status_callback_(snap);
     }
 }
 

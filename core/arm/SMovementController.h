@@ -168,7 +168,7 @@ private:
     std::atomic<int> movement_speed_;
     SMovementStatus current_status_;
     std::string save_directory_;
-    int saved_images_count_;
+    std::atomic<int> saved_images_count_{0};
     double position_tolerance_ = 100.0;
     std::mutex status_mutex_;
     std::mutex path_mutex_;

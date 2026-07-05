@@ -1,5 +1,6 @@
 #include "AppController.h"
 #include "infra/config/ConfigManager.h"
+#include "infra/config/PathUtils.h"
 
 #include "core/arm/ModbusArmController.h"
 #include "core/arm/SMovementController.h"
@@ -154,22 +155,10 @@ bool AppController::startSMovement(const cv::Size& gridSize, int stepSize, int z
     int endX = stepSize * (gridSize.width - 1);
     int endY = stepSize * (gridSize.height - 1);
 
-    std::string basePath = cfg.imageSaveBasePath();
-    int runNumber = 0;
-    QDir baseDir(QString::fromStdString(basePath));
-    if (baseDir.exists()) {
-        for (const QString& dir : baseDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
-            bool ok;
-            int num = dir.toInt(&ok);
-            if (ok && num > runNumber) runNumber = num;
-        }
-    }
-    runNumber++;
-    std::string savePath = basePath + "/" + std::to_string(runNumber);
-
-    QDir().mkpath(QString::fromStdString(savePath));
+    std::string savePath = infra::createNextRunDir(cfg.imageSaveBasePath());
     sm.setSaveDirectory(savePath);
-    sm.setRunNumber(runNumber);
+    // Extract run number from path for the controller
+    sm.setRunNumber(std::stoi(savePath.substr(savePath.rfind('/') + 1)));
     sm.setMovementSpeed(cfg.defaultSpeed());
     sm.setPositionTolerance(cfg.positionTolerance());
 

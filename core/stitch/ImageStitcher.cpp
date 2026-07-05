@@ -1,4 +1,6 @@
 #include "ImageStitcher.h"
+#include "GridStitchAlgorithm.h"
+#include "FeatureStitchAlgorithm.h"
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
@@ -9,11 +11,30 @@
 
 namespace stitch {
 
-ImageStitcher::ImageStitcher() {
+ImageStitcher::ImageStitcher()
+    : algo1_(std::make_unique<GridStitchAlgorithm>())
+    , algo2_(std::make_unique<FeatureStitchAlgorithm>())
+{
     result_image_ = cv::Mat();
+    // Default to algorithm 1, forwarding callbacks
+    current_algo_ = algo1_.get();
+    current_algo_->setProgressCallback([this](int c, int t) { updateProgress(c, t); });
+    current_algo_->setStatusCallback([this](const std::string& m) { updateStatus(m); });
 }
 
-ImageStitcher::~ImageStitcher() {
+ImageStitcher::~ImageStitcher() = default;
+
+void ImageStitcher::setAlgorithm(int algo) {
+    auto* next = (algo == 1) ? algo2_.get() : algo1_.get();
+    if (algo != 0 && algo != 1) {
+        SPDLOG_WARN("Unknown stitch algorithm {}, defaulting to 0", algo);
+        next = algo1_.get();
+    }
+    if (next != current_algo_) {
+        current_algo_ = next;
+        current_algo_->setProgressCallback([this](int c, int t) { updateProgress(c, t); });
+        current_algo_->setStatusCallback([this](const std::string& m) { updateStatus(m); });
+    }
 }
 
 bool ImageStitcher::stitchImagesFromDirectory(const std::string& input_dir,
@@ -56,85 +77,9 @@ bool ImageStitcher::stitchImagesFromDirectory(const std::string& input_dir,
 
 cv::Mat ImageStitcher::stitchImages(const std::vector<cv::Mat>& images,
                                    const cv::Size& grid_size) {
-    if (images.empty()) {
-        std::string log_msg = "No images to stitch";
-        SPDLOG_ERROR("{}", log_msg);
-        updateStatus(log_msg);
-        return cv::Mat();
-    }
-
-    try {
-        SPDLOG_INFO("Stitching {} images with grid size {}x{}", images.size(), grid_size.width, grid_size.height);
-        std::string log_msg = "Stitching " + std::to_string(images.size()) + " images with grid size " +
-                            std::to_string(grid_size.width) + "x" + std::to_string(grid_size.height);
-        updateStatus(log_msg);
-        updateProgress(0, 100);
-
-        int expected_images = grid_size.width * grid_size.height;
-        if (static_cast<int>(images.size()) < expected_images) {
-            SPDLOG_ERROR("Not enough images. Expected {}, got {}", expected_images, images.size());
-            log_msg = "Not enough images. Expected " + std::to_string(expected_images) + ", got " + std::to_string(images.size());
-            updateStatus(log_msg);
-            updateProgress(100, 100);
-            return cv::Mat();
-        }
-
-        cv::Size img_size = images[0].size();
-        int total_width = grid_size.width * img_size.width;
-        int total_height = grid_size.height * img_size.height;
-
-        SPDLOG_INFO("Creating stitched image with size {}x{}", total_width, total_height);
-        log_msg = "Creating stitched image with size " + std::to_string(total_width) + "x" + std::to_string(total_height);
-        updateStatus(log_msg);
-        updateProgress(20, 100);
-
-        cv::Mat result(total_height, total_width, images[0].type(), cv::Scalar(0, 0, 0));
-
-        updateStatus("Starting stitching process...");
-        updateProgress(30, 100);
-
-        // The input images are expected in S-curve (snake) order:
-        // even rows: left-to-right, odd rows: right-to-left.
-        // This matches the output of sortImagesInSCurveOrder().
-        int index = 0;
-        for (int row = 0; row < grid_size.height; ++row) {
-            int progress = 30 + (row * 70) / grid_size.height;
-            updateProgress(progress, 100);
-
-            for (int i = 0; i < grid_size.width; ++i) {
-                if (index >= static_cast<int>(images.size())) {
-                    break;
-                }
-
-                // S-curve placement: even rows left-to-right, odd rows right-to-left
-                int col = (row % 2 == 0) ? i : (grid_size.width - 1 - i);
-
-                const cv::Mat& img = images[index];
-                int x = col * img_size.width;
-                int y = row * img_size.height;
-
-                cv::Rect roi(x, y, img_size.width, img_size.height);
-                cv::Mat roi_img = result(roi);
-                img.copyTo(roi_img);
-
-                index++;
-            }
-        }
-
-        updateProgress(100, 100);
-
-        log_msg = "Stitching completed successfully";
-        SPDLOG_INFO("{}", log_msg);
-        updateStatus(log_msg);
-
-        return result;
-    } catch (const std::exception& e) {
-        SPDLOG_ERROR("Error stitching images: {}", e.what());
-        std::string log_msg = "Error stitching images: " + std::string(e.what());
-        updateStatus(log_msg);
-        updateProgress(100, 100);
-        return cv::Mat();
-    }
+    cv::Mat result = current_algo_->stitch(images, grid_size);
+    if (!result.empty()) result_image_ = result;
+    return result;
 }
 
 void ImageStitcher::setProgressCallback(std::function<void(int, int)> callback) {

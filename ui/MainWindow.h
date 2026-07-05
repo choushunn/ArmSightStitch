@@ -7,7 +7,10 @@
 #include <QFuture>
 #include <QTimer>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QProgressBar>
+#include <QRadioButton>
+#include <QSpinBox>
 #include <QTextEdit>
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrent>
@@ -120,6 +123,10 @@ private:
 
     // FPS label next to resolution combo
     QLabel* fps_label_ = nullptr;
+
+    // Stitch algorithm radio buttons in toolbar
+    QRadioButton* algo1Radio_ = nullptr;
+    QRadioButton* algo2Radio_ = nullptr;
 
     // FPS tracking for camera overlay
     qint64 last_fps_timestamp_ = 0;

@@ -77,9 +77,12 @@ bool ModbusArmController::connect(const std::string& ip, int port) {
     connected_ = true;
     current_status_.connected = true;
     current_status_.status_message = "Connected to " + ip + ":" + std::to_string(port);
-    stored_ip_ = ip;
-    stored_port_ = port;
-    consecutive_failures_ = 0;
+    {
+        std::lock_guard<std::mutex> lock(modbus_mutex_);
+        stored_ip_ = ip;
+        stored_port_ = port;
+        consecutive_failures_ = 0;
+    }
 
     // Test reading a single register to verify connection
     SPDLOG_INFO("Testing connection by reading a register...");
