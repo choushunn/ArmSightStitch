@@ -1,152 +1,156 @@
 # ArmSightStitch
 
-机械臂视觉控制系统 — 集成 YOLO 目标检测、五轴机械臂控制、相机采集与图像拼接
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Qt](https://img.shields.io/badge/Qt-6.10-green.svg)](https://www.qt.io/)
+[![OpenCV](https://img.shields.io/badge/OpenCV-4.12-red.svg)](https://opencv.org/)
+
+明场显微成像验证组件 — 集成 YOLO 目标检测、Modbus TCP 五轴机械臂控制、ToupCam 相机采集与图像拼接。
+
+## 截图
+
+<!-- 替换为实际截图 -->
+<p align="center">
+  <em>主界面 — 左侧硬件控制面板，右侧网格采集与实时预览</em>
+</p>
 
 ## 功能特性
 
-- **YOLO 目标检测** — 基于 NCNN 推理框架部署，支持自定义置信度/NMS 阈值
-- **五轴机械臂控制** — 基于 Modbus TCP 协议，支持位置控制与连续运动
-- **S 型路径规划** — 网格点图像采集，支持自定义网格大小和范围
-- **相机采集** — 基于 ToupCam SDK，支持枚举、连接、连续/单帧采集
-- **图像拼接** — 基于 OpenCV Stitcher，S 型图像排序与自动拼接
-- **GUI 界面** — 基于 Qt6，多标签页设计，实时图像显示
+| 模块 | 功能 |
+|------|------|
+| **YOLO 目标检测** | 基于 NCNN 推理框架，支持实时检测与单帧检测，可调置信度/NMS 阈值 |
+| **五轴机械臂控制** | Modbus TCP 协议，绝对定位、连续运动、速度设置、紧急停止 |
+| **S 型路径规划** | 自定义网格大小与步进，蛇形扫描自动采集 |
+| **相机采集** | ToupCam SDK，实时预览、曝光/增益/旋转/翻转调节、分辨率切换 |
+| **双算法拼接** | 算法1：网格位置拼接；算法2：OpenCV 特征匹配拼接 |
+| **实时预览** | 相机/检测/拼接三区预览，双击全屏，全屏持续更新 |
+| **打包分发** | CPack + NSIS 生成 Windows 安装包 |
 
 ## 架构
 
 ```
 ArmSightStitch/
-├── app/                # 应用入口
-│   └── main.cpp
-├── ui/                 # Qt 界面层
-│   ├── MainWindow.h
-│   └── MainWindow.cpp
-├── core/               # 核心业务层
-│   ├── arm/            # 机械臂控制 (Modbus)
-│   ├── camera/         # 相机采集 (ToupCam SDK)
-│   ├── detector/       # YOLO 检测 (NCNN)
-│   └── stitch/         # 图像拼接 (OpenCV)
-├── infra/              # 基础设施层
-│   ├── config/         # 配置管理
-│   └── workflow/       # 工作流管理
-├── res/
-│   ├── models/         # NCNN 模型文件
-│   └── qt/             # Qt 资源文件
-├── third_party/        # 第三方库 (暂未使用)
-├── build/              # 构建输出目录
-├── bin/                # 可执行文件输出
-├── CMakeLists.txt
-├── CMakePresets.json
-└── vcpkg.json
+├── app/                   # 应用入口
+├── ui/                    # Qt 界面层 (MainWindow, AppController, dialogs)
+├── core/
+│   ├── arm/               # 机械臂控制 (ModbusArmController, SMovementController)
+│   ├── camera/            # 相机采集 (CameraHandler)
+│   ├── detector/          # YOLO 检测 (YoloDetector)
+│   └── stitch/            # 图像拼接 (GridStitchAlgorithm, FeatureStitchAlgorithm)
+├── infra/
+│   ├── config/            # 配置管理 (ConfigManager, PathUtils)
+│   └── log/               # 日志 (LogManager)
+├── resources/             # 打包资源 (icon, license, installer images)
+├── res/models/            # NCNN 模型文件
+└── third_party/toupcam/   # ToupCam SDK
 ```
+
+### 设计原则
+
+- **策略模式** — 拼接算法可插拔 (`IStitchAlgorithm` → `GridStitchAlgorithm` / `FeatureStitchAlgorithm`)
+- **依赖注入** — `IArmController` / `ICameraHandler` / `IStitcher` 接口隔离实现
+- **pimpl 模式** — `AppController` 隐藏 5 个具体实现类，头文件不含第三方 SDK 类型
 
 ## 环境要求
 
-| 组件 | 版本 | 来源 |
+| 组件 | 版本 | 说明 |
 |------|------|------|
-| Windows | 10/11 | — |
-| CMake | >= 3.16 | 系统安装或 Qt Tools 自带 |
-| Qt | 6.10.1 (mingw_64 / msvc2022_64) | [Qt 在线安装](https://download.qt.io) |
-| MinGW | 13.1.0 (x86_64-posix-seh) | Qt Tools 自带 (mingw1310_64) |
-| Visual Studio | 17 2022 (可选) | MSVC 方案 |
-| vcpkg | 2025.04.09 | [vcpkg](https://github.com/microsoft/vcpkg) |
+| Windows | 10/11 | |
+| CMake | ≥ 3.16 | |
+| Qt | 6.10.1 (mingw_64) | [下载](https://download.qt.io) |
+| vcpkg | 2025.04+ | [下载](https://github.com/microsoft/vcpkg) |
+| NSIS | 3.x | 仅打包需要 ([下载](https://nsis.sourceforge.io)) |
 
-### vcpkg 托管的依赖
+### vcpkg 依赖
 
-项目通过 `vcpkg.json` 声明依赖，首次构建时自动下载编译：
-
-| 依赖 | 用途 |
-|------|------|
-| opencv4 | 图像处理与拼接（core, imgproc, imgcodecs, highgui） |
-| ncnn | YOLO 深度学习推理 |
-| fmt | 格式化输出 |
-| spdlog | 日志记录 |
-
-### 需要手动安装的依赖
-
-| 依赖 | 用途 | 安装方式 |
-|------|------|----------|
-| Qt 6.10.1 | GUI 框架 | 系统安装，设置 `CMAKE_PREFIX_PATH` |
-
-> **注意**：所有 C++ 库均通过 vcpkg 管理，首次构建自动下载编译。
+| 库 | 用途 |
+|----|------|
+| opencv4[core,imgproc,imgcodecs,stitching] | 图像处理与拼接 |
+| ncnn | YOLO 推理 |
+| spdlog | 日志 |
 
 ## 快速开始
 
-### 1. 配置环境变量
-
 ```powershell
-# vcpkg 根目录
-$env:VCPKG_ROOT = "C:/Programs/vcpkg-2025.04.09"
+# 1. 设置 vcpkg 路径
+$env:VCPKG_ROOT = "C:/Programs/vcpkg"
+
+# 2. 配置
+cmake --preset default -DCMAKE_BUILD_TYPE=Release
+
+# 3. 编译
+cmake --build build/vcpkg-mingw --config Release
+
+# 4. 启动
+.\bin\ArmSightStitch.exe
 ```
 
-### 2. 构建
+### 打包
 
 ```powershell
-# MinGW 方案（默认，Debug 模式）
-cmake --preset default
-cmake --build --preset default
+# 部署 Qt 运行时
+cmake --build build/vcpkg-mingw --target deploy
 
-# MSVC 方案（Release 模式）
-cmake --preset msvc
-cmake --build --preset msvc
+# 生成安装包
+cd build/vcpkg-mingw
+cpack -G NSIS
+# → ArmSightStitch-2.0.0-win64.exe
 ```
 
-构建完成后，可执行文件输出至 `bin/` 目录。
+## 使用说明
 
-### 首次构建说明
+### 工作流程
 
-vcpkg 管理的依赖（opencv4、ncnn 等）在首次配置时会**自动下载并编译**，耗时较长（取决于网络和机器性能，约 30-60 分钟）。后续构建将使用缓存，无需重复编译。
+1. **连接相机** → 左侧面板枚举并连接
+2. **连接机械臂** → 输入 IP:端口，点击连接
+3. **扫描采集** → 设置网格参数，点击"开始扫描"
+4. **图像拼接** → 切换到拼接页，选择算法，点击"拼接"
+5. **目标检测** → 加载模型，开启实时检测或点击单帧检测
 
-如需加速首次构建：
+### 快捷键
 
-- 设置 `HTTP_PROXY` / `HTTPS_PROXY` 加速源码下载
-- 使用预置的 vcpkg 二进制缓存（默认启用，位于 `%LOCALAPPDATA%\vcpkg\archives`）
+| 快捷键 | 功能 |
+|--------|------|
+| `F5` | 开始/停止扫描 |
+| `F6` | 暂停/继续扫描 |
+| `Ctrl+O` | 打开图像 |
+| `Ctrl+S` | 保存拼接结果 |
 
-## 构建预设
+### 鼠标操作
 
-| 预设 | 生成器 | 编译器 | 构建类型 | 适用场景 |
-|------|--------|--------|----------|----------|
-| `default` | Ninja | MinGW 13.1.0 | Debug | 日常开发调试 |
-| `msvc` | Visual Studio 17 2022 | MSVC | Release | 发布构建 |
+| 操作 | 功能 |
+|------|------|
+| 双击预览区 | 全屏显示 |
+| ESC / 单击 | 退出全屏 |
+| 点击网格单元格 | 预览该位置图像（勾选"允许位移"时同时移动机械臂） |
 
-## 可选模块
+## 配置文件
 
-项目通过编译宏控制可选模块。缺失依赖时自动禁用：
+程序启动时自动加载 `config.json`，默认路径为 `Documents/ArmSightStitch/`。
 
-| 宏定义 | 缺失依赖 | 禁用模块 |
-|--------|----------|----------|
-| `ARM_SIGHT_STITCH_NO_DETECTOR` | ncnn | YOLO 目标检测 |
-| `ARM_SIGHT_STITCH_NO_CAMERA` | ToupCam SDK（third_party/toupcam/） | 相机采集 |
-| `ARM_SIGHT_STITCH_NO_ARM` | libmodbus（FetchContent） | 机械臂控制 |
-
-## 依赖管理策略
-
-| 类型 | 管理方式 | 示例 |
-|------|----------|------|
-| 标准库 | vcpkg（`vcpkg.json`） | opencv4, ncnn, fmt, spdlog |
-| 系统库 | 系统安装 + `CMAKE_PREFIX_PATH` | Qt6 |
-| 源码库 | FetchContent（CMake 配置时自动下载） | libmodbus |
-| 模型文件 | Git 管理（`res/models/`） | ncnn .param / .bin |
-
-## 常见问题
-
-### vcpkg 构建失败
-
-确保 vcpkg 与 vcpkg 端口为最新：
-
-```powershell
-cd $env:VCPKG_ROOT
-git pull
-.\bootstrap-vcpkg.bat
+```json
+{
+    "arm_ip": "192.168.0.1",
+    "arm_port": 502,
+    "default_speed": 70000,
+    "grid_size_x": 10,
+    "grid_size_y": 10,
+    "step_size": 43000,
+    "z_height": 50000
+}
 ```
 
-### Qt6 未找到
+环境变量覆盖：
 
-检查 `CMAKE_PREFIX_PATH` 是否指向 Qt6 安装目录：
+| 变量 | 配置项 |
+|------|--------|
+| `ARM_SIGHT_STITCH_ARM_IP` | 机械臂 IP |
+| `ARM_SIGHT_STITCH_DEFAULT_SPEED` | 默认速度 |
+| `ARM_SIGHT_STITCH_GRID_X` / `_Y` | 网格大小 |
 
-```powershell
-# MinGW 方案
-$env:CMAKE_PREFIX_PATH = "C:/Programs/Qt/6.10.1/mingw_64"
+## 机械臂协议
 
-# MSVC 方案
-$env:CMAKE_PREFIX_PATH = "C:/Programs/Qt/6.10.1/msvc2022_64"
-```
+详见 [docs/机械臂连接协议.md](docs/机械臂连接协议.md) — Modbus TCP 寄存器映射、线圈地址、数据编码规范。
+
+## 许可证
+
+MIT License
