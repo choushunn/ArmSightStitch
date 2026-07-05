@@ -65,30 +65,41 @@ ArmSightStitch/
 ## 快速开始
 
 ```powershell
-# 1. 设置 vcpkg 路径
+# 1. 设置环境变量
 $env:VCPKG_ROOT = "C:/Programs/vcpkg"
 
-# 2. 配置
+# 2. CMake 配置 (Release)
 cmake --preset default -DCMAKE_BUILD_TYPE=Release
 
 # 3. 编译
-cmake --build build/vcpkg-mingw --config Release
+cmake --build build/vcpkg-mingw --config Release --parallel
 
 # 4. 启动
 .\bin\ArmSightStitch.exe
 ```
 
-### 打包
+### 一键打包为安装程序 (NSIS)
+
+需要先安装 [NSIS](https://nsis.sourceforge.io/Download)。
 
 ```powershell
-# 部署 Qt 运行时
+# 1. 编译 + 部署 Qt 运行时到 bin/
+cmake --preset default -DCMAKE_BUILD_TYPE=Release
+cmake --build build/vcpkg-mingw --config Release --parallel
 cmake --build build/vcpkg-mingw --target deploy
 
-# 生成安装包
+# 2. 生成 NSIS 安装包 (需将 NSIS 加入 PATH)
 cd build/vcpkg-mingw
+$env:PATH = "C:\Program Files (x86)\NSIS\Bin;$env:PATH"
 cpack -G NSIS
-# → ArmSightStitch-2.0.0-win64.exe
+
+# 输出: ArmSightStitch-2.0.0-win64.exe (~43 MB)
 ```
+
+安装包功能：
+- 默认安装到 `C:\Program Files\ArmSightStitch\`
+- 自动创建桌面快捷方式和开始菜单项
+- 附带卸载程序
 
 ## 使用说明
 

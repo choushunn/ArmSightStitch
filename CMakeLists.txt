@@ -328,9 +328,11 @@ set(CPACK_NSIS_DISPLAY_NAME        "ArmSightStitch ${PROJECT_VERSION}")
 set(CPACK_NSIS_INSTALL_ROOT        "$PROGRAMFILES64")
 set(CPACK_NSIS_PACKAGE_NAME        "ArmSightStitch")
 set(CPACK_NSIS_CREATE_ICONS_EXTRA
-    "CreateShortCut '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\ArmSightStitch.lnk' '$INSTDIR\\\\bin\\\\ArmSightStitch.exe'")
+    "CreateShortCut '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\ArmSightStitch.lnk' '$INSTDIR\\\\bin\\\\ArmSightStitch.exe'"
+    "CreateShortCut '$DESKTOP\\\\ArmSightStitch.lnk' '$INSTDIR\\\\bin\\\\ArmSightStitch.exe'")
 set(CPACK_NSIS_DELETE_ICONS_EXTRA
-    "Delete '$SMPROGRAMS\\\\$MUI_TEMP\\\\ArmSightStitch.lnk'")
+    "Delete '$SMPROGRAMS\\\\$MUI_TEMP\\\\ArmSightStitch.lnk'"
+    "Delete '$DESKTOP\\\\ArmSightStitch.lnk'")
 set(CPACK_NSIS_MENU_LINKS
     "bin/ArmSightStitch.exe" "ArmSightStitch")
 set(CPACK_NSIS_URL_INFO_ABOUT      "https://github.com/armsight/armsightstitch")
