@@ -882,7 +882,7 @@ void MainWindow::on_toggleStartStopSMovement() {
     zero_progress_future_ = QtConcurrent::run([ctrl, progress]() {
         auto& armCtrl = ctrl->armController();
         QMetaObject::invokeMethod(progress, "setLabelText", Qt::QueuedConnection,
-            Q_ARG(QString, QString("正在归零所有轴（并发）...")));
+            Q_ARG(QString, QString("正在归零所有轴...")));
         QMetaObject::invokeMethod(progress, "setValue", Qt::QueuedConnection,
             Q_ARG(int, 1));
         armCtrl.moveAxesConcurrent(0, 0, 0);
