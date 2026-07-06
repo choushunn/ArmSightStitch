@@ -13,6 +13,7 @@
 #include <QSpinBox>
 #include <QTextEdit>
 #include <QFutureWatcher>
+#include <mutex>
 #include <QtConcurrent/QtConcurrent>
 #include <opencv2/opencv.hpp>
 
@@ -64,6 +65,9 @@ private slots:
     void onDetectionFinished();
     void onArmConnectFinished();
     void onArmMoveFinished();
+    void onZeroProgressFinished();
+    bool isArmAtZero();
+    void startScanSequence();
     void onArmStatusChanged(const arm::ArmStatus& status);
     void onMovementStatus(const arm::SMovementStatus& status);
 
@@ -94,6 +98,7 @@ private:
 
     // State
     std::map<std::pair<int, int>, std::string> s_movement_images_;
+    mutable std::mutex s_movement_images_mutex_;
     cv::Mat current_image_, stitched_result_;
     QPixmap stitched_pixmap_, detected_pixmap_;
     QLabel* fullscreen_dlg_ = nullptr;
@@ -137,4 +142,6 @@ private:
     QFutureWatcher<bool> arm_connect_watcher_;
     QFuture<void> arm_move_future_;
     QFutureWatcher<void> arm_move_watcher_;
+    QFuture<bool> zero_progress_future_;
+    QFutureWatcher<bool> zero_progress_watcher_;
 };

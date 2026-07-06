@@ -22,6 +22,7 @@
 #include <QBoxLayout>
 #include <QGridLayout>
 #include <QProgressBar>
+#include <QProgressDialog>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -98,6 +99,7 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     });
     connect(&arm_connect_watcher_, &QFutureWatcher<bool>::finished, this, &MainWindow::onArmConnectFinished);
     connect(&arm_move_watcher_, &QFutureWatcher<void>::finished, this, &MainWindow::onArmMoveFinished);
+    connect(&zero_progress_watcher_, &QFutureWatcher<bool>::finished, this, &MainWindow::onZeroProgressFinished);
 
     // Reference log panel from .ui (placed in left sidebar's hardware section)
     status_log_edit_ = ui_->statusLogEdit;
@@ -217,7 +219,10 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
         }, Qt::QueuedConnection);
     });
     ctrl_.stitcher().setStatusCallback([this](const std::string& msg) {
-        appendLog(QString::fromStdString(msg), "INFO");
+        QString qmsg = QString::fromStdString(msg);
+        QMetaObject::invokeMethod(this, [this, qmsg]() {
+            appendLog(qmsg, "INFO");
+        }, Qt::QueuedConnection);
     });
 
     // Auto-scan cameras on startup
@@ -640,8 +645,9 @@ void MainWindow::on_connectArm() {
     std::string ip = ui_->armIpEdit->text().toStdString();
     int port = ui_->armPortSpin->value();
     ui_->armToggleButton->setEnabled(false);
-    ui_->armStatusLabel->setText("连接中...");
+    ui_->armStatusLabel->setText(QString::fromUtf8("●"));
     ui_->armStatusLabel->setProperty("connStatus", "connecting");
+    ui_->armStatusLabel->setToolTip("连接中...");
     ui_->armStatusLabel->style()->unpolish(ui_->armStatusLabel);
     ui_->armStatusLabel->style()->polish(ui_->armStatusLabel);
     auto* ctrl = &ctrl_;
@@ -655,8 +661,9 @@ void MainWindow::onArmConnectFinished() {
     ui_->armToggleButton->setEnabled(true);
     if (arm_connect_future_.result()) {
         ui_->armToggleButton->setText("断开");
-        ui_->armStatusLabel->setText("已连接");
+        ui_->armStatusLabel->setText(QString::fromUtf8("●"));
         ui_->armStatusLabel->setProperty("connStatus", "connected");
+        ui_->armStatusLabel->setToolTip("已连接");
         ui_->moveToPosButton->setEnabled(true);
         ui_->readPosButton->setEnabled(true);
         ui_->xPosSpin->setEnabled(true);
@@ -676,8 +683,9 @@ void MainWindow::onArmConnectFinished() {
         ui_->quickScanBtn->setEnabled(true);
         ui_->zeroButton->setEnabled(true);
     } else {
-        ui_->armStatusLabel->setText("连接失败");
+        ui_->armStatusLabel->setText(QString::fromUtf8("●"));
         ui_->armStatusLabel->setProperty("connStatus", "disconnected");
+        ui_->armStatusLabel->setToolTip("连接失败");
     }
     ui_->armStatusLabel->style()->unpolish(ui_->armStatusLabel);
     ui_->armStatusLabel->style()->polish(ui_->armStatusLabel);
@@ -686,8 +694,9 @@ void MainWindow::onArmConnectFinished() {
 void MainWindow::on_disconnectArm() {
     ctrl_.disconnectArm();
     ui_->armToggleButton->setText("连接");
-    ui_->armStatusLabel->setText("未连接");
+    ui_->armStatusLabel->setText(QString::fromUtf8("●"));
     ui_->armStatusLabel->setProperty("connStatus", "disconnected");
+    ui_->armStatusLabel->setToolTip("未连接");
     ui_->armStatusLabel->style()->unpolish(ui_->armStatusLabel);
     ui_->armStatusLabel->style()->polish(ui_->armStatusLabel);
     ui_->moveToPosButton->setEnabled(false);
@@ -718,11 +727,7 @@ void MainWindow::on_moveToPosition() {
     int y = static_cast<int>(ui_->yPosSpin->value());
     int z = static_cast<int>(ui_->zPosSpin->value());
     arm_move_future_ = QtConcurrent::run([ctrl, x, y, z]() {
-        ctrl->armController().moveToPosition(0, x);
-        ctrl->armController().moveToPosition(1, y);
-        ctrl->armController().moveToPosition(2, z);
-        ctrl->armController().moveToPosition(3, 0);
-        ctrl->armController().moveToPosition(4, 0);
+        ctrl->armController().moveAxesConcurrent(x, y, z, 0, 0);
     });
     arm_move_watcher_.setFuture(arm_move_future_);
 }
@@ -747,7 +752,7 @@ void MainWindow::on_zeroArm() {
     ui_->zeroButton->setEnabled(false);
     auto* ctrl = &ctrl_;
     arm_move_future_ = QtConcurrent::run([ctrl]() {
-        for (int i = 0; i < 5; ++i) ctrl->armController().moveToPosition(i, 0);
+        ctrl->armController().moveAxesConcurrent(0, 0, 0, 0, 0);
     });
     arm_move_watcher_.setFuture(arm_move_future_);
     ui_->xPosSpin->setValue(0);
@@ -756,6 +761,68 @@ void MainWindow::on_zeroArm() {
 }
 
 // ==================== S-Movement ====================
+
+bool MainWindow::isArmAtZero() {
+    static constexpr double kZeroTolerance = 200.0;
+    auto& armCtrl = ctrl_.armController();
+    for (int i = 0; i < 5; ++i) {
+        double pos = armCtrl.readPosition(i);
+        if (std::abs(pos) > kZeroTolerance) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void MainWindow::startScanSequence() {
+    auto& cfg = ConfigManager::instance();
+    cv::Size gs(cfg.gridSizeX(), cfg.gridSizeY());
+
+    ctrl_.movementController().setImageSaveCallback([this](const cv::Mat& frame, const std::string& path, int row, int col) {
+        std::string fn = path + "/" + std::to_string(row) + "_" + std::to_string(col) + ".jpg";
+        bool ok = cv::imwrite(fn, frame);
+        if (ok) {
+            // Reverse column mapping: table col 0 = arm X max
+            int gx = ConfigManager::instance().gridSizeX();
+            int displayCol = gx - 1 - col;
+            {
+                std::lock_guard<std::mutex> lock(s_movement_images_mutex_);
+                s_movement_images_[{row, displayCol}] = fn;
+            }
+            // Thumbnail generation in scan thread: avoid passing full-res frame to UI
+            if (row < 10 && displayCol < 10) {
+                cv::Mat thumb;
+                cv::resize(frame, thumb, cv::Size(50, 50), 0, 0, cv::INTER_AREA);
+                QImage thumbImage(thumb.data, thumb.cols, thumb.rows, thumb.step, QImage::Format_BGR888);
+                QPixmap pix = QPixmap::fromImage(thumbImage.copy());
+                QMetaObject::invokeMethod(this, [this, row, displayCol, pix]() {
+                    auto* item = ui_->topCellsTable->item(row, displayCol);
+                    if (item) {
+                        item->setBackground(QColor(144, 238, 144));
+                        auto* lbl = new QLabel();
+                        lbl->setPixmap(pix);
+                        lbl->setAlignment(Qt::AlignCenter);
+                        lbl->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+                        ui_->topCellsTable->setCellWidget(row, displayCol, lbl);
+                    }
+                }, Qt::QueuedConnection);
+            }
+        }
+        return ok;
+    });
+
+    if (ctrl_.startSMovement(gs, cfg.stepSize(), cfg.zHeight())) {
+        // Stop preview + pause video stream to free USB bandwidth during scanning
+        camera_update_timer_->stop();
+        ctrl_.cameraHandler().pauseStream();
+        ui_->cameraImageLabel->clear();
+        ui_->cameraImageLabel->setText("扫描中...");
+        ui_->quickScanBtn->setText("停止扫描");
+        ui_->quickPauseBtn->setEnabled(true);
+        ui_->quickPauseBtn->setText("暂停扫描");
+        appendLog("扫描已启动", "INFO");
+    }
+}
 
 void MainWindow::on_toggleStartStopSMovement() {
     if (ctrl_.movementController().getStatus().running) {
@@ -774,39 +841,54 @@ void MainWindow::on_toggleStartStopSMovement() {
         QMessageBox::warning(this, "警告", "请先连接机械臂");
         return;
     }
+
+    // Check if arm is already at zero
+    if (isArmAtZero()) {
+        // Already zeroed — start scanning immediately
+        ctrl_.startCameraCapture();
+        startScanSequence();
+        return;
+    }
+
+    // Not at zero — run zero sequence, then stop (user clicks scan again)
     ctrl_.startCameraCapture();
 
-    auto& cfg = ConfigManager::instance();
-    cv::Size gs(cfg.gridSizeX(), cfg.gridSizeY());
+    ui_->quickScanBtn->setEnabled(false);
+    ui_->quickScanBtn->setText("正在归零...");
 
-    ctrl_.movementController().setImageSaveCallback([this](const cv::Mat& frame, const std::string& path, int row, int col) {
-        std::string fn = path + "/" + std::to_string(row) + "_" + std::to_string(col) + ".jpg";
-        bool ok = cv::imwrite(fn, frame);
-        if (ok) {
-            s_movement_images_[{row, col}] = fn;
-            QMetaObject::invokeMethod(this, [this, frame, row, col]() {
-                if (row < 10 && col < 10) {
-                    auto* item = ui_->topCellsTable->item(row, col);
-                    if (item) {
-                        item->setBackground(QColor(144, 238, 144));
-                        auto* lbl = new QLabel();
-                        lbl->setPixmap(QPixmap::fromImage(cvMatToQImage(frame))
-                            .scaled(50, 50, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-                        lbl->setAlignment(Qt::AlignCenter);
-                        ui_->topCellsTable->setCellWidget(row, col, lbl);
-                    }
-                }
-            }, Qt::QueuedConnection);
-        }
-        return ok;
+    auto* progress = new QProgressDialog("机械臂未归零，正在归零中...\n归零完成后请再次点击扫描", QString(), 0, 5, this);
+    progress->setWindowTitle("归零中");
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(0);
+    progress->setValue(0);
+    progress->setCancelButton(nullptr);
+    progress->show();
+
+    auto* ctrl = &ctrl_;
+    zero_progress_future_ = QtConcurrent::run([ctrl, progress]() {
+        auto& armCtrl = ctrl->armController();
+        QMetaObject::invokeMethod(progress, "setLabelText", Qt::QueuedConnection,
+            Q_ARG(QString, QString("正在归零所有轴（并发）...")));
+        QMetaObject::invokeMethod(progress, "setValue", Qt::QueuedConnection,
+            Q_ARG(int, 1));
+        armCtrl.moveAxesConcurrent(0, 0, 0, 0, 0);
+        QMetaObject::invokeMethod(progress, "setValue", Qt::QueuedConnection,
+            Q_ARG(int, 5));
+        return true;
     });
+    zero_progress_watcher_.setFuture(zero_progress_future_);
+}
 
-    if (ctrl_.startSMovement(gs, cfg.stepSize(), cfg.zHeight())) {
-        ui_->quickScanBtn->setText("停止扫描");
-        ui_->quickPauseBtn->setEnabled(true);
-        ui_->quickPauseBtn->setText("暂停扫描");
-        appendLog("S-movement started", "INFO");
+void MainWindow::onZeroProgressFinished() {
+    auto* progress = findChild<QProgressDialog*>();
+    if (progress) {
+        progress->close();
+        progress->deleteLater();
     }
+
+    ui_->quickScanBtn->setEnabled(true);
+    ui_->quickScanBtn->setText("开始扫描");
+    appendLog("归零完成，请再次点击扫描", "INFO");
 }
 
 void MainWindow::on_togglePauseSMovement() {
@@ -1007,12 +1089,20 @@ void MainWindow::onDetectionFinished() {
 // ==================== Callbacks ====================
 
 void MainWindow::onArmStatusChanged(const arm::ArmStatus& status) {
-    if (status.current_positions.size() >= 3) {
+    if (status.current_positions.size() >= 5) {
         ui_->xPosSpin->setValue(status.current_positions[0]);
         ui_->yPosSpin->setValue(status.current_positions[1]);
         ui_->zPosSpin->setValue(status.current_positions[2]);
+        // Update realtime position label
+        ui_->posRealtimeLabel->setText(
+            QString("当前位置: X=%1  Y=%2  Z=%3  A=%4  B=%5")
+                .arg(status.current_positions[0])
+                .arg(status.current_positions[1])
+                .arg(status.current_positions[2])
+                .arg(status.current_positions[3])
+                .arg(status.current_positions[4]));
     }
-    ui_->armStatusLabel->setText(QString::fromStdString(status.status_message));
+    ui_->armStatusLabel->setToolTip(QString::fromStdString(status.status_message));
 }
 
 void MainWindow::onMovementStatus(const arm::SMovementStatus& status) {
@@ -1021,8 +1111,14 @@ void MainWindow::onMovementStatus(const arm::SMovementStatus& status) {
         appendLog(QString("采集进度: %1/%2").arg(status.current_point).arg(status.total_points), "INFO");
     }
 
-    // Reset UI when S-movement completes naturally
+    // Reset UI when S-movement completes or is stopped
     if (!status.running && !status.paused && status.total_points > 0) {
+        // Resume camera preview (was paused during scanning)
+        if (ctrl_.cameraHandler().isConnected() && !camera_update_timer_->isActive()) {
+            ctrl_.cameraHandler().resumeStream();
+            ui_->cameraImageLabel->clear();
+            camera_update_timer_->start(33);
+        }
         ui_->quickScanBtn->setText("开始扫描");
         ui_->quickPauseBtn->setEnabled(false);
         ui_->quickPauseBtn->setText("暂停扫描");
@@ -1034,18 +1130,32 @@ void MainWindow::onMovementStatus(const arm::SMovementStatus& status) {
 // ==================== Grid ====================
 
 void MainWindow::on_topCellsTable_cellClicked(int row, int column) {
-    // Navigate arm to this cell position (only when checkbox is enabled & checked)
+    // Navigate arm to this cell position (via QtConcurrent to avoid UI freeze)
     if (ui_->cellMoveCheck->isChecked() && ctrl_.armController().isConnected()) {
         int step = ConfigManager::instance().stepSize();
-        ctrl_.armController().moveToPosition(0, column * step);
-        ctrl_.armController().moveToPosition(1, row * step);
-        ctrl_.armController().moveToPosition(2, ConfigManager::instance().zHeight());
+        // Reverse column mapping: table col → physical arm X
+        int gx = ConfigManager::instance().gridSizeX();
+        int actualCol = gx - 1 - column;
+        int x = actualCol * step;
+        int y = row * step;
+        int z = ConfigManager::instance().zHeight();
+        auto* ctrl = &ctrl_;
+        QtConcurrent::run([ctrl, x, y, z]() {
+            ctrl->armController().moveAxesConcurrent(x, y, z, 0, 0);
+        });
     }
 
     // Show image preview if available
-    auto it = s_movement_images_.find({row, column});
-    if (it != s_movement_images_.end()) {
-        cv::Mat img = cv::imread(it->second);
+    std::string img_path;
+    {
+        std::lock_guard<std::mutex> lock(s_movement_images_mutex_);
+        auto it = s_movement_images_.find({row, column});
+        if (it != s_movement_images_.end()) {
+            img_path = it->second;
+        }
+    }
+    if (!img_path.empty()) {
+        cv::Mat img = cv::imread(img_path);
         if (!img.empty()) {
             QDialog dlg(this);
             dlg.setWindowTitle(QString("预览 [%1,%2]").arg(row).arg(column));

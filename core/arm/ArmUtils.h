@@ -4,15 +4,14 @@
 
 namespace arm {
 
-/// Move all 5 axes to the specified position values
+/// Move all 5 axes concurrently (all axes move simultaneously)
 inline bool moveAllAxes(IArmController& arm, int x, int y, int z, int a, int b) {
-    bool ok = true;
-    if (!arm.moveToPosition(0, x)) ok = false;
-    if (!arm.moveToPosition(1, y)) ok = false;
-    if (!arm.moveToPosition(2, z)) ok = false;
-    if (!arm.moveToPosition(3, a)) ok = false;
-    if (!arm.moveToPosition(4, b)) ok = false;
-    return ok;
+    return arm.moveAxesConcurrent(x, y, z, a, b);
+}
+
+/// Move only X and Y axes (concurrent: both axes move simultaneously)
+inline bool moveXYAxes(IArmController& arm, int x, int y) {
+    return arm.moveXYAxes(x, y);
 }
 
 /// Move all 5 axes to the values in a SMovementPoint

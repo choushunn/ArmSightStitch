@@ -110,7 +110,10 @@ bool AppController::connectArm(const std::string& ip, int port) {
             limits.max_pos = ConfigManager::instance().axisMaxPos(i);
             arm.setSafetyLimits(i, limits);
         }
-        arm.startAutoRead();  // periodic position polling → UI spinners stay live
+        arm.startAutoRead();
+        ConfigManager::instance().setArmIp(ip);
+        ConfigManager::instance().setArmPort(port);
+        ConfigManager::instance().saveToFile(QCoreApplication::applicationDirPath().toStdString() + "/config.json");
         emit statusMessage(QString::fromStdString("Arm connected to " + ip));
     } else {
         std::string errMsg = arm.lastError();
@@ -174,7 +177,7 @@ bool AppController::startSMovement(const cv::Size& gridSize, int stepSize, int z
     }
 
     sm.setImageCaptureCallback([this](cv::Mat& frame) {
-        return pimpl_->camera_handler_.captureSingleFrame(frame);
+        return pimpl_->camera_handler_.captureTriggerFrame(frame);
     });
 
     if (!sm.start()) {

@@ -217,32 +217,38 @@
               <item>
                <widget class="QLabel" name="posLabel">
                <property name="text"><string>位置控制</string></property>
-               <property name="styleSheet"><string notr="true">font-weight: bold; color: red;</string></property>
+               <property name="styleSheet"><string notr="true">font-weight: bold; color: #2196F3;</string></property>
               </widget>
              </item>
              <item>
               <layout class="QHBoxLayout" name="posSpinLayout">
                <property name="spacing"><number>4</number></property>
                <item><widget class="QLabel" name="labelX"><property name="text"><string>X轴</string></property><property name="minimumSize"><size><width>20</width><height>0</height></size></property></widget></item>
-               <item><widget class="QDoubleSpinBox" name="xPosSpin"/></item>
+               <item><widget class="QDoubleSpinBox" name="xPosSpin"><property name="decimals"><number>0</number></property><property name="minimum"><number>-1000000</number></property><property name="maximum"><number>1000000</number></property><property name="singleStep"><number>1000</number></property></widget></item>
                <item><widget class="QLabel" name="labelY"><property name="text"><string>Y轴</string></property><property name="minimumSize"><size><width>20</width><height>0</height></size></property></widget></item>
-               <item><widget class="QDoubleSpinBox" name="yPosSpin"/></item>
+               <item><widget class="QDoubleSpinBox" name="yPosSpin"><property name="decimals"><number>0</number></property><property name="minimum"><number>-1000000</number></property><property name="maximum"><number>1000000</number></property><property name="singleStep"><number>1000</number></property></widget></item>
                <item><widget class="QLabel" name="labelZ"><property name="text"><string>Z轴</string></property><property name="minimumSize"><size><width>20</width><height>0</height></size></property></widget></item>
-               <item><widget class="QDoubleSpinBox" name="zPosSpin"/></item>
+               <item><widget class="QDoubleSpinBox" name="zPosSpin"><property name="decimals"><number>0</number></property><property name="minimum"><number>-1000000</number></property><property name="maximum"><number>1000000</number></property><property name="singleStep"><number>1000</number></property></widget></item>
                <item><spacer name="posSpinSpacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
               </layout>
              </item>
              <item>
-              <layout class="QHBoxLayout" name="abSpeedRow">
+              <layout class="QHBoxLayout" name="abRow">
                <property name="spacing"><number>2</number></property>
                <item><widget class="QLabel" name="labelA"><property name="text"><string>A轴</string></property><property name="minimumSize"><size><width>20</width><height>0</height></size></property></widget></item>
                <item><widget class="QSpinBox" name="aPosSpin"><property name="enabled"><bool>false</bool></property><property name="minimum"><number>-180000</number></property><property name="maximum"><number>180000</number></property></widget></item>
                <item><widget class="QLabel" name="labelB"><property name="text"><string>B轴</string></property><property name="minimumSize"><size><width>20</width><height>0</height></size></property></widget></item>
                <item><widget class="QSpinBox" name="bPosSpin"><property name="enabled"><bool>false</bool></property><property name="minimum"><number>-180000</number></property><property name="maximum"><number>180000</number></property></widget></item>
+               <item><spacer name="abSpacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
+              </layout>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="speedRow">
+               <property name="spacing"><number>2</number></property>
                <item><widget class="QLabel" name="labelSpeed"><property name="text"><string>速度</string></property><property name="minimumSize"><size><width>20</width><height>0</height></size></property></widget></item>
                <item><widget class="QSpinBox" name="speedSpin"><property name="enabled"><bool>false</bool></property><property name="minimum"><number>1</number></property><property name="maximum"><number>200000</number></property><property name="value"><number>70000</number></property></widget></item>
                <item><widget class="QPushButton" name="setSpeedBtn"><property name="enabled"><bool>false</bool></property><property name="text"><string>设置速度</string></property></widget></item>
-               <item><spacer name="abSpeedSpacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
+               <item><spacer name="speedSpacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
               </layout>
              </item>
              <item>
@@ -263,8 +269,8 @@
               <layout class="QHBoxLayout" name="contMoveRow">
                <property name="spacing"><number>4</number></property>
                <item><widget class="QComboBox" name="contAxisCombo"><property name="enabled"><bool>false</bool></property><item><property name="text"><string>X轴</string></property></item><item><property name="text"><string>Y轴</string></property></item><item><property name="text"><string>Z轴</string></property></item><item><property name="text"><string>A轴</string></property></item><item><property name="text"><string>B轴</string></property></item></widget></item>
-               <item><widget class="QRadioButton" name="contFwdRadio"><property name="enabled"><bool>false</bool></property><property name="text"><string>正转</string></property><property name="checked"><bool>true</bool></property></widget></item>
-               <item><widget class="QRadioButton" name="contRevRadio"><property name="enabled"><bool>false</bool></property><property name="text"><string>反转</string></property></widget></item>
+               <item><widget class="QRadioButton" name="contFwdRadio"><property name="enabled"><bool>false</bool></property><property name="text"><string>正向</string></property><property name="checked"><bool>true</bool></property></widget></item>
+               <item><widget class="QRadioButton" name="contRevRadio"><property name="enabled"><bool>false</bool></property><property name="text"><string>反向</string></property></widget></item>
                <item><widget class="QPushButton" name="contMoveBtn"><property name="enabled"><bool>false</bool></property><property name="text"><string>连续移动</string></property><property name="checkable"><bool>true</bool></property></widget></item>
                <item><spacer name="contMoveSpacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
               </layout>
@@ -401,6 +407,17 @@
             </widget>
            </item>
            <item>
+            <widget class="QFrame" name="toolbarSeparator3">
+             <property name="frameShape"><enum>QFrame::Shape::VLine</enum></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="cellMoveCheck">
+             <property name="text"><string>允许位移</string></property>
+             <property name="enabled"><bool>false</bool></property>
+            </widget>
+           </item>
+           <item>
             <widget class="QCheckBox" name="enableDetectionCheck">
              <property name="text"><string>实时检测</string></property>
              <property name="checked"><bool>true</bool></property>
@@ -415,13 +432,6 @@
             </spacer>
            </item>
           </layout>
-         </widget>
-        </item>
-
-        <item>
-         <widget class="QCheckBox" name="cellMoveCheck">
-          <property name="text"><string>允许位移</string></property>
-          <property name="enabled"><bool>false</bool></property>
          </widget>
         </item>
 

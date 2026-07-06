@@ -1,6 +1,13 @@
 #pragma once
 
-#define MODBUS_API
+// Windows SOCKET handles can exceed the default FD_SETSIZE (64),
+// causing libmodbus to fail with EINVAL. Define a larger limit.
+#ifdef _WIN32
+#  ifndef FD_SETSIZE
+#    define FD_SETSIZE 1024
+#  endif
+#endif
+
 #include <modbus.h>
 #include <mutex>
 #include <thread>
@@ -72,6 +79,8 @@ public:
      * @return true if success, false otherwise
      */
     bool moveToPosition(int axis_id, double target_position);
+    bool moveXYAxes(double target_x, double target_y) override;
+    bool moveAxesConcurrent(int x, int y, int z, int a, int b) override;
 
     /**
      * @brief Stop all movements
@@ -83,7 +92,10 @@ public:
     void setSafetyLimits(int axis_id, const AxisLimits& limits);
     AxisLimits getSafetyLimits(int axis_id) const;
     void setDebugEnabled(bool enabled);
-    std::string lastError() const { return last_error_; }
+    std::string lastError() const {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        return last_error_;
+    }
 
     /**
      * @brief Start auto reading of positions
@@ -170,6 +182,26 @@ private:
     bool readRegisters(int address, int count, std::vector<int16_t>& values);
 
     /**
+     * @brief Read register without mutex lock (caller must hold modbus_mutex_)
+     * @param address Register address
+     * @param value Output register value
+     * @return true if success, false otherwise
+     */
+    bool readRegisterUnsafe(int address, int16_t& value);
+
+    /**
+     * @brief Read position without mutex lock (caller must hold modbus_mutex_)
+     * @param axis_id Axis ID (0-4: X, Y, Z, A, B)
+     * @return Current position, or 0.0 if error
+     */
+    double readPositionUnsafe(int axis_id);
+
+    /**
+     * @brief Internal disconnect without mutex lock (caller must hold modbus_mutex_)
+     */
+    void disconnectInternal();
+
+    /**
      * @brief Convert two 16-bit registers to 32-bit integer
      * @param low Low word
      * @param high High word
@@ -195,7 +227,7 @@ private:
     std::vector<bool> auto_read_enabled_ = {true, true, true, true, true}; // 5 axes
     std::function<void(const ArmStatus&)> status_callback_;
     ArmStatus current_status_;
-    std::mutex status_mutex_;
+    mutable std::mutex status_mutex_;
 
     // Axis configurations
     std::vector<AxisConfig> axis_configs_ = {
@@ -214,8 +246,9 @@ private:
     std::string stored_ip_;
     int stored_port_ = 502;
     std::atomic<bool> debug_enabled_{false};
-    int consecutive_failures_ = 0;
+    std::atomic<int> consecutive_failures_{0};
     mutable std::string last_error_;
+    mutable std::atomic<bool> last_read_failed_{false};
     static constexpr int kMaxConsecutiveFailures = 5;
     static constexpr int kMaxReconnectAttempts = 10;
 

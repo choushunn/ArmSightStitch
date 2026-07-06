@@ -6,6 +6,8 @@
 #include <thread>
 #include <mutex>
 #include <atomic>
+#include <queue>
+#include <condition_variable>
 #include <opencv2/opencv.hpp>
 
 #include "IArmController.h"
@@ -107,6 +109,12 @@ public:
     int getSavedImagesCount() const;
 
 private:
+    struct FrameSaveTask {
+        cv::Mat frame;
+        std::string directory;
+        int row;
+        int col;
+    };
     /**
      * @brief Generate fixed point S movement path
      * @param grid_size Grid size (width, height)
@@ -124,27 +132,6 @@ private:
     void movementThread();
 
     /**
-     * @brief Move to a single point
-     * @param point Target point
-     * @return true if moved successfully, false otherwise
-     */
-    bool moveToPoint(const SMovementPoint& point);
-
-    /**
-     * @brief Capture image at current position
-     * @return true if captured successfully, false otherwise
-     */
-    bool captureImageAtPosition();
-
-    /**
-     * @brief Save captured image
-     * @param image Captured image
-     * @param point Current point
-     * @return true if saved successfully, false otherwise
-     */
-    bool saveCapturedImage(const cv::Mat& image, const SMovementPoint& point);
-
-    /**
      * @brief Update movement status
      * @param status New status message
      */
@@ -156,13 +143,24 @@ private:
      */
     void updateAction(const std::string& action);
 
-private:
+    /**
+     * @brief Consumer thread that saves queued frames to disk in the background
+     */
+    void saveConsumerThread();
+
     IArmController& arm_controller_;
     std::vector<SMovementPoint> movement_path_;
     std::thread movement_thread_;
+    std::thread save_thread_;
     std::atomic<bool> running_;
     std::atomic<bool> paused_;
     std::atomic<bool> stop_requested_;
+    std::atomic<bool> save_thread_running_{false};
+
+    // Async save queue
+    std::queue<FrameSaveTask> save_queue_;
+    std::mutex save_queue_mutex_;
+    std::condition_variable save_queue_cv_;
     std::atomic<int> current_point_index_;
     std::atomic<int> run_number_;
     std::atomic<int> movement_speed_;

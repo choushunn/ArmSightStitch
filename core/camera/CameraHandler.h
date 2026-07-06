@@ -49,6 +49,9 @@ public:
      * @return true if captured successfully, false otherwise
      */
     bool captureSingleFrame(cv::Mat& frame);
+    bool captureTriggerFrame(cv::Mat& frame) override;
+    void pauseStream() override;
+    void resumeStream() override;
 
     /**
      * @brief Set image callback function

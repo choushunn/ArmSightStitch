@@ -30,46 +30,76 @@ ModbusArmController::~ModbusArmController() {
 }
 
 bool ModbusArmController::connect(const std::string& ip, int port) {
+    std::lock_guard<std::mutex> lock(modbus_mutex_);
     SPDLOG_INFO("Connecting to {}:{}", ip, port);
     
     if (isConnected()) {
         SPDLOG_INFO("Already connected, disconnecting first...");
-        disconnect();
+        disconnectInternal();
     }
 
-    // Free existing modbus context if it exists
     if (modbus_) {
         SPDLOG_INFO("Freeing existing modbus context...");
         modbus_free(modbus_);
         modbus_ = nullptr;
     }
 
-    // Create new modbus context with provided IP and port
     SPDLOG_INFO("Creating new modbus context with IP: {}, port: {}", ip, port);
     modbus_ = modbus_new_tcp(ip.c_str(), port);
     if (!modbus_) {
-        last_error_ = std::string("无法创建Modbus连接: ") + modbus_strerror(errno);
+        {
+            std::lock_guard<std::mutex> lock(status_mutex_);
+            last_error_ = std::string("无法创建Modbus连接: ") + modbus_strerror(errno);
+        }
         SPDLOG_ERROR("{}", last_error_);
         return false;
     }
 
-    // Set debug mode
-    SPDLOG_INFO("Setting debug mode...");
-    modbus_set_debug(modbus_, debug_enabled_ ? TRUE : FALSE);
+    SPDLOG_INFO("Setting debug mode to {}...", debug_enabled_ ? "ON" : "OFF");
+    if (modbus_set_debug(modbus_, debug_enabled_ ? TRUE : FALSE) == -1) {
+        SPDLOG_WARN("modbus_set_debug failed: {}", modbus_strerror(errno));
+    }
 
-    // Set slave ID (根据协议文档，站号固定为01)
     SPDLOG_INFO("Setting slave ID to 1...");
-    modbus_set_slave(modbus_, 1);
+    if (modbus_set_slave(modbus_, 1) == -1) {
+        {
+            std::lock_guard<std::mutex> lock(status_mutex_);
+            last_error_ = std::string("设置从站ID失败: ") + modbus_strerror(errno);
+        }
+        SPDLOG_ERROR("{}", last_error_);
+        modbus_free(modbus_);
+        modbus_ = nullptr;
+        return false;
+    }
 
-    // Set response timeout
-    SPDLOG_INFO("Setting response timeout to 5 seconds...");
-    modbus_set_response_timeout(modbus_, 5, 0); // 增加超时时间到5秒
+    SPDLOG_INFO("Setting response timeout to 2 seconds...");
+    if (modbus_set_response_timeout(modbus_, 2, 0) == -1) {
+        {
+            std::lock_guard<std::mutex> lock(status_mutex_);
+            last_error_ = std::string("设置超时失败: ") + modbus_strerror(errno);
+        }
+        SPDLOG_ERROR("{}", last_error_);
+        modbus_free(modbus_);
+        modbus_ = nullptr;
+        return false;
+    }
 
-    // Connect to modbus server
-    SPDLOG_INFO("Attempting to connect to modbus server...");
+    SPDLOG_INFO("Attempting to connect to modbus server at {}:{}...", ip, port);
     if (modbus_connect(modbus_) == -1) {
-        last_error_ = std::string("无法连接到 ") + ip + ":" + std::to_string(port)
-                      + " — " + modbus_strerror(errno);
+        int saved_errno = errno;
+#ifdef _WIN32
+        int wsa_err = WSAGetLastError();
+#endif
+        {
+            std::lock_guard<std::mutex> lock(status_mutex_);
+            last_error_ = std::string("无法连接到 ") + ip + ":" + std::to_string(port)
+                          + " — errno=" + std::to_string(saved_errno)
+                          + " (" + modbus_strerror(saved_errno) + ")"
+#ifdef _WIN32
+                          + " wsa=" + std::to_string(wsa_err)
+#endif
+                          ;
+        }
         SPDLOG_ERROR("{}", last_error_);
         modbus_free(modbus_);
         modbus_ = nullptr;
@@ -78,34 +108,49 @@ bool ModbusArmController::connect(const std::string& ip, int port) {
 
     SPDLOG_INFO("Connection successful!");
     connected_ = true;
-    current_status_.connected = true;
-    current_status_.status_message = "Connected to " + ip + ":" + std::to_string(port);
     {
-        std::lock_guard<std::mutex> lock(modbus_mutex_);
-        stored_ip_ = ip;
-        stored_port_ = port;
-        consecutive_failures_ = 0;
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        current_status_.connected = true;
+        current_status_.status_message = "Connected to " + ip + ":" + std::to_string(port);
     }
+    stored_ip_ = ip;
+    stored_port_ = port;
+    consecutive_failures_ = 0;
 
-    // Test reading a single register to verify connection
     SPDLOG_INFO("Testing connection by reading a register...");
     int16_t test_value;
-    if (readRegister(7802, test_value)) {
+    if (readRegisterUnsafe(7802, test_value)) {
         SPDLOG_INFO("Test read successful, value: {}", test_value);
     } else {
         SPDLOG_WARN("Test read failed");
     }
 
-    // Read initial positions
     SPDLOG_INFO("Reading initial positions...");
     for (int i = 0; i < 5; ++i) {
-        double pos = readPosition(i);
+        double pos = readPositionUnsafe(i);
         SPDLOG_INFO("Axis {} initial position: {}", i, pos);
-        current_status_.current_positions[i] = static_cast<int32_t>(pos);
+        {
+            std::lock_guard<std::mutex> lock(status_mutex_);
+            current_status_.current_positions[i] = static_cast<int32_t>(pos);
+        }
     }
 
     SPDLOG_INFO("Connect method completed successfully");
     return true;
+}
+
+void ModbusArmController::disconnectInternal() {
+    if (modbus_) {
+        modbus_close(modbus_);
+        modbus_free(modbus_);
+        modbus_ = nullptr;
+    }
+    connected_ = false;
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        current_status_.connected = false;
+        current_status_.status_message = "Disconnected";
+    }
 }
 
 void ModbusArmController::disconnect() {
@@ -113,13 +158,10 @@ void ModbusArmController::disconnect() {
         stopAutoRead();
     }
 
-    if (modbus_) {
-        modbus_close(modbus_);
+    {
+        std::lock_guard<std::mutex> lock(modbus_mutex_);
+        disconnectInternal();
     }
-
-    connected_ = false;
-    current_status_.connected = false;
-    current_status_.status_message = "Disconnected";
 
     if (status_callback_) {
         status_callback_(current_status_);
@@ -128,6 +170,7 @@ void ModbusArmController::disconnect() {
 
 double ModbusArmController::readPosition(int axis_id) {
     if (!isConnected() || axis_id < 0 || axis_id >= 5) {
+        last_read_failed_ = true;
         return 0.0;
     }
 
@@ -137,33 +180,29 @@ double ModbusArmController::readPosition(int axis_id) {
         const AxisConfig& config = axis_configs_[axis_id];
         std::vector<int16_t> registers(2);
 
+        last_read_failed_ = false;
+
         // Read the configured address (2 registers as in reference code)
         bool read_success = readRegisters(config.current_pos_reg, 2, registers);
-        
+
         if (!read_success) {
             return 0.0;
         }
 
-        // Combine registers into 32-bit value (low-high byte order as in reference code)
-        uint16_t reg0 = static_cast<uint16_t>(registers[0]);
-        uint16_t reg1 = static_cast<uint16_t>(registers[1]);
-        uint32_t combined = (static_cast<uint32_t>(reg1) << 16) | reg0;
-        
-        // Convert to signed 32-bit integer (as in reference code)
-        int32_t raw_position = 0;
-        if (combined & 0x80000000) {
-            raw_position = static_cast<int32_t>(combined - 0x100000000);
-        } else {
-            raw_position = static_cast<int32_t>(combined);
-        }
-        
+        // Combine registers into 32-bit value using unified conversion
+        int32_t raw_position = convertTo32Bit(registers[0], registers[1]);
+
         // No scaling factor, use raw position directly
         double final_position = static_cast<double>(raw_position);
 
-        current_status_.current_positions[axis_id] = static_cast<int32_t>(final_position);
+        {
+            std::lock_guard<std::mutex> status_lock(status_mutex_);
+            current_status_.current_positions[axis_id] = static_cast<int32_t>(final_position);
+        }
 
         return final_position;
     } catch (const std::exception& e) {
+        last_read_failed_ = true;
         return 0.0;
     }
 }
@@ -294,51 +333,320 @@ bool ModbusArmController::moveToPosition(int axis_id, double target_position) {
         return false;
     }
 
-    std::lock_guard<std::mutex> lock(modbus_mutex_);
+    static constexpr int kMaxWaitCycles = 300;       // 300 * 20ms = 6 seconds max
+    static constexpr double kArriveTolerance = 100.0; // position tolerance
 
-    try {
-        const AxisConfig& config = axis_configs_[axis_id];
+    // ── Fast path: already at target position? ──
+    {
+        std::lock_guard<std::mutex> lock(modbus_mutex_);
+        double current = readPositionUnsafe(axis_id);
+        if (std::abs(current - target_position) <= kArriveTolerance) {
+            return true;
+        }
+    }
 
-        SPDLOG_INFO("Moving to position - axis: {}, target: {} (int: {})", axis_id, target_position, target_pos_int);
+    // ── Command phase: stop, write target, trigger ──
+    {
+        std::lock_guard<std::mutex> lock(modbus_mutex_);
 
-        // Stop all movements first
-        writeCoil(config.forward_relay, false);
-        writeCoil(config.backward_relay, false);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        try {
+            const AxisConfig& config = axis_configs_[axis_id];
 
-        // Write target position
-        int16_t low, high;
-        convertTo16Bit(target_pos_int, low, high);
-        std::vector<int16_t> values = {low, high};
-        if (!writeRegisters(config.target_pos_reg, values)) {
+            SPDLOG_INFO("Moving to position - axis: {}, target: {} (int: {})", axis_id, target_position, target_pos_int);
+
+            // Stop all movements first
+            writeCoil(config.forward_relay, false);
+            writeCoil(config.backward_relay, false);
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+
+            // Write target position
+            int16_t low, high;
+            convertTo16Bit(target_pos_int, low, high);
+            std::vector<int16_t> values = {low, high};
+            if (!writeRegisters(config.target_pos_reg, values)) {
+                return false;
+            }
+
+            // Reset absolute positioning relay if still active
+            bool relay_status;
+            if (readCoil(config.pos_move_abs_relay, relay_status) && relay_status) {
+                writeCoil(config.pos_move_abs_relay, false);
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+
+            // Trigger absolute positioning
+            if (!writeCoil(config.pos_move_abs_relay, true)) {
+                return false;
+            }
+        } catch (const std::exception& e) {
+            SPDLOG_ERROR("Error sending move command: {}", e.what());
             return false;
         }
+    } // ── mutex released — other threads can use Modbus during the wait
 
-        // Check if absolute positioning relay is on
-        bool relay_status;
-        if (readCoil(config.pos_move_abs_relay, relay_status) && relay_status) {
-            writeCoil(config.pos_move_abs_relay, false);
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    // ── Wait phase: poll until arrival (mutex NOT held) ──
+    for (int wait = 0; wait < kMaxWaitCycles; ++wait) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        double current = readPosition(axis_id); // locks internally
+        if (std::abs(current - target_position) <= kArriveTolerance) {
+            SPDLOG_INFO("Axis {} arrived at position {}", axis_id, current);
+            break;
         }
-
-        // Trigger absolute positioning
-        if (!writeCoil(config.pos_move_abs_relay, true)) {
-            return false;
+        if (wait == kMaxWaitCycles - 1) {
+            SPDLOG_WARN("Axis {} move timeout: target={}, current={}", axis_id, target_position, current);
         }
+    }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-        // Update target position in status
+    // Update target position in status
+    {
+        std::lock_guard<std::mutex> status_lock(status_mutex_);
         current_status_.target_positions[axis_id] = static_cast<int32_t>(target_position);
-        if (status_callback_) {
-            status_callback_(current_status_);
-        }
+    }
+    if (status_callback_) {
+        status_callback_(current_status_);
+    }
 
-        return true;
-    } catch (const std::exception& e) {
-        SPDLOG_ERROR("Error moving to position: {}", e.what());
+    return true;
+}
+
+bool ModbusArmController::moveXYAxes(double target_x, double target_y) {
+    if (!isConnected()) {
         return false;
     }
+
+    int32_t tx = static_cast<int32_t>(target_x);
+    int32_t ty = static_cast<int32_t>(target_y);
+
+    // Safety limits
+    {
+        const AxisLimits& limX = safety_limits_[0];
+        const AxisLimits& limY = safety_limits_[1];
+        if (tx < limX.min_pos || tx > limX.max_pos ||
+            ty < limY.min_pos || ty > limY.max_pos) {
+            SPDLOG_ERROR("Safety limit: X={} range=[{},{}], Y={} range=[{},{}]",
+                         tx, limX.min_pos, limX.max_pos, ty, limY.min_pos, limY.max_pos);
+            return false;
+        }
+    }
+
+    static constexpr double kArriveTolerance = 100.0;
+
+    // Fast path: skip if target is 0 (readPosition error returns 0 → false positive)
+    if (tx != 0 && ty != 0) {
+        std::lock_guard<std::mutex> lock(modbus_mutex_);
+        double cx = readPositionUnsafe(0);
+        double cy = readPositionUnsafe(1);
+        if (std::abs(cx - target_x) <= kArriveTolerance &&
+            std::abs(cy - target_y) <= kArriveTolerance) {
+            return true;
+        }
+    }
+
+    // ── Command phase: send both X and Y under one mutex lock ──
+    {
+        std::lock_guard<std::mutex> lock(modbus_mutex_);
+        const AxisConfig& cfgX = axis_configs_[0];
+        const AxisConfig& cfgY = axis_configs_[1];
+
+        // Stop X/Y relays
+        writeCoil(cfgX.forward_relay, false);
+        writeCoil(cfgX.backward_relay, false);
+        writeCoil(cfgY.forward_relay, false);
+        writeCoil(cfgY.backward_relay, false);
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+
+        // Write targets
+        int16_t lx, hx, ly, hy;
+        convertTo16Bit(tx, lx, hx);
+        convertTo16Bit(ty, ly, hy);
+        writeRegisters(cfgX.target_pos_reg, {lx, hx});
+        writeRegisters(cfgY.target_pos_reg, {ly, hy});
+
+        // Reset abs positioning relays
+        bool relay_status;
+        if (readCoil(cfgX.pos_move_abs_relay, relay_status) && relay_status) {
+            writeCoil(cfgX.pos_move_abs_relay, false);
+        }
+        if (readCoil(cfgY.pos_move_abs_relay, relay_status) && relay_status) {
+            writeCoil(cfgY.pos_move_abs_relay, false);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+        // Trigger both
+        writeCoil(cfgX.pos_move_abs_relay, true);
+        writeCoil(cfgY.pos_move_abs_relay, true);
+    }
+
+    // ── Wait phase: poll both axes concurrently (2-consecutive-read confirmation) ──
+    static constexpr int kMaxWait = 300; // 300 * 20ms = 6 seconds
+    int x_confirm = 0, y_confirm = 0;
+    for (int wait = 0; wait < kMaxWait; ++wait) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+        if (x_confirm < 2) {
+            double cx = readPosition(0);
+            if (std::abs(cx - target_x) <= kArriveTolerance) {
+                x_confirm++;
+                if (x_confirm == 2) SPDLOG_INFO("X confirmed at {}", cx);
+            } else {
+                x_confirm = 0;
+            }
+        }
+        if (y_confirm < 2) {
+            double cy = readPosition(1);
+            if (std::abs(cy - target_y) <= kArriveTolerance) {
+                y_confirm++;
+                if (y_confirm == 2) SPDLOG_INFO("Y confirmed at {}", cy);
+            } else {
+                y_confirm = 0;
+            }
+        }
+        if (x_confirm >= 2 && y_confirm >= 2) break;
+
+        if (wait == kMaxWait - 1) {
+            double cx = readPosition(0), cy = readPosition(1);
+            SPDLOG_WARN("XY move timeout: X={}→{}, Y={}→{}", cx, target_x, cy, target_y);
+        }
+    }
+
+    // Update status
+    {
+        std::lock_guard<std::mutex> status_lock(status_mutex_);
+        current_status_.target_positions[0] = tx;
+        current_status_.target_positions[1] = ty;
+    }
+    if (status_callback_) {
+        status_callback_(current_status_);
+    }
+
+    return true;
+}
+
+bool ModbusArmController::moveAxesConcurrent(int x, int y, int z, int a, int b) {
+    if (!isConnected()) return false;
+
+    int32_t targets[5] = {
+        static_cast<int32_t>(x), static_cast<int32_t>(y),
+        static_cast<int32_t>(z), static_cast<int32_t>(a), static_cast<int32_t>(b)
+    };
+
+    // Safety limits
+    for (int i = 0; i < 5; ++i) {
+        const AxisLimits& lim = safety_limits_[i];
+        if (targets[i] < lim.min_pos || targets[i] > lim.max_pos) {
+            SPDLOG_ERROR("Safety limit axis {}: {} not in [{},{}]",
+                         i, targets[i], lim.min_pos, lim.max_pos);
+            return false;
+        }
+    }
+
+    static constexpr double kArriveTolerance = 100.0;
+
+    // Fast path: skip when any target is 0 (readPosition returns 0 on error,
+    // indistinguishable from actual position 0, causing false positives)
+    bool any_zero_target = false;
+    for (int i = 0; i < 5; ++i) {
+        if (targets[i] == 0) { any_zero_target = true; break; }
+    }
+    if (!any_zero_target) {
+        std::lock_guard<std::mutex> lock(modbus_mutex_);
+        bool all_ok = true;
+        for (int i = 0; i < 5; ++i) {
+            if (std::abs(readPositionUnsafe(i) - targets[i]) > kArriveTolerance) {
+                all_ok = false;
+                break;
+            }
+        }
+        if (all_ok) return true;
+    }
+
+    // ── Command phase: send all 5 axes under one mutex lock ──
+    {
+        std::lock_guard<std::mutex> lock(modbus_mutex_);
+
+        // Step 1: Stop all running movements
+        for (int i = 0; i < 5; ++i) {
+            writeCoil(axis_configs_[i].forward_relay, false);
+            writeCoil(axis_configs_[i].backward_relay, false);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+        // Step 2: Write target positions for all axes
+        for (int i = 0; i < 5; ++i) {
+            int16_t low, high;
+            convertTo16Bit(targets[i], low, high);
+            writeRegisters(axis_configs_[i].target_pos_reg, {low, high});
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+        // Step 3: Unconditionally reset ALL abs relays to ensure clean rising edge.
+        // Do NOT check readCoil — Modbus reads are unreliable and can skip the reset.
+        for (int i = 0; i < 5; ++i) {
+            writeCoil(axis_configs_[i].pos_move_abs_relay, false);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(40));
+
+        // Step 4: Trigger axes one by one with 10ms gap (arm controller needs time
+        // between relay triggers to process each axis command)
+        for (int i = 0; i < 5; ++i) {
+            writeCoil(axis_configs_[i].pos_move_abs_relay, true);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        SPDLOG_INFO("All 5 axes triggered concurrently");
+    }
+
+    // ── Wait phase: poll all 5 axes concurrently ──
+    // Require 2 consecutive in-range readings to confirm arrival (filters
+    // transient read errors, especially critical when target is 0)
+    static constexpr int kMaxWait = 300; // 6 seconds
+    int confirm_count[5] = {0};
+    for (int wait = 0; wait < kMaxWait; ++wait) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+        bool all_confirmed = true;
+        for (int i = 0; i < 5; ++i) {
+            if (confirm_count[i] < 2) {
+                double pos = readPosition(i);
+                if (std::abs(pos - targets[i]) <= kArriveTolerance) {
+                    confirm_count[i]++;
+                    if (confirm_count[i] == 2) {
+                        SPDLOG_INFO("Axis {} confirmed at {}", i, static_cast<int>(pos));
+                    }
+                } else {
+                    confirm_count[i] = 0; // reset on out-of-range
+                    all_confirmed = false;
+                }
+            }
+        }
+        if (all_confirmed) break;
+
+        if (wait == kMaxWait - 1) {
+            for (int i = 0; i < 5; ++i) {
+                if (confirm_count[i] < 2) {
+                    double pos = readPosition(i);
+                    SPDLOG_WARN("Axis {} move timeout: current={}, target={}", i, pos, targets[i]);
+                }
+            }
+        }
+    }
+
+    // ── Fallback: retry any failed axis with proven sequential moveToPosition ──
+    for (int i = 0; i < 5; ++i) {
+        if (confirm_count[i] < 2) {
+            SPDLOG_WARN("Axis {} not confirmed after concurrent move, retrying sequentially", i);
+            moveToPosition(i, targets[i]);
+        }
+    }
+
+    // Update status
+    {
+        std::lock_guard<std::mutex> status_lock(status_mutex_);
+        for (int i = 0; i < 5; ++i)
+            current_status_.target_positions[i] = targets[i];
+    }
+    if (status_callback_) status_callback_(current_status_);
+
+    return true;
 }
 
 bool ModbusArmController::stopAllMovements(int axis_id) {
@@ -389,7 +697,7 @@ bool ModbusArmController::isConnected() const {
 }
 
 ArmStatus ModbusArmController::getStatus() const {
-    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(status_mutex_));
+    std::lock_guard<std::mutex> lock(status_mutex_);
     return current_status_;
 }
 
@@ -401,16 +709,25 @@ void ModbusArmController::autoReadLoop() {
     while (auto_read_running_) {
         if (!isConnected()) {
             if (!stored_ip_.empty() && auto_read_running_) {
-                current_status_.status_message = "Connection lost, reconnecting...";
+                {
+                    std::lock_guard<std::mutex> lock(status_mutex_);
+                    current_status_.status_message = "Connection lost, reconnecting...";
+                }
                 if (status_callback_) status_callback_(current_status_);
                 if (attemptReconnect()) {
                     consecutive_failures_ = 0;
-                    current_status_.connected = true;
-                    current_status_.status_message = "Reconnected to " + stored_ip_;
+                    {
+                        std::lock_guard<std::mutex> lock(status_mutex_);
+                        current_status_.connected = true;
+                        current_status_.status_message = "Reconnected to " + stored_ip_;
+                    }
                     if (status_callback_) status_callback_(current_status_);
                 } else {
-                    current_status_.connected = false;
-                    current_status_.status_message = "Reconnection failed";
+                    {
+                        std::lock_guard<std::mutex> lock(status_mutex_);
+                        current_status_.connected = false;
+                        current_status_.status_message = "Reconnection failed";
+                    }
                     if (status_callback_) status_callback_(current_status_);
                     break;
                 }
@@ -423,8 +740,12 @@ void ModbusArmController::autoReadLoop() {
         bool any_read_failed = false;
         for (int axis_id = 0; axis_id < 5; ++axis_id) {
             if (auto_read_enabled_[axis_id]) {
-                if (!readPosition(axis_id)) {
+                // Reset error flag before each read, readPosition sets it on failure
+                last_read_failed_ = false;
+                readPosition(axis_id);
+                if (last_read_failed_) {
                     any_read_failed = true;
+                    break;  // Stop reading if one axis fails — connection likely broken
                 }
             }
         }
@@ -432,15 +753,18 @@ void ModbusArmController::autoReadLoop() {
         if (any_read_failed) {
             consecutive_failures_++;
             if (consecutive_failures_ >= kMaxConsecutiveFailures) {
-                SPDLOG_ERROR("Too many consecutive failures ({}), disconnecting", consecutive_failures_);
-                current_status_.status_message = "Connection unstable, attempting reconnect...";
+                SPDLOG_ERROR("Too many consecutive failures ({}), disconnecting",
+                             consecutive_failures_.load());
+                {
+                    std::lock_guard<std::mutex> lock(status_mutex_);
+                    current_status_.status_message = "Connection unstable, attempting reconnect...";
+                }
                 if (status_callback_) status_callback_(current_status_);
 
-                if (modbus_) {
-                    modbus_close(modbus_);
+                {
+                    std::lock_guard<std::mutex> lock(modbus_mutex_);
+                    disconnectInternal();
                 }
-                connected_ = false;
-                current_status_.connected = false;
                 continue;
             }
         } else {
@@ -519,6 +843,7 @@ bool ModbusArmController::writeRegisters(int address, const std::vector<int16_t>
 
 bool ModbusArmController::readRegister(int address, int16_t& value) {
     if (!isConnected()) {
+        last_read_failed_ = true;
         return false;
     }
 
@@ -526,6 +851,7 @@ bool ModbusArmController::readRegister(int address, int16_t& value) {
     int ret = modbus_read_registers(modbus_, address, 1, &reg_value);
     if (ret != 1) {
         SPDLOG_ERROR("Failed to read register {}: {}", address, modbus_strerror(errno));
+        last_read_failed_ = true;
         return false;
     }
 
@@ -535,17 +861,72 @@ bool ModbusArmController::readRegister(int address, int16_t& value) {
 
 bool ModbusArmController::readRegisters(int address, int count, std::vector<int16_t>& values) {
     if (!isConnected()) {
+        last_read_failed_ = true;
+        return false;
+    }
+
+    std::vector<uint16_t> temp_values(count);
+    int ret = modbus_read_registers(modbus_, address, count, temp_values.data());
+
+    if (ret != count) {
+        SPDLOG_ERROR("Failed to read {} registers at address {}: {} (got {})",
+                     count, address, modbus_strerror(errno), ret);
+        last_read_failed_ = true;
         return false;
     }
 
     values.resize(count);
-    int ret = modbus_read_registers(modbus_, address, count, reinterpret_cast<uint16_t*>(values.data()));
-    
-    if (ret != count) {
-        return false;
+    for (int i = 0; i < count; ++i) {
+        values[i] = static_cast<int16_t>(temp_values[i]);
     }
 
     return true;
+}
+
+bool ModbusArmController::readRegisterUnsafe(int address, int16_t& value) {
+    uint16_t reg_value;
+    int ret = modbus_read_registers(modbus_, address, 1, &reg_value);
+    if (ret != 1) {
+        SPDLOG_ERROR("Failed to read register {}: {}", address, modbus_strerror(errno));
+        last_read_failed_ = true;
+        return false;
+    }
+    value = static_cast<int16_t>(reg_value);
+    return true;
+}
+
+double ModbusArmController::readPositionUnsafe(int axis_id) {
+    if (axis_id < 0 || axis_id >= 5) {
+        last_read_failed_ = true;
+        return 0.0;
+    }
+
+    try {
+        const AxisConfig& config = axis_configs_[axis_id];
+        std::vector<int16_t> registers(2);
+
+        last_read_failed_ = false;
+
+        bool read_success = readRegisters(config.current_pos_reg, 2, registers);
+
+        if (!read_success) {
+            return 0.0;
+        }
+
+        // Combine registers into 32-bit value using unified conversion
+        int32_t raw_position = convertTo32Bit(registers[0], registers[1]);
+
+        double final_position = static_cast<double>(raw_position);
+        {
+            std::lock_guard<std::mutex> status_lock(status_mutex_);
+            current_status_.current_positions[axis_id] = static_cast<int32_t>(final_position);
+        }
+
+        return final_position;
+    } catch (const std::exception& e) {
+        last_read_failed_ = true;
+        return 0.0;
+    }
 }
 
 int32_t ModbusArmController::convertTo32Bit(int16_t low, int16_t high) {
@@ -601,7 +982,7 @@ bool ModbusArmController::attemptReconnect() {
         if (!modbus_) continue;
 
         modbus_set_slave(modbus_, 1);
-        modbus_set_response_timeout(modbus_, 5, 0);
+        modbus_set_response_timeout(modbus_, 2, 0);
 
         if (modbus_connect(modbus_) == -1) {
             modbus_free(modbus_);

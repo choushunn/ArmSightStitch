@@ -12,7 +12,7 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/vcpkg-mingw",
       "environment": {
-        "PATH": "C:/Programs/Qt/Tools/mingw1310_64/bin;C:/Programs/Qt/Tools/Ninja;$penv{PATH}"
+        "PATH": "C:/Qt/Tools/mingw1310_64/bin;C:/Qt/Tools/Ninja;$penv{PATH}"
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
@@ -20,11 +20,11 @@
         "VCPKG_MANIFEST_MODE": "ON",
         "VCPKG_TARGET_TRIPLET": "x64-mingw-static",
         "VCPKG_HOST_TRIPLET": "x64-mingw-static",
-        "Qt6_DIR": "C:/Programs/Qt/6.10.1/mingw_64/lib/cmake/Qt6",
-        "CMAKE_PREFIX_PATH": "C:/Programs/Qt/6.10.1/mingw_64",
-        "CMAKE_MAKE_PROGRAM": "C:/Programs/Qt/Tools/Ninja/ninja.exe",
-        "CMAKE_C_COMPILER": "C:/Programs/Qt/Tools/mingw1310_64/bin/gcc.exe",
-        "CMAKE_CXX_COMPILER": "C:/Programs/Qt/Tools/mingw1310_64/bin/g++.exe"
+        "Qt6_DIR": "C:/Qt/6.11.1/mingw_64/lib/cmake/Qt6",
+        "CMAKE_PREFIX_PATH": "C:/Qt/6.11.1/mingw_64",
+        "CMAKE_MAKE_PROGRAM": "C:/Qt/Tools/Ninja/ninja.exe",
+        "CMAKE_C_COMPILER": "C:/Qt/Tools/mingw1310_64/bin/gcc.exe",
+        "CMAKE_CXX_COMPILER": "C:/Qt/Tools/mingw1310_64/bin/g++.exe"
       }
     },
     {
@@ -41,7 +41,7 @@
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_MANIFEST_MODE": "ON",
         "VCPKG_TARGET_TRIPLET": "x64-windows",
-        "CMAKE_PREFIX_PATH": "C:/Programs/Qt/6.10.1/msvc2022_64"
+        "CMAKE_PREFIX_PATH": "C:/Qt/6.11.1/msvc2022_64"
       }
     }
   ],

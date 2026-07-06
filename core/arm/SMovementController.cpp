@@ -34,6 +34,12 @@ SMovementController::SMovementController(IArmController& arm_controller)
 
 SMovementController::~SMovementController() {
     stop();
+    // Ensure save thread is joined
+    save_thread_running_ = false;
+    save_queue_cv_.notify_all();
+    if (save_thread_.joinable()) {
+        save_thread_.join();
+    }
 }
 
 bool SMovementController::initialize(const cv::Size& grid_size, 
@@ -81,14 +87,22 @@ bool SMovementController::start() {
         updateStatus("Starting S-curve movement");
         updateAction("Generating path");
         
+        // Stop auto-read during scanning to avoid modbus_mutex_ contention
+        arm_controller_.stopAutoRead();
+
         // Start movement thread
         movement_thread_ = std::thread(&SMovementController::movementThread, this);
-        
+
+        // Start background save consumer thread
+        save_thread_running_ = true;
+        save_thread_ = std::thread(&SMovementController::saveConsumerThread, this);
+
         return true;
     } catch (const std::exception& e) {
         SPDLOG_ERROR("Error starting S-movement: {}", e.what());
         updateStatus(std::string("Failed to start: ") + e.what());
         running_ = false;
+        arm_controller_.startAutoRead(); // restore auto-read on failure
         return false;
     }
 }
@@ -102,6 +116,16 @@ void SMovementController::stop() {
 
     if (movement_thread_.joinable()) {
         movement_thread_.join();
+    } else {
+        // Movement thread never started but auto-read was stopped in start()
+        arm_controller_.startAutoRead();
+    }
+
+    // Stop save thread and flush remaining items
+    save_thread_running_ = false;
+    save_queue_cv_.notify_all();
+    if (save_thread_.joinable()) {
+        save_thread_.join();
     }
 
     updateStatus("Movement stopped");
@@ -237,7 +261,16 @@ void SMovementController::movementThread() {
                 SPDLOG_ERROR("Error setting speed for axis {}: {}", axis, e.what());
             }
         }
-        
+
+        // ── One-time: move Z/A/B to their constant scan positions ──
+        if (!movement_path_.empty()) {
+            const auto& firstPt = movement_path_.front();
+            SPDLOG_INFO("One-time Z/A/B move to ({}, {}, {})", firstPt.z, firstPt.a, firstPt.b);
+            arm_controller_.moveToPosition(2, firstPt.z);
+            arm_controller_.moveToPosition(3, firstPt.a);
+            arm_controller_.moveToPosition(4, firstPt.b);
+        }
+
         // Process each point in the movement path
         for (size_t i = 0; i < movement_path_.size() && !stop_requested_; ++i) {
             try {
@@ -263,151 +296,86 @@ void SMovementController::movementThread() {
                 // 直接向机械臂发送固定点
                 SPDLOG_DEBUG("Sending fixed point {} to arm: ({}, {}, {})", i + 1, point.x, point.y, point.z);
                 
-                bool all_ok = arm::moveToPoint(arm_controller_, point);
+                bool all_ok = arm::moveXYAxes(arm_controller_, point.x, point.y);
                 if (!all_ok) {
                     updateStatus("Failed to move to point " + std::to_string(i + 1) + ", skipping to next point");
                     SPDLOG_ERROR("Failed to move to point {}, skipping to next point", i + 1);
                     continue;
                 }
-                
-                SPDLOG_DEBUG("All axis movement commands sent successfully");
-                
-                // 等待机械臂到达目标位置
-                double max_wait_time = 5.0; // 最大等待时间5秒
-                auto wait_start = std::chrono::steady_clock::now();
-                bool arrived = false;
-                
-                // 快速轮询检查位置，提高检测精度
-                while (std::chrono::duration<double>(std::chrono::steady_clock::now() - wait_start).count() < max_wait_time) {
+
+                // moveToPosition() already confirmed X/Y arrival internally;
+                // check stop/pause, then proceed directly to capture.
+                if (stop_requested_) break;
+                while (paused_ && !stop_requested_) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
+                if (stop_requested_) break;
+
+                // 更新状态栏显示到达目标
+                updateStatus("Arrived at target, capturing...");
+                updateAction("Capturing");
+
+                // 最小化机械臂稳定等待时间
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+                // 确认到达目标位置后，拍摄照片
+                bool image_captured = false;
+                cv::Mat frame;
+
+                // 快速图像捕获，减少重试（captureSingleFrame内部已有3次重试）
+                int capture_attempts = 0;
+                const int max_capture_attempts = 3;
+
+                while (!image_captured && capture_attempts < max_capture_attempts) {
+                    capture_attempts++;
+                    if (image_capture_callback_) {
+                        try {
+                            if (image_capture_callback_(frame)) {
+                                image_captured = true;
+                            } else {
+                                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                            }
+                        } catch (const std::exception& e) {
+                            SPDLOG_ERROR("Error capturing image: {}", e.what());
+                            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
+                // 如果成功捕获图像，立即入队列（后台线程异步保存，不阻塞移动）
+                if (image_captured && !save_directory_.empty()) {
+                    SPDLOG_DEBUG("Queuing frame for async save at [{}, {}]", point.row, point.col);
+                    {
+                        std::lock_guard<std::mutex> lock(save_queue_mutex_);
+                        save_queue_.push({frame.clone(), save_directory_, point.row, point.col});
+                    }
+                    save_queue_cv_.notify_one();
+                    saved_images_count_++;
+                } else if (!image_captured) {
+                    updateStatus("Failed to capture image at point " + std::to_string(i + 1) + ", skipping");
+                }
+
+                // 最小化停留时间（仅检查暂停/停止）
+                auto stay_start = std::chrono::steady_clock::now();
+                while (std::chrono::duration<double>(std::chrono::steady_clock::now() - stay_start).count() < 0.02) {
                     // 首先检查是否已经被停止
                     if (stop_requested_) {
                         SPDLOG_DEBUG("Movement stopped by user");
-                        arrived = false;
                         break;
                     }
-                    
+
                     // 检查是否暂停
                     while (paused_ && !stop_requested_) {
                         SPDLOG_DEBUG("Movement paused");
-                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                        std::this_thread::sleep_for(std::chrono::milliseconds(50));
                     }
                     if (stop_requested_) {
-                        arrived = false;
                         break;
                     }
-                    
-                    // 验证机械臂是否到达目标位置
-                    double current_x = 0, current_y = 0;
-                    try {
-                        current_x = arm_controller_.readPosition(0);
-                        current_y = arm_controller_.readPosition(1);
-                    } catch (const std::exception& e) {
-                        SPDLOG_ERROR("Error reading position: {}", e.what());
-                        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                        continue;
-                    }
-                    
-                    // 检查位置是否在合理范围内
-                    const double tolerance = position_tolerance_;
-                    if (std::abs(current_x - point.x) <= tolerance && std::abs(current_y - point.y) <= tolerance) {
-                        arrived = true;
-                        SPDLOG_DEBUG("Arm reached target position");
-                        break;
-                    }
-                    
-                    // 50ms检查一次，比之前更频繁
-                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                }
-                
-                // 如果成功到达目标位置，保存相机画面并停留
-                if (arrived) {
-                    // 更新状态栏显示到达目标
-                    updateStatus("Arrived at target, saving image...");
-                    updateAction("Saving image");
-                    
-                    // 最小化机械臂稳定等待时间
-                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-                    
-                    // 确认到达目标位置后，拍摄照片
-                    bool image_captured = false;
-                    bool image_saved = false;
-                    cv::Mat frame;
-                    
-                    // 增加图像捕获的重试次数，确保能够成功捕获图像
-                    int capture_attempts = 0;
-                    const int max_capture_attempts = 10;
-                    
-                    while (!image_captured && capture_attempts < max_capture_attempts) {
-                        capture_attempts++;
-                        if (image_capture_callback_) {
-                            try {
-                                if (image_capture_callback_(frame)) {
-                                    image_captured = true;
-                                } else {
-                                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-                                }
-                            } catch (const std::exception& e) {
-                                SPDLOG_ERROR("Error capturing image: {}", e.what());
-                                std::this_thread::sleep_for(std::chrono::milliseconds(20));
-                            }
-                        } else {
-                            break;
-                        }
-                    }
-                    
-                    // 如果成功捕获图像，保存图像
-                    if (image_captured) {
-                        // 增加图像保存的重试次数，确保能够成功保存图像
-                        int save_attempts = 0;
-                        const int max_save_attempts = 5;
-                        
-                        while (!image_saved && save_attempts < max_save_attempts) {
-                            save_attempts++;
-                            if (image_save_callback_ && !save_directory_.empty()) {
-                                try {
-                                    // 只使用回调函数来保存图像和更新UI
-                                    // 这样可以确保所有操作都是线程安全的
-                                    if (image_save_callback_(frame, save_directory_, point.row, point.col)) {
-                                        saved_images_count_++;
-                                        image_saved = true;
-                                    } else {
-                                        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-                                    }
-                                } catch (const std::exception& e) {
-                                    SPDLOG_ERROR("Error saving image: {}", e.what());
-                                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-                                }
-                            } else {
-                                break;
-                            }
-                        }
-                    }
-                    
-                    if (!image_saved) {
-                        updateStatus("Failed to capture and save image at point " + std::to_string(i + 1) + " after multiple attempts, skipping to next point");
-                        continue;
-                    }
-                    
-                    // 最小化停留时间，只需要足够的时间保存图像
-                    auto stay_start = std::chrono::steady_clock::now();
-                    while (std::chrono::duration<double>(std::chrono::steady_clock::now() - stay_start).count() < 0.1) {
-                        // 首先检查是否已经被停止
-                        if (stop_requested_) {
-                            SPDLOG_DEBUG("Movement stopped by user");
-                            break;
-                        }
-                        
-                        // 检查是否暂停
-                        while (paused_ && !stop_requested_) {
-                            SPDLOG_DEBUG("Movement paused");
-                            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                        }
-                        if (stop_requested_) {
-                            break;
-                        }
-                        
-                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                    }
+
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
                 }
                 
                 // 检查是否暂停
@@ -416,9 +384,9 @@ void SMovementController::movementThread() {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 }
                 
-                // Wait before next move (minimized to 20ms)
-                SPDLOG_DEBUG("Waiting 20ms before next move");
-                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                // Minimal gap before next move
+                SPDLOG_DEBUG("Waiting 5ms before next move");
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
             } catch (const std::exception& e) {
                 SPDLOG_ERROR("Error processing point {}: {}", i + 1, e.what());
                 updateStatus("Error processing point " + std::to_string(i + 1) + ", skipping to next point");
@@ -452,111 +420,9 @@ void SMovementController::movementThread() {
     running_ = false;
     current_status_.running = false;
     current_status_.paused = false;
+    // Resume auto-read after scanning completes
+    arm_controller_.startAutoRead();
     SPDLOG_INFO("Exiting movement thread");
-}
-
-bool SMovementController::moveToPoint(const SMovementPoint& point) {
-    try {
-        SPDLOG_INFO("Moving to point ({}, {}, {})", point.x, point.y, point.z);
-        
-        // 检查机械臂连接状态
-        if (!arm_controller_.isConnected()) {
-            SPDLOG_ERROR("Arm is not connected");
-            return false;
-        }
-        
-        // 直接向机械臂发送固定点命令
-        SPDLOG_INFO("Sending fixed position to arm");
-        
-        bool all_ok = arm::moveToPoint(arm_controller_, point);
-        if (!all_ok) {
-            SPDLOG_ERROR("Failed to send position to arm");
-            return false;
-        }
-        
-        SPDLOG_INFO("All target positions sent successfully");
-        
-        // 最小化等待时间，确保机械臂到达目标位置
-        SPDLOG_INFO("Waiting for arm to reach position...");
-        std::this_thread::sleep_for(std::chrono::milliseconds(200)); // 最小化等待时间，确保机械臂到达位置
-        
-        // 验证机械臂是否到达目标位置
-        double current_x = arm_controller_.readPosition(0);
-        double current_y = arm_controller_.readPosition(1);
-        double current_z = arm_controller_.readPosition(2);
-        double current_a = arm_controller_.readPosition(3);
-        double current_b = arm_controller_.readPosition(4);
-        
-        SPDLOG_INFO("Current position: ({}, {}, {}, {}, {})", current_x, current_y, current_z, current_a, current_b);
-        
-        // 检查位置是否在合理范围内
-        const double tolerance = position_tolerance_;
-        bool position_reached = true;
-        
-        if (std::abs(current_x - point.x) > tolerance) {
-            SPDLOG_ERROR("X axis did not reach target position");
-            position_reached = false;
-        }
-        if (std::abs(current_y - point.y) > tolerance) {
-            SPDLOG_ERROR("Y axis did not reach target position");
-            position_reached = false;
-        }
-        if (std::abs(current_z - point.z) > tolerance) {
-            SPDLOG_ERROR("Z axis did not reach target position");
-            position_reached = false;
-        }
-        if (std::abs(current_a - point.a) > tolerance) {
-            SPDLOG_ERROR("A axis did not reach target position");
-            position_reached = false;
-        }
-        if (std::abs(current_b - point.b) > tolerance) {
-            SPDLOG_ERROR("B axis did not reach target position");
-            position_reached = false;
-        }
-        
-        if (!position_reached) {
-            SPDLOG_ERROR("Arm did not reach target position");
-            SPDLOG_ERROR("Target: ({}, {}, {}, {}, {})", point.x, point.y, point.z, point.a, point.b);
-            SPDLOG_ERROR("Current: ({}, {}, {}, {}, {})", current_x, current_y, current_z, current_a, current_b);
-            return false;
-        }
-        
-        SPDLOG_INFO("Successfully moved to point");
-        return true;
-        
-    } catch (const std::exception& e) {
-        SPDLOG_ERROR("Error moving to point: {}", e.what());
-        return false;
-    }
-}
-
-bool SMovementController::captureImageAtPosition() {
-    if (!image_capture_callback_) {
-        return false;
-    }
-    
-    try {
-        cv::Mat frame;
-        return image_capture_callback_(frame);
-    } catch (const std::exception& e) {
-        SPDLOG_ERROR("Error capturing image: {}", e.what());
-        return false;
-    }
-}
-
-bool SMovementController::saveCapturedImage(const cv::Mat& image, const SMovementPoint& point) {
-    if (!image_save_callback_ || save_directory_.empty()) {
-        return false;
-    }
-    
-    try {
-        std::string filename = std::to_string(point.row) + "_" + std::to_string(point.col) + ".jpg";
-        
-        return image_save_callback_(image, save_directory_, point.row, point.col);
-    } catch (const std::exception& e) {
-        SPDLOG_ERROR("Error saving image: {}", e.what());
-        return false;
-    }
 }
 
 void SMovementController::updateStatus(const std::string& status_message) {
@@ -575,6 +441,33 @@ void SMovementController::updateAction(const std::string& action) {
     if (status_callback_) {
         status_callback_(current_status_);
     }
+}
+
+void SMovementController::saveConsumerThread() {
+    SPDLOG_INFO("Save consumer thread started");
+    while (save_thread_running_) {
+        FrameSaveTask task;
+        {
+            std::unique_lock<std::mutex> lock(save_queue_mutex_);
+            save_queue_cv_.wait(lock, [this] {
+                return !save_queue_.empty() || !save_thread_running_;
+            });
+            if (!save_thread_running_ && save_queue_.empty()) break;
+            if (save_queue_.empty()) continue;
+            task = std::move(save_queue_.front());
+            save_queue_.pop();
+        }
+
+        // Process save in background (imwrite + thumbnail → UI)
+        if (image_save_callback_) {
+            try {
+                image_save_callback_(task.frame, task.directory, task.row, task.col);
+            } catch (const std::exception& e) {
+                SPDLOG_ERROR("Save callback error for [{},{}]: {}", task.row, task.col, e.what());
+            }
+        }
+    }
+    SPDLOG_INFO("Save consumer thread exiting, {} items left in queue", save_queue_.size());
 }
 
 } // namespace arm

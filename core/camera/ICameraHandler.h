@@ -34,6 +34,10 @@ public:
     virtual bool startCapture() = 0;
     virtual void stopCapture() = 0;
     virtual bool captureSingleFrame(cv::Mat& frame) = 0;
+    /// Trigger-based still capture (independent of video stream, no mutex contention)
+    virtual bool captureTriggerFrame(cv::Mat& frame) = 0;
+    virtual void pauseStream() = 0;
+    virtual void resumeStream() = 0;
 
     virtual void setImageCallback(std::function<void(const cv::Mat&)> callback) = 0;
     virtual void setStatusCallback(std::function<void(const CameraStatus&)> callback) = 0;

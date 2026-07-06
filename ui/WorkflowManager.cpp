@@ -184,11 +184,7 @@ void WorkflowManager::onZeroStep() {
 
     arm::SMovementPoint zero_pos = {0, 0, 0, 0, 0, 0, 0};
 
-    arm_.moveToPosition(0, 0);
-    arm_.moveToPosition(1, 0);
-    arm_.moveToPosition(2, 0);
-    arm_.moveToPosition(3, 0);
-    arm_.moveToPosition(4, 0);
+    arm_.moveAxesConcurrent(0, 0, 0, 0, 0);
 
     scheduleNext(500, [this, zero_pos]() {
         if (!stop_requested_) {

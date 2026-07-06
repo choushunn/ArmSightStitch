@@ -1,0 +1,26 @@
+{
+    "arm_ip": "192.168.0.1",
+    "arm_port": 502,
+    "default_speed": 70000,
+    "modbus_debug": true,
+
+    "camera_width": 640,
+    "camera_height": 480,
+    "camera_exposure": 100.0,
+    "camera_gain": 1.0,
+
+    "model_param_path": "models/best-sim-opt.ncnn.param",
+    "model_bin_path": "models/best-sim-opt.ncnn.bin",
+
+    "grid_size_x": 10,
+    "grid_size_y": 10,
+    "step_size": 43000,
+    "z_height": 50000,
+
+
+    "log_path": "./logs/armsightstitch.log",
+    "position_tolerance": 100.0,
+
+    "axis_min_pos": [-1000000, -1000000, -1000000, -180000, -180000],
+    "axis_max_pos": [1000000, 1000000, 1000000, 180000, 180000]
+}

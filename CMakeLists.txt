@@ -173,7 +173,13 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 # Compile definitions and optional module support
 if(HAS_LIBMODBUS)
     target_sources(${PROJECT_NAME} PRIVATE ${LIBMODBUS_SOURCES})
-    target_compile_definitions(${PROJECT_NAME} PRIVATE DLLBUILD)
+    # libmodbus is statically linked — no DLLBUILD needed
+    # Windows SOCKET handles can be any kernel handle value (often > 2000),
+    # but libmodbus checks `fd >= FD_SETSIZE` in many places. Use a large
+    # FD_SETSIZE so all valid handles pass the check. (32768 = 256KB per fd_set)
+    # OS_WIN32 is required by libmodbus to enable Windows-specific code paths
+    # (WSAStartup, non-blocking connect, etc.)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE FD_SETSIZE=32768 OS_WIN32)
     target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32)
 endif()
 
@@ -221,8 +227,10 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    ${CMAKE_CURRENT_SOURCE_DIR}/ui/industrial_theme.qss $<TARGET_FILE_DIR:${PROJECT_NAME}>
-    COMMENT "Copying stylesheet..."
+        ${CMAKE_CURRENT_SOURCE_DIR}/ui/industrial_theme.qss $<TARGET_FILE_DIR:${PROJECT_NAME}>
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/config.json $<TARGET_FILE_DIR:${PROJECT_NAME}>
+    COMMENT "Copying stylesheet and config..."
 )
 
 if(HAS_TOUPCAM)

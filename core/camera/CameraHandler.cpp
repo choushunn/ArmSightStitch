@@ -265,6 +265,48 @@ bool CameraHandler::captureSingleFrame(cv::Mat& frame) {
     }
 }
 
+bool CameraHandler::captureTriggerFrame(cv::Mat& frame) {
+    if (!connected_) {
+        return false;
+    }
+
+    // TriggerSyncV4: software trigger + wait + return still image
+    // Independent of video pull stream — no capture_mutex_ needed
+    int final_w = 0, final_h = 0;
+    if (FAILED(Toupcam_get_FinalSize(hcam_, &final_w, &final_h))) {
+        final_w = image_width_;
+        final_h = image_height_;
+    }
+    int stride = TDIBWIDTHBYTES(final_w * 24);
+    int buf_size = stride * final_h;
+    std::vector<uint8_t> buffer(buf_size);
+
+    ToupcamFrameInfoV4 info = {};
+    HRESULT hr = Toupcam_TriggerSyncV4(hcam_, 3000, buffer.data(), 24, stride, &info);
+    if (FAILED(hr)) {
+        SPDLOG_ERROR("TriggerSyncV4 failed: HRESULT=0x{:08x}", static_cast<unsigned>(hr));
+        return false;
+    }
+
+    cv::Mat bgr(final_h, final_w, CV_8UC3, buffer.data(), stride);
+    frame = bgr.clone();
+    return true;
+}
+
+void CameraHandler::pauseStream() {
+    if (hcam_ && capturing_) {
+        Toupcam_Pause(hcam_, 1);
+        SPDLOG_INFO("Camera stream paused");
+    }
+}
+
+void CameraHandler::resumeStream() {
+    if (hcam_ && capturing_) {
+        Toupcam_Pause(hcam_, 0);
+        SPDLOG_INFO("Camera stream resumed");
+    }
+}
+
 void CameraHandler::setImageCallback(std::function<void(const cv::Mat&)> callback) {
     std::lock_guard<std::mutex> lock(callback_mutex_);
     image_callback_ = callback;
