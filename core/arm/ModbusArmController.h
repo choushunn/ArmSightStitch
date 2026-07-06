@@ -80,7 +80,7 @@ public:
      */
     bool moveToPosition(int axis_id, double target_position);
     bool moveXYAxes(double target_x, double target_y) override;
-    bool moveAxesConcurrent(int x, int y, int z, int a, int b) override;
+    bool moveAxesConcurrent(int x, int y, int z) override;
 
     /**
      * @brief Stop all movements
@@ -224,7 +224,7 @@ private:
     std::atomic<bool> auto_read_running_ = false;
     std::thread auto_read_thread_;
     float auto_read_interval_ = 0.5f;
-    std::vector<bool> auto_read_enabled_ = {true, true, true, true, true}; // 5 axes
+    std::vector<bool> auto_read_enabled_ = {true, true, true, false, false}; // X/Y/Z only; A/B disabled
     std::function<void(const ArmStatus&)> status_callback_;
     ArmStatus current_status_;
     mutable std::mutex status_mutex_;
@@ -239,7 +239,7 @@ private:
     };
 
     std::vector<AxisLimits> safety_limits_ = {
-        {-1000000, 1000000}, {-1000000, 1000000}, {-1000000, 1000000},
+        {0, 384000}, {0, 384000}, {0, 80000},
         {-180000, 180000}, {-180000, 180000}
     };
 

@@ -49,7 +49,17 @@
       "PowerShell($env:PATH = \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\Common7\\\\IDE\\\\CommonExtensions\\\\Microsoft\\\\TeamFoundation\\\\Team Explorer\\\\Git\\\\cmd;\" + $env:PATH; git ls-remote https://github.com/microsoft/vcpkg.git HEAD 2>&1)",
       "Read(//c//**)",
       "PowerShell($ucrt = \"C:\\\\programs\\\\msys64\\\\ucrt64\\\\bin\"; Write-Host \"=== UCRT64 Toolchain ===\"; $tools = @\\(\"gcc.exe\", \"g++.exe\", \"gdb.exe\", \"make.exe\", \"cmake.exe\", \"pkg-config.exe\", \"ar.exe\", \"ld.exe\", \"windres.exe\", \"strip.exe\"\\); foreach \\($t in $tools\\) { $path = Join-Path $ucrt $t; if \\(Test-Path $path\\) { Write-Host \"[OK] $t\" } else { Write-Host \"[MISSING] $t\" } }; Write-Host \"=== GCC version ===\"; & \"$ucrt\\\\gcc.exe\" --version 2>&1 | Select-Object -First 1; Write-Host \"=== GNU Make version ===\"; & \"$ucrt\\\\make.exe\" --version 2>&1 | Select-Object -First 1)",
-      "PowerShell(cd C:\\\\Users\\\\SP\\\\Desktop\\\\ArmSightStitch0706; $env:PATH = \"C:\\\\Qt\\\\Tools\\\\mingw1310_64\\\\bin;C:\\\\Qt\\\\Tools\\\\Ninja;C:\\\\Qt\\\\Tools\\\\CMake_64\\\\bin;C:\\\\Windows\\\\System32\"; cmake -B build/mingw -G \"Ninja\" -DCMAKE_C_COMPILER=\"C:/Qt/Tools/mingw1310_64/bin/gcc.exe\" -DCMAKE_CXX_COMPILER=\"C:/Qt/Tools/mingw1310_64/bin/g++.exe\" -DCMAKE_MAKE_PROGRAM=\"C:/Qt/Tools/Ninja/ninja.exe\" -DCMAKE_PREFIX_PATH=\"C:/Qt/6.11.1/mingw_64\" -DCMAKE_TOOLCHAIN_FILE=\"C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/scripts/buildsystems/vcpkg.cmake\" -DVCPKG_TARGET_TRIPLET=\"x64-mingw-dynamic\" -DVCPKG_HOST_TRIPLET=\"x64-windows\" -DQt6_DIR=\"C:/Qt/6.11.1/mingw_64/lib/cmake/Qt6\" 2>&1)"
+      "PowerShell(cd C:\\\\Users\\\\SP\\\\Desktop\\\\ArmSightStitch0706; $env:PATH = \"C:\\\\Qt\\\\Tools\\\\mingw1310_64\\\\bin;C:\\\\Qt\\\\Tools\\\\Ninja;C:\\\\Qt\\\\Tools\\\\CMake_64\\\\bin;C:\\\\Windows\\\\System32\"; cmake -B build/mingw -G \"Ninja\" -DCMAKE_C_COMPILER=\"C:/Qt/Tools/mingw1310_64/bin/gcc.exe\" -DCMAKE_CXX_COMPILER=\"C:/Qt/Tools/mingw1310_64/bin/g++.exe\" -DCMAKE_MAKE_PROGRAM=\"C:/Qt/Tools/Ninja/ninja.exe\" -DCMAKE_PREFIX_PATH=\"C:/Qt/6.11.1/mingw_64\" -DCMAKE_TOOLCHAIN_FILE=\"C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/scripts/buildsystems/vcpkg.cmake\" -DVCPKG_TARGET_TRIPLET=\"x64-mingw-dynamic\" -DVCPKG_HOST_TRIPLET=\"x64-windows\" -DQt6_DIR=\"C:/Qt/6.11.1/mingw_64/lib/cmake/Qt6\" 2>&1)",
+      "Bash(export VCPKG_ROOT=\"C:/vcpkg\")",
+      "Bash(cmake --build \"c:/Users/SP/Desktop/ArmSightStitch0706/build/vcpkg-mingw\" --config Release --parallel)",
+      "Bash(taskkill /f /im ArmSightStitch.exe)",
+      "Bash(powershell -Command \"Stop-Process -Name ArmSightStitch -Force -ErrorAction SilentlyContinue; Start-Sleep 2\")",
+      "Bash(git -c user.name=choushunn -c user.email=choushunn@163.com commit -m '性能优化: 并发机械臂控制、异步图像保存、触发采集、线程安全 *)",
+      "Bash(taskkill /F /IM ArmSightStitch.exe)",
+      "Bash(tasklist)",
+      "Bash(cmd.exe /c \"taskkill /F /PID 21528\")",
+      "Bash(powershell -Command \"Stop-Process -Name ArmSightStitch -Force -ErrorAction SilentlyContinue\")",
+      "Bash(git config *)"
     ]
   }
 }

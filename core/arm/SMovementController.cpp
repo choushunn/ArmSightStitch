@@ -18,7 +18,7 @@ SMovementController::SMovementController(IArmController& arm_controller)
       stop_requested_(false),
       current_point_index_(0),
       run_number_(0),
-      movement_speed_(70000), // 默认速度设置为70000
+      movement_speed_(26000), // 默认速度设置为26000
       saved_images_count_(0) {
     // Initialize status
     current_status_.running = false;
@@ -73,7 +73,11 @@ bool SMovementController::start() {
     if (running_ || movement_path_.empty()) {
         return false;
     }
-    
+
+    // Clean up any previous threads (e.g. after natural completion)
+    if (movement_thread_.joinable()) movement_thread_.join();
+    if (save_thread_.joinable()) save_thread_.join();
+
     try {
         running_ = true;
         paused_ = false;
@@ -252,8 +256,8 @@ void SMovementController::movementThread() {
         updateAction("Starting movement");
         SPDLOG_INFO("Starting S-movement thread");
         
-        // Set movement speed for all axes
-        for (int axis = 0; axis < 5; ++axis) {
+        // Set movement speed for X/Y/Z only (A/B disabled)
+        for (int axis = 0; axis < 3; ++axis) {
             try {
                 arm_controller_.setSpeed(axis, movement_speed_);
                 SPDLOG_INFO("Set speed for axis {} to {}", axis, movement_speed_.load());
@@ -262,13 +266,11 @@ void SMovementController::movementThread() {
             }
         }
 
-        // ── One-time: move Z/A/B to their constant scan positions ──
+        // ── One-time: move Z to scan height ──
         if (!movement_path_.empty()) {
             const auto& firstPt = movement_path_.front();
-            SPDLOG_INFO("One-time Z/A/B move to ({}, {}, {})", firstPt.z, firstPt.a, firstPt.b);
+            SPDLOG_INFO("One-time Z move to {}", firstPt.z);
             arm_controller_.moveToPosition(2, firstPt.z);
-            arm_controller_.moveToPosition(3, firstPt.a);
-            arm_controller_.moveToPosition(4, firstPt.b);
         }
 
         // Process each point in the movement path

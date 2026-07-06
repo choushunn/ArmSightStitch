@@ -142,7 +142,7 @@ void WorkflowManager::onConnectArmStep() {
 
     auto& cfg = ConfigManager::instance();
     if (arm_.connect(cfg.armIp(), cfg.armPort())) {
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 3; ++i) { // X/Y/Z only; A/B disabled
             arm_.setSpeed(i, cfg.defaultSpeed());
         }
         emit statusMessage("Arm connected, setting speed...");
@@ -184,7 +184,7 @@ void WorkflowManager::onZeroStep() {
 
     arm::SMovementPoint zero_pos = {0, 0, 0, 0, 0, 0, 0};
 
-    arm_.moveAxesConcurrent(0, 0, 0, 0, 0);
+    arm_.moveAxesConcurrent(0, 0, 0);
 
     scheduleNext(500, [this, zero_pos]() {
         if (!stop_requested_) {

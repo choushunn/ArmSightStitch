@@ -1,0 +1,92 @@
+C:\Program Files\Microsoft Visual Studio\2022\Community>cd c:\Users\SP\Desktop\ArmSightStitch-main\build
+
+c:\Users\SP\Desktop\ArmSightStitch-main\build>cmake --build . --config Release
+适用于 .NET Framework MSBuild 版本 17.14.40+3e7442088
+
+  Automatic MOC and UIC for target ArmLiteCPlusPlus
+  SMovementController.cpp
+C:\Users\SP\Desktop\ArmSightStitch-main\third_party\modbus\libmodbus-master\src\modbus.h(27,11): warning C4005: “MODBUS
+_API”: 宏重定义 [C:\Users\SP\Desktop\ArmSightStitch-main\build\ArmLiteCPlusPlus.vcxproj]
+  (编译源文件“../src/arm/SMovementController.cpp”)
+      C:\Users\SP\Desktop\ArmSightStitch-main\include\arm\ModbusArmController.h(4,9):
+      参见“MODBUS_API”的前一个定义
+
+C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(65,26): error C2660: “arm::SMovementController:
+:generateFixedPointSMovementPath”: 函数不接受 7 个参数 [C:\Users\SP\Desktop\ArmSightStitch-main\build\ArmLiteCPlusPlus.vcxproj]
+      C:\Users\SP\Desktop\ArmSightStitch-main\include\arm\SMovementController.h(159,33):
+      参见“arm::SMovementController::generateFixedPointSMovementPath”的声明
+      C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(65,26):
+      尝试匹配参数列表“(const cv::Size, const arm::SMovementPoint, const arm::SMovementPoint, double, double, double, double)”时
+
+C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(197,12): error C2660: “arm::SMovementController
+::generateFixedPointSMovementPath”: 函数不接受 7 个参数 [C:\Users\SP\Desktop\ArmSightStitch-main\build\ArmLiteCPlusPlus.vcxproj
+]
+      C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(194,50):
+      参见“arm::SMovementController::generateFixedPointSMovementPath”的声明
+      C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(197,12):
+      尝试匹配参数列表“(const cv::Size, const arm::SMovementPoint, const arm::SMovementPoint, const int32_t, const int32_t, con
+  st int32_t, const int32_t)”时
+
+C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(201,50): error C2511: “std::vector<arm::SMoveme
+ntPoint,std::allocator<arm::SMovementPoint>> arm::SMovementController::generateFixedPointSMovementPath(const cv::Size &
+,const arm::SMovementPoint &,const arm::SMovementPoint &,double,double,double,double)”:“arm::SMovementController”中没有找到重
+载的成员函数 [C:\Users\SP\Desktop\ArmSightStitch-main\build\ArmLiteCPlusPlus.vcxproj]
+      C:\Users\SP\Desktop\ArmSightStitch-main\include\arm\SMovementController.h(35,7):
+      参见“arm::SMovementController”的声明
+
+C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(223,66): error C2597: 对非静态成员“arm::SMovementCont
+roller::spherical_cap_radius_”的非法引用 [C:\Users\SP\Desktop\ArmSightStitch-main\build\ArmLiteCPlusPlus.vcxproj]
+      C:\Users\SP\Desktop\ArmSightStitch-main\include\arm\SMovementController.h(217,9):
+      参见“arm::SMovementController::spherical_cap_radius_”的声明
+      C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(223,66):
+      模板实例化上下文(最早的实例化上下文)为
+          C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(223,19):
+          查看对正在编译的函数 模板 实例化“std::basic_ostream<_Elem,_Traits> &std::operator <<(std::basic_ostream<_Elem,_Traits> &,std
+  ::thread::id)”的引用
+
+C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(235,37): error C2352: “arm::SMovementController
+::computeSphericalCapAverageHeight”: 调用非静态成员函数需要一个对象 [C:\Users\SP\Desktop\ArmSightStitch-main\build\ArmLiteCPlusPlus.vc
+xproj]
+      C:\Users\SP\Desktop\ArmSightStitch-main\include\arm\SMovementController.h(222,12):
+      参见“arm::SMovementController::computeSphericalCapAverageHeight”的声明
+
+C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(239,48): error C2597: 对非静态成员“arm::SMovementCont
+roller::z_base_height_”的非法引用 [C:\Users\SP\Desktop\ArmSightStitch-main\build\ArmLiteCPlusPlus.vcxproj]
+      C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(239,48):
+      参见“arm::SMovementController::z_base_height_”的声明
+
+C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(239,48): error C3867: “arm::SMovementController
+::z_base_height_”: 非标准语法；请使用 "&" 来创建指向成员的指针 [C:\Users\SP\Desktop\ArmSightStitch-main\build\ArmLiteCPlusPlus.vcxproj]
+C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(239,48): error C2568: “-”: 无法解析函数重载 [C:\Users\S
+P\Desktop\ArmSightStitch-main\build\ArmLiteCPlusPlus.vcxproj]
+C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(241,32): error C2589: “(”:“::”右边的非法标记 [C:\Users
+\SP\Desktop\ArmSightStitch-main\build\ArmLiteCPlusPlus.vcxproj]
+C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(241,32): error C2597: 对非静态成员“arm::SMovementCont
+roller::z_base_height_”的非法引用 [C:\Users\SP\Desktop\ArmSightStitch-main\build\ArmLiteCPlusPlus.vcxproj]
+      C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(241,32):
+      参见“arm::SMovementController::z_base_height_”的声明
+
+C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(241,32): error C3867: “arm::SMovementController
+::z_base_height_”: 非标准语法；请使用 "&" 来创建指向成员的指针 [C:\Users\SP\Desktop\ArmSightStitch-main\build\ArmLiteCPlusPlus.vcxproj]
+C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(241,32): error C2568: “<”: 无法解析函数重载 [C:\Users\S
+P\Desktop\ArmSightStitch-main\build\ArmLiteCPlusPlus.vcxproj]
+C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(241,32): error C2059: 语法错误:“)” [C:\Users\SP\Des
+ktop\ArmSightStitch-main\build\ArmLiteCPlusPlus.vcxproj]
+C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(686,31): error C2589: “(”:“::”右边的非法标记 [C:\Users
+\SP\Desktop\ArmSightStitch-main\build\ArmLiteCPlusPlus.vcxproj]
+C:\Users\SP\Desktop\ArmSightStitch-main\src\arm\SMovementController.cpp(686,31): error C2059: 语法错误:“)” [C:\Users\SP\Des
+ktop\ArmSightStitch-main\build\ArmLiteCPlusPlus.vcxproj]
+  MainWindow.cpp
+C:\Users\SP\Desktop\ArmSightStitch-main\third_party\modbus\libmodbus-master\src\modbus.h(27,11): warning C4005: “MODBUS
+_API”: 宏重定义 [C:\Users\SP\Desktop\ArmSightStitch-main\build\ArmLiteCPlusPlus.vcxproj]
+  (编译源文件“../src/gui/MainWindow.cpp”)
+      C:\Users\SP\Desktop\ArmSightStitch-main\include\arm\ModbusArmController.h(4,9):
+      参见“MODBUS_API”的前一个定义
+
+C:\Users\SP\Desktop\ArmSightStitch-main\src\gui\MainWindow.cpp(1703,21): error C2589: “(”:“::”右边的非法标记 [C:\Users\SP\Desk
+top\ArmSightStitch-main\build\ArmLiteCPlusPlus.vcxproj]
+C:\Users\SP\Desktop\ArmSightStitch-main\src\gui\MainWindow.cpp(1703,21): error C2059: 语法错误:“)” [C:\Users\SP\Desktop\Arm
+SightStitch-main\build\ArmLiteCPlusPlus.vcxproj]
+  正在生成代码...
+
+c:\Users\SP\Desktop\ArmSightStitch-main\build>

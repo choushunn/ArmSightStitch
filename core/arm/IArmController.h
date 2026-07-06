@@ -68,8 +68,8 @@ public:
     virtual bool moveToPosition(int axis_id, double target_position) = 0;
     /// Concurrent X+Y movement: sends both position commands, then polls both axes together
     virtual bool moveXYAxes(double target_x, double target_y) = 0;
-    /// Concurrent 5-axis movement: all axes move simultaneously, then polled together
-    virtual bool moveAxesConcurrent(int x, int y, int z, int a, int b) = 0;
+    /// Concurrent 3-axis movement: all axes move simultaneously, then polled together
+    virtual bool moveAxesConcurrent(int x, int y, int z) = 0;
     virtual bool stopAllMovements(int axis_id) = 0;
 
     virtual void setSafetyLimits(int axis_id, const AxisLimits& limits) = 0;

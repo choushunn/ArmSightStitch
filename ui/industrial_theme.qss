@@ -808,7 +808,7 @@ QTableWidget {
 }
 
 QTableWidget::item {
-    padding: 2px;
+    padding: 0px;
     border: 1px solid #23262C;
 }
 
