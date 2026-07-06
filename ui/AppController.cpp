@@ -65,6 +65,16 @@ AppController::AppController(QObject* parent)
     connect(pimpl_->workflow_mgr_, &WorkflowManager::stitchingFinished,
             this, &AppController::stitchingFinished);
 
+    // Camera preview relay
+    connect(&pimpl_->camera_handler_, &camera::CameraHandler::frameReady,
+            this, &AppController::cameraFrameReady);
+    connect(&pimpl_->camera_handler_, &camera::CameraHandler::exposureChanged,
+            this, &AppController::cameraExposureChanged);
+    connect(&pimpl_->camera_handler_, &camera::CameraHandler::cameraDisconnected,
+            this, &AppController::cameraDisconnected);
+    connect(&pimpl_->camera_handler_, &camera::CameraHandler::cameraError,
+            this, &AppController::cameraError);
+
     // Auto-load default model from config paths
     std::string paramPath = cfg.modelParamPath();
     std::string binPath = cfg.modelBinPath();

@@ -16,7 +16,6 @@
 #include <QStatusBar>
 #include <QHeaderView>
 #include <QDateTime>
-#include <QTimer>
 #include <QDir>
 #include <QDialog>
 #include <QBoxLayout>
@@ -85,8 +84,6 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     ui_->posBtnLayout->setStretch(1, 1);
     ui_->posBtnLayout->setStretch(2, 1);
 
-    camera_update_timer_ = new QTimer(this);
-    connect(camera_update_timer_, &QTimer::timeout, this, &MainWindow::updateCameraImage);
     connect(&stitching_watcher_, &QFutureWatcher<cv::Mat>::finished, this, &MainWindow::onStitchingFinished);
     connect(&detection_watcher_, &QFutureWatcher<DetectionResult>::finished, this, &MainWindow::onDetectionFinished);
     connect(&manual_detect_watcher_, &QFutureWatcher<DetectionResult>::finished, this, [this]() {
@@ -151,7 +148,7 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
                            "(?:25[0-5]|2[0-4]\\d|1\\d{2}|[1-9]?\\d)$"),
         ui_->armIpEdit));
 
-    // FPS label next to resolution combo — red text, updated in updateCameraImage
+    // FPS label next to resolution combo — red text, updated in onCameraFrameReady
     fps_label_ = new QLabel("-- FPS", this);
     fps_label_->setStyleSheet("color: #D9534F; font-weight: bold;");
     fps_label_->setMinimumWidth(60);
@@ -242,7 +239,6 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
 }
 
 MainWindow::~MainWindow() {
-    camera_update_timer_->stop();
     ctrl_.stopCameraCapture();
     // Wait for pending async operations before tearing down UI
     stitching_watcher_.waitForFinished();
@@ -477,6 +473,28 @@ void MainWindow::connectSignals() {
         displayImageFullQuality(result, ui_->stitchImageLabel, stitched_pixmap_);
         ui_->quickSaveBtn->setEnabled(true);
     });
+
+    // Camera preview (event-driven, replaces QTimer polling)
+    connect(&ctrl_, &AppController::cameraFrameReady, this, &MainWindow::onCameraFrameReady);
+
+    connect(&ctrl_, &AppController::cameraExposureChanged, this, [this]() {
+        if (!ctrl_.cameraHandler().getAutoExposure()) return;
+        float expo = ctrl_.cameraHandler().getRealExposure();
+        QSignalBlocker blocker(ui_->exposureSlider);
+        int val = qBound(ui_->exposureSlider->minimum(), static_cast<int>(expo * 100.0f),
+                         ui_->exposureSlider->maximum());
+        ui_->exposureSlider->setValue(val);
+        ui_->exposureValueLabel->setText(QString::number(expo, 'f', 2) + " ms");
+    });
+
+    connect(&ctrl_, &AppController::cameraDisconnected, this, [this]() {
+        appendLog("相机意外断开", "ERROR");
+        on_disconnectCamera();
+    });
+
+    connect(&ctrl_, &AppController::cameraError, this, [this](const QString& msg) {
+        appendLog("相机错误: " + msg, "ERROR");
+    });
 }
 
 void MainWindow::initGridTables() {
@@ -562,10 +580,8 @@ void MainWindow::on_connectCamera() {
         res_combo->setCurrentIndex(select_idx);
 
         ctrl_.startCameraCapture();
-        camera_update_timer_->start(33);
-        // Defer first frame to next event-loop iteration so Qt layouts settle
-        // and the label has its final size — avoids a visible "growing" effect
-        QTimer::singleShot(0, this, &MainWindow::updateCameraImage);
+        // First frame arrives via signal on next event-loop iteration,
+        // after Qt layouts settle — no manual defer needed
         ui_->statusLabel->setText("相机已连接");
 
         // Sync exposure UI state from camera
@@ -595,7 +611,6 @@ void MainWindow::on_connectCamera() {
 }
 
 void MainWindow::on_disconnectCamera() {
-    camera_update_timer_->stop();
     ctrl_.stopCameraCapture();
     ctrl_.disconnectCamera();
     ui_->cameraToggleButton->setText("连接");
@@ -727,7 +742,7 @@ void MainWindow::on_moveToPosition() {
     int y = static_cast<int>(ui_->yPosSpin->value());
     int z = static_cast<int>(ui_->zPosSpin->value());
     arm_move_future_ = QtConcurrent::run([ctrl, x, y, z]() {
-        ctrl->armController().moveAxesConcurrent(x, y, z, 0, 0);
+        ctrl->armController().moveAxesConcurrent(x, y, z);
     });
     arm_move_watcher_.setFuture(arm_move_future_);
 }
@@ -752,7 +767,7 @@ void MainWindow::on_zeroArm() {
     ui_->zeroButton->setEnabled(false);
     auto* ctrl = &ctrl_;
     arm_move_future_ = QtConcurrent::run([ctrl]() {
-        ctrl->armController().moveAxesConcurrent(0, 0, 0, 0, 0);
+        ctrl->armController().moveAxesConcurrent(0, 0, 0);
     });
     arm_move_watcher_.setFuture(arm_move_future_);
     ui_->xPosSpin->setValue(0);
@@ -813,7 +828,6 @@ void MainWindow::startScanSequence() {
 
     if (ctrl_.startSMovement(gs, cfg.stepSize(), cfg.zHeight())) {
         // Stop preview + pause video stream to free USB bandwidth during scanning
-        camera_update_timer_->stop();
         ctrl_.cameraHandler().pauseStream();
         ui_->cameraImageLabel->clear();
         ui_->cameraImageLabel->setText("扫描中...");
@@ -871,7 +885,7 @@ void MainWindow::on_toggleStartStopSMovement() {
             Q_ARG(QString, QString("正在归零所有轴（并发）...")));
         QMetaObject::invokeMethod(progress, "setValue", Qt::QueuedConnection,
             Q_ARG(int, 1));
-        armCtrl.moveAxesConcurrent(0, 0, 0, 0, 0);
+        armCtrl.moveAxesConcurrent(0, 0, 0);
         QMetaObject::invokeMethod(progress, "setValue", Qt::QueuedConnection,
             Q_ARG(int, 5));
         return true;
@@ -1014,57 +1028,47 @@ void MainWindow::on_saveStitch() {
     if (!path.isEmpty()) cv::imwrite(path.toStdString(), stitched_result_);
 }
 
-// ==================== Timer ====================
+// ==================== Camera Preview (event-driven, via signal) ====================
 
-void MainWindow::updateCameraImage() {
-    cv::Mat frame;
-    if (ctrl_.captureImage(frame)) {
-        current_image_ = frame;
+void MainWindow::onCameraFrameReady(const cv::Mat& frame) {
+    if (frame.empty()) return;
 
-        // Calculate FPS
-        fps_frame_count_++;
-        qint64 now = QDateTime::currentMSecsSinceEpoch();
-        if (now - last_fps_timestamp_ >= 1000) {
-            current_fps_ = fps_frame_count_ * 1000.0f / (now - last_fps_timestamp_);
-            fps_frame_count_ = 0;
-            last_fps_timestamp_ = now;
-        }
-        if (last_fps_timestamp_ == 0) {
-            last_fps_timestamp_ = now;
-        }
-        if (fps_label_) {
-            fps_label_->setText(QString::number(static_cast<int>(current_fps_)) + " FPS");
-        }
+    current_image_ = frame;
 
-        // When auto exposure is on, sync slider and label with camera's actual hardware value
-        if (ctrl_.cameraHandler().getAutoExposure()) {
-            float expo = ctrl_.cameraHandler().getRealExposure();
-            int slider_val = qBound(ui_->exposureSlider->minimum(),
-                                    static_cast<int>(expo * 100.0f),
-                                    ui_->exposureSlider->maximum());
-            ui_->exposureSlider->setValue(slider_val);
-            ui_->exposureValueLabel->setText(QString::number(expo, 'f', 2) + " ms");
-        }
+    // FPS counting (per-second window)
+    fps_frame_count_++;
+    qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (now - last_fps_timestamp_ >= 1000) {
+        current_fps_ = fps_frame_count_ * 1000.0f / (now - last_fps_timestamp_);
+        fps_frame_count_ = 0;
+        last_fps_timestamp_ = now;
+    }
+    if (last_fps_timestamp_ == 0) last_fps_timestamp_ = now;
+    if (fps_label_)
+        fps_label_->setText(QString::number(static_cast<int>(current_fps_)) + " FPS");
 
-        if (image_detection_enabled_ && model_loaded_ && !detection_busy_) {
-            detection_busy_ = true;
-            auto* ctrl = &ctrl_;
-            detection_future_ = QtConcurrent::run([ctrl, frame]() -> DetectionResult {
-                DetectionResult result;
-                result.frame = frame;
-                result.detections = ctrl->detect(frame);
-                return result;
-            });
-            detection_watcher_.setFuture(detection_future_);
-        }
-        displayImage(frame, ui_->cameraImageLabel);
+    // Display (frame is pre-scaled RGB from CameraHandler)
+    QImage img(frame.data, frame.cols, frame.rows, frame.step, QImage::Format_RGB888);
+    ui_->cameraImageLabel->setPixmap(QPixmap::fromImage(img));
 
-        // Keep camera fullscreen live — update the fullscreen pixmap every frame
-        if (camera_fullscreen_active_ && fullscreen_dlg_) {
-            QPixmap pix = QPixmap::fromImage(cvMatToQImage(current_image_));
-            fullscreen_dlg_->setPixmap(pix.scaled(fullscreen_dlg_->screen()->size(),
-                                                  Qt::KeepAspectRatio, Qt::FastTransformation));
-        }
+    // Real-time detection (if enabled)
+    if (image_detection_enabled_ && model_loaded_ && !detection_busy_) {
+        detection_busy_ = true;
+        auto* ctrl = &ctrl_;
+        detection_future_ = QtConcurrent::run([ctrl, frame]() -> DetectionResult {
+            DetectionResult result;
+            result.frame = frame;
+            result.detections = ctrl->detect(frame);
+            return result;
+        });
+        detection_watcher_.setFuture(detection_future_);
+    }
+
+    // Keep camera fullscreen live
+    if (camera_fullscreen_active_ && fullscreen_dlg_) {
+        QPixmap pix = QPixmap::fromImage(cvMatToQImage(current_image_));
+        fullscreen_dlg_->setPixmap(pix.scaled(fullscreen_dlg_->screen()->size(),
+                                              Qt::KeepAspectRatio, Qt::FastTransformation));
     }
 }
 
@@ -1113,11 +1117,10 @@ void MainWindow::onMovementStatus(const arm::SMovementStatus& status) {
 
     // Reset UI when S-movement completes or is stopped
     if (!status.running && !status.paused && status.total_points > 0) {
-        // Resume camera preview (was paused during scanning)
-        if (ctrl_.cameraHandler().isConnected() && !camera_update_timer_->isActive()) {
+        // Resume camera preview (was paused during scanning — signals resume automatically)
+        if (ctrl_.cameraHandler().isConnected()) {
             ctrl_.cameraHandler().resumeStream();
             ui_->cameraImageLabel->clear();
-            camera_update_timer_->start(33);
         }
         ui_->quickScanBtn->setText("开始扫描");
         ui_->quickPauseBtn->setEnabled(false);
@@ -1141,7 +1144,7 @@ void MainWindow::on_topCellsTable_cellClicked(int row, int column) {
         int z = ConfigManager::instance().zHeight();
         auto* ctrl = &ctrl_;
         QtConcurrent::run([ctrl, x, y, z]() {
-            ctrl->armController().moveAxesConcurrent(x, y, z, 0, 0);
+            ctrl->armController().moveAxesConcurrent(x, y, z);
         });
     }
 

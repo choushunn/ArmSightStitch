@@ -2,17 +2,27 @@
 
 #include <QDir>
 #include <QString>
+#include <QDateTime>
 #include <string>
 
 namespace infra {
 
-/// Find the latest numbered run subdirectory under basePath,
-/// returning basePath + "/N+1" (creating a new run number).
-/// If the directory doesn't exist, returns empty string.
+/// Find the latest run subdirectory under basePath.
+/// Returns the most recent timestamp-named directory, or empty.
 inline std::string findLatestRunDir(const std::string& basePath) {
     QDir baseDir(QString::fromStdString(basePath));
     if (!baseDir.exists()) return {};
 
+    QString latest;
+    for (const QString& d : baseDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+        // Timestamp dirs sort lexicographically; take the last (most recent)
+        if (d.length() == 19 && d[4] == '-' && d[7] == '-' && d[10] == '_') {
+            if (d > latest) latest = d;
+        }
+    }
+    if (!latest.isEmpty())
+        return basePath + "/" + latest.toStdString();
+    // Fallback: check numbered dirs
     int runNumber = 0;
     for (const QString& d : baseDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
         bool ok;
@@ -22,22 +32,14 @@ inline std::string findLatestRunDir(const std::string& basePath) {
     return runNumber > 0 ? basePath + "/" + std::to_string(runNumber) : basePath;
 }
 
-/// Create the next run subdirectory: basePath/N+1, creating it on disk.
-/// Returns the full path to the new directory.
+/// Create a timestamp-named run subdirectory: basePath/YYYY-MM-DD_HH-MM-SS
 inline std::string createNextRunDir(const std::string& basePath) {
     QDir baseDir(QString::fromStdString(basePath));
-    int runNumber = 0;
-    if (baseDir.exists()) {
-        for (const QString& d : baseDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
-            bool ok;
-            int n = d.toInt(&ok);
-            if (ok && n > runNumber) runNumber = n;
-        }
-    } else {
+    if (!baseDir.exists()) {
         baseDir.mkpath(".");
     }
-    ++runNumber;
-    std::string newPath = basePath + "/" + std::to_string(runNumber);
+    QString ts = QDateTime::currentDateTime().toString("yyyy-MM-dd_HH-mm-ss");
+    std::string newPath = basePath + "/" + ts.toStdString();
     QDir().mkpath(QString::fromStdString(newPath));
     return newPath;
 }

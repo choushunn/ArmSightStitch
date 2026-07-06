@@ -45,3 +45,13 @@ bin/
 *.temp
 *.swp
 *~
+/image/*/*
+/*/*.jpg
+/*.png
+/*.bmp
+/*.tiff
+/*.gif
+/vcpkg_installed/
+ArmSightStitch0706/
+/build/
+/toupview_ref/

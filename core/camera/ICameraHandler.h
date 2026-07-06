@@ -39,7 +39,6 @@ public:
     virtual void pauseStream() = 0;
     virtual void resumeStream() = 0;
 
-    virtual void setImageCallback(std::function<void(const cv::Mat&)> callback) = 0;
     virtual void setStatusCallback(std::function<void(const CameraStatus&)> callback) = 0;
 
     virtual CameraStatus getStatus() const = 0;

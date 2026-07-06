@@ -98,7 +98,7 @@ private:
 
     std::string arm_ip_;
     int arm_port_ = 502;
-    int default_speed_ = 70000;
+    int default_speed_ = 26000;
 
     int camera_width_ = 640;
     int camera_height_ = 480;
@@ -122,8 +122,8 @@ private:
     std::string log_path_;
     mutable std::string last_error_;
 
-    int axis_min_pos_[5] = {-1000000, -1000000, -1000000, -180000, -180000};
-    int axis_max_pos_[5] = {1000000, 1000000, 1000000, 180000, 180000};
+    int axis_min_pos_[5] = {0, 0, 0, -180000, -180000};
+    int axis_max_pos_[5] = {384000, 384000, 80000, 180000, 180000};
     float position_tolerance_ = 100.0f;
     bool modbus_debug_ = false;
 };

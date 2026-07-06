@@ -60,7 +60,7 @@ private slots:
     void on_saveStitch();
 
     // Timer / Callbacks
-    void updateCameraImage();
+    void onCameraFrameReady(const cv::Mat& frame);
     void onStitchingFinished();
     void onDetectionFinished();
     void onArmConnectFinished();
@@ -107,7 +107,6 @@ private:
     bool model_loaded_ = false;
     bool image_detection_enabled_ = false;
 
-    QTimer* camera_update_timer_;
     QFuture<cv::Mat> stitching_future_;
     QFutureWatcher<cv::Mat> stitching_watcher_;
 

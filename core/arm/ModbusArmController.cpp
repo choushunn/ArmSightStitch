@@ -522,16 +522,16 @@ bool ModbusArmController::moveXYAxes(double target_x, double target_y) {
     return true;
 }
 
-bool ModbusArmController::moveAxesConcurrent(int x, int y, int z, int a, int b) {
+bool ModbusArmController::moveAxesConcurrent(int x, int y, int z) {
     if (!isConnected()) return false;
 
-    int32_t targets[5] = {
-        static_cast<int32_t>(x), static_cast<int32_t>(y),
-        static_cast<int32_t>(z), static_cast<int32_t>(a), static_cast<int32_t>(b)
+    static constexpr int kAxes = 3; // X/Y/Z only; A/B disabled
+    int32_t targets[kAxes] = {
+        static_cast<int32_t>(x), static_cast<int32_t>(y), static_cast<int32_t>(z)
     };
 
     // Safety limits
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < kAxes; ++i) {
         const AxisLimits& lim = safety_limits_[i];
         if (targets[i] < lim.min_pos || targets[i] > lim.max_pos) {
             SPDLOG_ERROR("Safety limit axis {}: {} not in [{},{}]",
@@ -545,13 +545,13 @@ bool ModbusArmController::moveAxesConcurrent(int x, int y, int z, int a, int b) 
     // Fast path: skip when any target is 0 (readPosition returns 0 on error,
     // indistinguishable from actual position 0, causing false positives)
     bool any_zero_target = false;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < kAxes; ++i) {
         if (targets[i] == 0) { any_zero_target = true; break; }
     }
     if (!any_zero_target) {
         std::lock_guard<std::mutex> lock(modbus_mutex_);
         bool all_ok = true;
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < kAxes; ++i) {
             if (std::abs(readPositionUnsafe(i) - targets[i]) > kArriveTolerance) {
                 all_ok = false;
                 break;
@@ -560,19 +560,19 @@ bool ModbusArmController::moveAxesConcurrent(int x, int y, int z, int a, int b) 
         if (all_ok) return true;
     }
 
-    // ── Command phase: send all 5 axes under one mutex lock ──
+    // ── Command phase: send all X/Y/Z under one mutex lock ──
     {
         std::lock_guard<std::mutex> lock(modbus_mutex_);
 
         // Step 1: Stop all running movements
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < kAxes; ++i) {
             writeCoil(axis_configs_[i].forward_relay, false);
             writeCoil(axis_configs_[i].backward_relay, false);
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
         // Step 2: Write target positions for all axes
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < kAxes; ++i) {
             int16_t low, high;
             convertTo16Bit(targets[i], low, high);
             writeRegisters(axis_configs_[i].target_pos_reg, {low, high});
@@ -580,31 +580,27 @@ bool ModbusArmController::moveAxesConcurrent(int x, int y, int z, int a, int b) 
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         // Step 3: Unconditionally reset ALL abs relays to ensure clean rising edge.
-        // Do NOT check readCoil — Modbus reads are unreliable and can skip the reset.
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < kAxes; ++i) {
             writeCoil(axis_configs_[i].pos_move_abs_relay, false);
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(40));
 
-        // Step 4: Trigger axes one by one with 10ms gap (arm controller needs time
-        // between relay triggers to process each axis command)
-        for (int i = 0; i < 5; ++i) {
+        // Step 4: Trigger axes one by one with 10ms gap
+        for (int i = 0; i < kAxes; ++i) {
             writeCoil(axis_configs_[i].pos_move_abs_relay, true);
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
-        SPDLOG_INFO("All 5 axes triggered concurrently");
+        SPDLOG_INFO("All 3 axes (X/Y/Z) triggered concurrently");
     }
 
-    // ── Wait phase: poll all 5 axes concurrently ──
-    // Require 2 consecutive in-range readings to confirm arrival (filters
-    // transient read errors, especially critical when target is 0)
+    // ── Wait phase: poll all 3 axes concurrently ──
     static constexpr int kMaxWait = 300; // 6 seconds
-    int confirm_count[5] = {0};
+    int confirm_count[kAxes] = {0};
     for (int wait = 0; wait < kMaxWait; ++wait) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
         bool all_confirmed = true;
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < kAxes; ++i) {
             if (confirm_count[i] < 2) {
                 double pos = readPosition(i);
                 if (std::abs(pos - targets[i]) <= kArriveTolerance) {
@@ -613,7 +609,7 @@ bool ModbusArmController::moveAxesConcurrent(int x, int y, int z, int a, int b) 
                         SPDLOG_INFO("Axis {} confirmed at {}", i, static_cast<int>(pos));
                     }
                 } else {
-                    confirm_count[i] = 0; // reset on out-of-range
+                    confirm_count[i] = 0;
                     all_confirmed = false;
                 }
             }
@@ -621,7 +617,7 @@ bool ModbusArmController::moveAxesConcurrent(int x, int y, int z, int a, int b) 
         if (all_confirmed) break;
 
         if (wait == kMaxWait - 1) {
-            for (int i = 0; i < 5; ++i) {
+            for (int i = 0; i < kAxes; ++i) {
                 if (confirm_count[i] < 2) {
                     double pos = readPosition(i);
                     SPDLOG_WARN("Axis {} move timeout: current={}, target={}", i, pos, targets[i]);
@@ -631,7 +627,7 @@ bool ModbusArmController::moveAxesConcurrent(int x, int y, int z, int a, int b) 
     }
 
     // ── Fallback: retry any failed axis with proven sequential moveToPosition ──
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < kAxes; ++i) {
         if (confirm_count[i] < 2) {
             SPDLOG_WARN("Axis {} not confirmed after concurrent move, retrying sequentially", i);
             moveToPosition(i, targets[i]);
@@ -641,7 +637,7 @@ bool ModbusArmController::moveAxesConcurrent(int x, int y, int z, int a, int b) 
     // Update status
     {
         std::lock_guard<std::mutex> status_lock(status_mutex_);
-        for (int i = 0; i < 5; ++i)
+        for (int i = 0; i < kAxes; ++i)
             current_status_.target_positions[i] = targets[i];
     }
     if (status_callback_) status_callback_(current_status_);

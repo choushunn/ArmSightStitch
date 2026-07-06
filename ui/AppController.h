@@ -56,6 +56,11 @@ signals:
     void stitchingFinished(const cv::Mat& result);
     void modelLoaded();
 
+    void cameraFrameReady(const cv::Mat& frame);
+    void cameraExposureChanged();
+    void cameraDisconnected();
+    void cameraError(const QString& msg);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> pimpl_;
