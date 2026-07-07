@@ -137,27 +137,27 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
         auto* container = new QWidget(this);
         auto* vlay = new QVBoxLayout(container);
         vlay->setContentsMargins(0, 0, 0, 0);
-        vlay->addWidget(ui_->stitchImageLabel);
-        vlay->addWidget(stitch_progress_);
 
-        // Handle different parent types
+        // Handle different parent types — must capture index BEFORE
+        // adding widgets to container (addWidget reparents, invalidating indexOf)
         if (auto* splitter = qobject_cast<QSplitter*>(stitch_parent)) {
-            // QSplitter: replaceWidget replaces the old widget with the container
             int idx = splitter->indexOf(ui_->stitchImageLabel);
             if (idx >= 0) {
                 splitter->replaceWidget(idx, container);
+                vlay->addWidget(ui_->stitchImageLabel);
+                vlay->addWidget(stitch_progress_);
             }
         } else if (auto* gl = qobject_cast<QGridLayout*>(stitch_parent->layout())) {
-            // QGridLayout: remove old widget, insert container at same position
             int idx = gl->indexOf(ui_->stitchImageLabel);
             if (idx >= 0) {
                 int row, col, rs, cs;
                 gl->getItemPosition(idx, &row, &col, &rs, &cs);
                 gl->removeWidget(ui_->stitchImageLabel);
                 gl->addWidget(container, row, col, rs, cs);
+                vlay->addWidget(ui_->stitchImageLabel);
+                vlay->addWidget(stitch_progress_);
             }
         } else if (auto* lay = qobject_cast<QBoxLayout*>(stitch_parent->layout())) {
-            // QBoxLayout: insert progress bar after the label
             int idx = lay->indexOf(ui_->stitchImageLabel);
             if (idx >= 0) {
                 lay->insertWidget(idx + 1, stitch_progress_);
