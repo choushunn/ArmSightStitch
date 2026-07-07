@@ -112,6 +112,11 @@ void WorkflowManager::stopAutoWorkflow() {
 void WorkflowManager::startSMovement(const cv::Size& grid_size,
                                      const arm::SMovementPoint& start_pos,
                                      const arm::SMovementPoint& end_pos) {
+    // Pass spherical cap parameters from config
+    auto& cfg = ConfigManager::instance();
+    s_movement_.setSphereParams(cfg.sphereRadius(), cfg.sphereCapHeight(),
+                                cfg.sphereHeightOffset(), cfg.zBaseHeight());
+
     if (!s_movement_.initialize(grid_size, start_pos, end_pos)) {
         emit workflowError("S-movement initialization failed");
         return;

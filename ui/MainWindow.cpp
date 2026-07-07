@@ -3,6 +3,7 @@
 #include "ui/AppController.h"
 #include "ui/DetectionSettingsDialog.h"
 #include "ui/StitchingSettingsDialog.h"
+#include "ui/SphereSettingsDialog.h"
 #include "infra/config/ConfigManager.h"
 #include "infra/config/PathUtils.h"
 
@@ -445,6 +446,34 @@ void MainWindow::connectSignals() {
     connect(ui_->actionStitchSettings, &QAction::triggered, this, &MainWindow::on_stitchSettings);
     connect(ui_->actionArmZero, &QAction::triggered, this, &MainWindow::on_zeroArm);
     connect(ui_->actionLoadModel, &QAction::triggered, this, &MainWindow::on_loadModel);
+    // ---- 球冠参数设置 ----
+    connect(ui_->actionSphereSettings, &QAction::triggered, this, [this]() {
+        auto& cfg = ConfigManager::instance();
+        SphereSettingsDialog dlg(this);
+        dlg.setSphereRadius(cfg.sphereRadius());
+        dlg.setSphereCapHeight(cfg.sphereCapHeight());
+        dlg.setSphereHeightOffset(cfg.sphereHeightOffset());
+        dlg.setZBaseHeight(cfg.zBaseHeight());
+        if (dlg.exec() == QDialog::Accepted) {
+            int dH = dlg.sphereHeightOffset();
+            int h  = dlg.sphereCapHeight();
+            int zBase = dlg.zBaseHeight();
+            // Constraint: dH <= zBase - h (so Z at cap center >= 0)
+            if (dH > zBase - h) {
+                QMessageBox::warning(this, tr("参数错误"),
+                    tr("高度偏移 dH (%1) 不能大于 %2 (zBase - h = %3 - %4)")
+                        .arg(dH).arg(zBase - h).arg(zBase).arg(h));
+                return;
+            }
+            cfg.setSphereRadius(dlg.sphereRadius());
+            cfg.setSphereCapHeight(dlg.sphereCapHeight());
+            cfg.setSphereHeightOffset(dlg.sphereHeightOffset());
+            cfg.setZBaseHeight(dlg.zBaseHeight());
+            appendLog(tr("球冠参数已更新: R=%1, h=%2, dH=%3, zBase=%4")
+                .arg(dlg.sphereRadius()).arg(dlg.sphereCapHeight())
+                .arg(dlg.sphereHeightOffset()).arg(dlg.zBaseHeight()), "INFO");
+        }
+    });
 
     // ---- 帮助 ----
     connect(ui_->actionUserGuide, &QAction::triggered, this, [this]() {

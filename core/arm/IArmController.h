@@ -103,6 +103,7 @@ public:
 
     virtual void setSaveDirectory(const std::string& save_dir) = 0;
     virtual void setPositionTolerance(double tolerance) = 0;
+    virtual void setSphereParams(int radius, int capHeight, int heightOffset, int zBase) = 0;
     virtual SMovementStatus getStatus() const = 0;
     virtual std::vector<SMovementPoint> getMovementPath() const = 0;
     virtual int getSavedImagesCount() const = 0;

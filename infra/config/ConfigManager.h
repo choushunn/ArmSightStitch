@@ -115,7 +115,7 @@ private:
     int grid_size_x_ = 10;
     int grid_size_y_ = 10;
     int step_size_ = 43000;
-    int z_height_ = 50000;
+    int z_height_ = 80000;
     int center_crop_size_ = 1775;  // center crop like docs/stitch.py
 
     int sphere_radius_ = 230000;

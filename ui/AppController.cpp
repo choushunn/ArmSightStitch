@@ -170,6 +170,10 @@ bool AppController::startSMovement(const cv::Size& gridSize, int stepSize, int z
     int endX = stepSize * (gridSize.width - 1);
     int endY = stepSize * (gridSize.height - 1);
 
+    // Pass spherical cap parameters from config to controller
+    sm.setSphereParams(cfg.sphereRadius(), cfg.sphereCapHeight(),
+                       cfg.sphereHeightOffset(), cfg.zBaseHeight());
+
     std::string savePath = infra::createNextRunDir(cfg.imageSaveBasePath());
     sm.setSaveDirectory(savePath);
     // Extract run number from path for the controller
