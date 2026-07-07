@@ -407,7 +407,6 @@ void MainWindow::connectSignals() {
             QPixmap pix = QPixmap::fromImage(cvMatToQImage(thumb));
             auto* item = ui_->topCellsTable->item(row, col);
             if (item) {
-                item->setBackground(QColor(144, 238, 144));
                 auto* lbl = new QLabel();
                 lbl->setPixmap(pix);
                 lbl->setScaledContents(true);
@@ -671,7 +670,10 @@ void MainWindow::initGridTables() {
     ui_->topCellsTable->verticalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     ui_->topCellsTable->horizontalHeader()->setDefaultAlignment(Qt::AlignCenter);
     ui_->topCellsTable->verticalHeader()->setDefaultAlignment(Qt::AlignCenter);
-    ui_->topCellsTable->setStyleSheet("QTableWidget::item { padding: 0px; }");
+    ui_->topCellsTable->setStyleSheet(
+        "#topCellsTable { gridline-color: #16191D; }"
+        "QTableWidget::item { padding: 0px; border: none; }"
+        "QTableWidget::item:selected { border: none; }");
 
     for (int r = 0; r < gy; ++r) {
         for (int c = 0; c < gx; ++c) {
@@ -987,7 +989,6 @@ void MainWindow::startScanSequence() {
                 QMetaObject::invokeMethod(this, [this, row, tableCol, pix]() {
                     auto* item = ui_->topCellsTable->item(row, tableCol);
                     if (item) {
-                        item->setBackground(QColor(144, 238, 144));
                         auto* lbl = new QLabel();
                         lbl->setPixmap(pix);
                         lbl->setScaledContents(true);
@@ -1098,7 +1099,7 @@ void MainWindow::on_togglePauseSMovement() {
 
 void MainWindow::on_loadModel() {
     auto& cfg = ConfigManager::instance();
-    DetectionSettingsDialog dlg(this);
+    DetectionSettingsDialog dlg(&ctrl_.detector(), this);
     dlg.setParamPath(QString::fromStdString(cfg.modelParamPath()));
     dlg.setBinPath(QString::fromStdString(cfg.modelBinPath()));
     dlg.setConfidenceThreshold(0.3);
@@ -1115,7 +1116,7 @@ void MainWindow::on_loadModel() {
 }
 
 void MainWindow::on_detSettings() {
-    DetectionSettingsDialog dlg(this);
+    DetectionSettingsDialog dlg(&ctrl_.detector(), this);
     if (dlg.exec() == QDialog::Accepted) {
         ctrl_.detector().setConfidenceThreshold(dlg.confidenceThreshold());
         ctrl_.detector().setNmsThreshold(dlg.nmsThreshold());

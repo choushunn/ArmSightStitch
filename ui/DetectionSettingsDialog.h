@@ -3,10 +3,14 @@
 #include <QDialog>
 #include "ui_DetectionSettingsDialog.h"
 
+namespace detector {
+class IDetector;
+}
+
 class DetectionSettingsDialog : public QDialog {
     Q_OBJECT
 public:
-    explicit DetectionSettingsDialog(QWidget* parent = nullptr);
+    explicit DetectionSettingsDialog(detector::IDetector* detector, QWidget* parent = nullptr);
 
     QString paramPath() const;
     QString binPath() const;
@@ -21,7 +25,10 @@ public:
 private slots:
     void onBrowseParam();
     void onBrowseBin();
+    void onBrowseImage();
+    void onDetectAndSave();
 
 private:
     Ui::DetectionSettingsDialog ui;
+    detector::IDetector* detector_ = nullptr;
 };

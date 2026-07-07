@@ -60,7 +60,8 @@
       "Bash(cmd.exe /c \"taskkill /F /PID 21528\")",
       "Bash(powershell -Command \"Stop-Process -Name ArmSightStitch -Force -ErrorAction SilentlyContinue\")",
       "Bash(git config *)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "PowerShell(taskkill /F /IM ArmSightStitch.exe 2>$null)"
     ]
   }
 }
