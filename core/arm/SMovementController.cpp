@@ -198,6 +198,15 @@ int SMovementController::getSavedImagesCount() const {
     return saved_images_count_.load();
 }
 
+void SMovementController::setSphereParams(int radius, int capHeight, int heightOffset, int zBase) {
+    sphere_radius_ = radius;
+    sphere_cap_height_ = capHeight;
+    sphere_height_offset_ = heightOffset;
+    z_base_height_ = zBase;
+    SPDLOG_INFO("Sphere params set: R={}, h={}, dH={}, zBase={}",
+                radius, capHeight, heightOffset, zBase);
+}
+
 std::vector<SMovementPoint> SMovementController::generateFixedPointSMovementPath(const cv::Size& grid_size, 
                                                                               const SMovementPoint& start_pos, 
                                                                               const SMovementPoint& end_pos) {
@@ -220,6 +229,24 @@ std::vector<SMovementPoint> SMovementController::generateFixedPointSMovementPath
         SPDLOG_INFO("Start position: ({}, {})", start_pos.x, start_pos.y);
         SPDLOG_INFO("End position: ({}, {})", end_pos.x, end_pos.y);
         SPDLOG_INFO("Step sizes: X={}, Y={}", x_step, y_step);
+
+        // ── Pre-compute spherical cap geometry ──
+        // Grid center (cap is centered on the grid)
+        double cx = static_cast<double>(start_pos.x + end_pos.x) / 2.0;
+        double cy = static_cast<double>(start_pos.y + end_pos.y) / 2.0;
+
+        // Sphere radius from cap parameters: Rs = (R² + h²) / (2h)
+        double Rs = 0.0;
+        double R = static_cast<double>(sphere_radius_);
+        double h_cap = static_cast<double>(sphere_cap_height_);
+        if (h_cap > 0.0) {
+            Rs = (R * R + h_cap * h_cap) / (2.0 * h_cap);
+        }
+        int zBase = z_base_height_;
+        int dH = sphere_height_offset_;
+
+        SPDLOG_INFO("Sphere cap: R={}, h={}, dH={}, zBase={}, Rs={}, center=({},{})",
+                    R, h_cap, dH, zBase, Rs, cx, cy);
         
         // Generate grid points in S-curve order (zig-zag pattern)
         for (int y_idx = 0; y_idx < height; ++y_idx) {
@@ -231,7 +258,22 @@ std::vector<SMovementPoint> SMovementController::generateFixedPointSMovementPath
                 
                 point.x = static_cast<int>(start_pos.x + actual_x_idx * x_step);
                 point.y = static_cast<int>(start_pos.y + y_idx * y_step);
-                point.z = start_pos.z; // Use same Z height for all points
+                point.z = start_pos.z; // fallback (overridden below)
+
+                // ── Spherical cap Z compensation ──
+                {
+                    double dx = static_cast<double>(point.x) - cx;
+                    double dy = static_cast<double>(point.y) - cy;
+                    double r = std::sqrt(dx * dx + dy * dy);
+
+                    double cap = 0.0;
+                    if (h_cap > 0.0 && r <= R) {
+                        cap = std::sqrt(Rs * Rs - r * r) - (Rs - h_cap);
+                    }
+                    // Z = ground plane - cap height - offset; larger Z = closer to ground
+                    int zVal = static_cast<int>(std::round(static_cast<double>(zBase) - cap - static_cast<double>(dH)));
+                    point.z = std::max(0, std::min(zVal, zBase));
+                }
                 point.a = start_pos.a; // Use same A angle for all points
                 point.b = start_pos.b; // Use same B angle for all points
                 point.row = y_idx;
@@ -266,14 +308,7 @@ void SMovementController::movementThread() {
             }
         }
 
-        // ── One-time: move Z to scan height ──
-        if (!movement_path_.empty()) {
-            const auto& firstPt = movement_path_.front();
-            SPDLOG_INFO("One-time Z move to {}", firstPt.z);
-            arm_controller_.moveToPosition(2, firstPt.z);
-        }
-
-        // Process each point in the movement path
+        // Process each point in the movement path (3-axis concurrent move per point)
         for (size_t i = 0; i < movement_path_.size() && !stop_requested_; ++i) {
             try {
                 if (stop_requested_) {
@@ -297,7 +332,7 @@ void SMovementController::movementThread() {
                 // 直接向机械臂发送固定点
                 SPDLOG_DEBUG("Sending fixed point {} to arm: ({}, {}, {})", i + 1, point.x, point.y, point.z);
                 
-                bool all_ok = arm::moveXYAxes(arm_controller_, point.x, point.y);
+                bool all_ok = arm_controller_.moveAxesConcurrent(point.x, point.y, point.z);
                 if (!all_ok) {
                     updateStatus("Failed to move to point " + std::to_string(i + 1) + ", skipping to next point");
                     SPDLOG_ERROR("Failed to move to point {}, skipping to next point", i + 1);

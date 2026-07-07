@@ -103,6 +103,15 @@ public:
     void setMovementSpeed(int speed);
 
     /**
+     * @brief Set spherical cap compensation parameters
+     * @param radius Base radius of spherical cap (pulses)
+     * @param capHeight Height of spherical cap (pulses)
+     * @param heightOffset Constant offset from cap surface (pulses)
+     * @param zBase Ground plane Z height (pulses)
+     */
+    void setSphereParams(int radius, int capHeight, int heightOffset, int zBase);
+
+    /**
      * @brief Get saved images count
      * @return Number of saved images
      */
@@ -170,6 +179,12 @@ private:
     double position_tolerance_ = 100.0;
     std::mutex status_mutex_;
     std::mutex path_mutex_;
+
+    // Spherical cap compensation parameters
+    int sphere_radius_ = 230000;
+    int sphere_cap_height_ = 50000;
+    int sphere_height_offset_ = 0;
+    int z_base_height_ = 80000;
     
     // Callbacks
     std::function<bool(cv::Mat&)> image_capture_callback_;
