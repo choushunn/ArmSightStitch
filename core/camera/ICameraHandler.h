@@ -57,6 +57,8 @@ public:
     virtual bool getHFlip() const = 0;
     virtual bool setVFlip(bool flip) = 0;
     virtual bool getVFlip() const = 0;
+    virtual bool setNegative(bool enable) = 0;
+    virtual bool getNegative() const = 0;
     virtual bool setGain(float gain) = 0;
     virtual float getGain() const = 0;
     virtual bool setResolution(int width, int height) = 0;

@@ -183,6 +183,12 @@
                   <property name="enabled"><bool>false</bool></property>
                  </widget>
                 </item>
+                <item>
+                 <widget class="QCheckBox" name="negativeCheck">
+                  <property name="text"><string>负片</string></property>
+                  <property name="enabled"><bool>false</bool></property>
+                 </widget>
+                </item>
                </layout>
               </item>
               <item>

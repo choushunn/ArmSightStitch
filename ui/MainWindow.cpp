@@ -55,6 +55,7 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     ui_->rotationCombo->setEnabled(false);
     ui_->hflipCheck->setEnabled(false);
     ui_->vflipCheck->setEnabled(false);
+    ui_->negativeCheck->setEnabled(false);
     ui_->resolutionCombo->setEnabled(false);
     // Arm-dependent
     ui_->quickScanBtn->setEnabled(false);
@@ -505,6 +506,9 @@ void MainWindow::connectSignals() {
     connect(ui_->vflipCheck, &QCheckBox::toggled, this, [this](bool checked) {
         ctrl_.cameraHandler().setVFlip(checked);
     });
+    connect(ui_->negativeCheck, &QCheckBox::toggled, this, [this](bool checked) {
+        ctrl_.cameraHandler().setNegative(checked);
+    });
 
     // ---- 相机分辨率控制 ----
     connect(ui_->resolutionCombo, &QComboBox::currentIndexChanged, this, [this](int idx) {
@@ -709,6 +713,7 @@ void MainWindow::on_connectCamera() {
         // Sync flip states from camera hardware
         if (ui_->hflipCheck) ui_->hflipCheck->setChecked(ctrl_.cameraHandler().getHFlip());
         if (ui_->vflipCheck) ui_->vflipCheck->setChecked(ctrl_.cameraHandler().getVFlip());
+        if (ui_->negativeCheck) ui_->negativeCheck->setChecked(ctrl_.cameraHandler().getNegative());
 
         // Populate resolution combo from camera's supported resolutions
         // (also before capture — Toupcam_put_Size must be called before start)
@@ -755,6 +760,7 @@ void MainWindow::on_connectCamera() {
         ui_->autoExposureCheck->setEnabled(true);
         if (ui_->hflipCheck) ui_->hflipCheck->setEnabled(true);
         if (ui_->vflipCheck) ui_->vflipCheck->setEnabled(true);
+        if (ui_->negativeCheck) ui_->negativeCheck->setEnabled(true);
     }
 }
 
@@ -776,6 +782,7 @@ void MainWindow::on_disconnectCamera() {
     ui_->resolutionCombo->setEnabled(false);
     if (ui_->hflipCheck) ui_->hflipCheck->setEnabled(false);
     if (ui_->vflipCheck) ui_->vflipCheck->setEnabled(false);
+    if (ui_->negativeCheck) ui_->negativeCheck->setEnabled(false);
 }
 
 void MainWindow::on_enumerateCameras() {
