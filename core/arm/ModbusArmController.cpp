@@ -403,7 +403,8 @@ bool ModbusArmController::moveToPosition(int axis_id, double target_position) {
         current_status_.target_positions[axis_id] = static_cast<int32_t>(target_position);
     }
     if (status_callback_) {
-        status_callback_(current_status_);
+        ArmStatus status_copy = getStatus();
+        status_callback_(status_copy);
     }
 
     return true;
@@ -516,7 +517,8 @@ bool ModbusArmController::moveXYAxes(double target_x, double target_y) {
         current_status_.target_positions[1] = ty;
     }
     if (status_callback_) {
-        status_callback_(current_status_);
+        ArmStatus status_copy = getStatus();
+        status_callback_(status_copy);
     }
 
     return true;
@@ -640,7 +642,10 @@ bool ModbusArmController::moveAxesConcurrent(int x, int y, int z) {
         for (int i = 0; i < kAxes; ++i)
             current_status_.target_positions[i] = targets[i];
     }
-    if (status_callback_) status_callback_(current_status_);
+    if (status_callback_) {
+        ArmStatus status_copy = getStatus();
+        status_callback_(status_copy);
+    }
 
     return true;
 }
@@ -709,7 +714,7 @@ void ModbusArmController::autoReadLoop() {
                     std::lock_guard<std::mutex> lock(status_mutex_);
                     current_status_.status_message = "Connection lost, reconnecting...";
                 }
-                if (status_callback_) status_callback_(current_status_);
+                if (status_callback_) { ArmStatus sc = getStatus(); status_callback_(sc); }
                 if (attemptReconnect()) {
                     consecutive_failures_ = 0;
                     {
@@ -717,14 +722,14 @@ void ModbusArmController::autoReadLoop() {
                         current_status_.connected = true;
                         current_status_.status_message = "Reconnected to " + stored_ip_;
                     }
-                    if (status_callback_) status_callback_(current_status_);
+                    if (status_callback_) { ArmStatus sc = getStatus(); status_callback_(sc); }
                 } else {
                     {
                         std::lock_guard<std::mutex> lock(status_mutex_);
                         current_status_.connected = false;
                         current_status_.status_message = "Reconnection failed";
                     }
-                    if (status_callback_) status_callback_(current_status_);
+                    if (status_callback_) { ArmStatus sc = getStatus(); status_callback_(sc); }
                     break;
                 }
             } else {
@@ -755,7 +760,7 @@ void ModbusArmController::autoReadLoop() {
                     std::lock_guard<std::mutex> lock(status_mutex_);
                     current_status_.status_message = "Connection unstable, attempting reconnect...";
                 }
-                if (status_callback_) status_callback_(current_status_);
+                if (status_callback_) { ArmStatus sc = getStatus(); status_callback_(sc); }
 
                 {
                     std::lock_guard<std::mutex> lock(modbus_mutex_);
@@ -768,7 +773,8 @@ void ModbusArmController::autoReadLoop() {
         }
 
         if (status_callback_) {
-            status_callback_(current_status_);
+            ArmStatus status_copy = getStatus();
+            status_callback_(status_copy);
         }
 
         std::this_thread::sleep_for(std::chrono::duration<float>(auto_read_interval_));

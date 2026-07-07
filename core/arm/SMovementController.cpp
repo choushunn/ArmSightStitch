@@ -222,8 +222,12 @@ std::vector<SMovementPoint> SMovementController::generateFixedPointSMovementPath
         }
         
         // Calculate step sizes between grid points
-        double x_step = static_cast<double>(end_pos.x - start_pos.x) / (width - 1);
-        double y_step = static_cast<double>(end_pos.y - start_pos.y) / (height - 1);
+        double x_step = (width > 1)
+            ? static_cast<double>(end_pos.x - start_pos.x) / (width - 1)
+            : 0.0;
+        double y_step = (height > 1)
+            ? static_cast<double>(end_pos.y - start_pos.y) / (height - 1)
+            : 0.0;
         
         SPDLOG_INFO("Grid size: {}x{}", width, height);
         SPDLOG_INFO("Start position: ({}, {})", start_pos.x, start_pos.y);
@@ -268,7 +272,8 @@ std::vector<SMovementPoint> SMovementController::generateFixedPointSMovementPath
 
                     double cap = 0.0;
                     if (h_cap > 0.0 && r <= R) {
-                        cap = std::sqrt(Rs * Rs - r * r) - (Rs - h_cap);
+                        double sq = Rs * Rs - r * r;
+                        cap = std::sqrt(std::max(0.0, sq)) - (Rs - h_cap);
                     }
                     // Z = ground plane - cap height - offset; larger Z = closer to ground
                     int zVal = static_cast<int>(std::round(static_cast<double>(zBase) - cap - static_cast<double>(dH)));
@@ -457,6 +462,16 @@ void SMovementController::movementThread() {
     current_status_.paused = false;
     // Resume auto-read after scanning completes
     arm_controller_.startAutoRead();
+
+    // Signal save consumer thread to exit (natural completion path)
+    save_thread_running_ = false;
+    save_queue_cv_.notify_all();
+
+    // Fire final status callback so UI resets (running=false)
+    if (status_callback_) {
+        status_callback_(current_status_);
+    }
+
     SPDLOG_INFO("Exiting movement thread");
 }
 

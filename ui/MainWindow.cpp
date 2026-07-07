@@ -114,62 +114,15 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     ui_->captureImageButton->setText("捕获");
     ui_->quickCaptureBtn->setVisible(false);
 
-    // ── Stitch algorithm radio buttons in toolbar ──
-    algo1Radio_ = new QRadioButton("拼接算法1", this);
-    algo2Radio_ = new QRadioButton("拼接算法2", this);
-    algo1Radio_->setChecked(true);
-    {
-        QWidget* toolbar = ui_->quickScanBtn->parentWidget();
-        if (toolbar && toolbar->layout()) {
-            auto* tlay = qobject_cast<QBoxLayout*>(toolbar->layout());
-            if (tlay) {
-                int spacerIdx = -1;
-                for (int i = 0; i < tlay->count(); ++i) {
-                    if (tlay->itemAt(i)->spacerItem()) { spacerIdx = i; break; }
-                }
-                if (spacerIdx >= 0) {
-                    tlay->insertWidget(spacerIdx, algo1Radio_);
-                    tlay->insertWidget(spacerIdx + 1, algo2Radio_);
-                } else {
-                    tlay->addWidget(algo1Radio_);
-                    tlay->addWidget(algo2Radio_);
-                }
-            }
-        }
-    }
-    // Wire: algo1 → Grid (setAlgorithm 0), algo2 → Feature (setAlgorithm 1)
-    connect(algo1Radio_, &QRadioButton::toggled, this, [this](bool checked) {
-        if (checked) { algo2Radio_->setChecked(false); ctrl_.stitcher().setAlgorithm(0); }
-    });
-    connect(algo2Radio_, &QRadioButton::toggled, this, [this](bool checked) {
-        if (checked) { algo1Radio_->setChecked(false); ctrl_.stitcher().setAlgorithm(1); }
-    });
-
     // IP address: validate format without fixed-width mask for natural text flow
     ui_->armIpEdit->setValidator(new QRegularExpressionValidator(
         QRegularExpression("^(?:(?:25[0-5]|2[0-4]\\d|1\\d{2}|[1-9]?\\d)\\.){3}"
                            "(?:25[0-5]|2[0-4]\\d|1\\d{2}|[1-9]?\\d)$"),
         ui_->armIpEdit));
 
-    // FPS label next to resolution combo — red text, updated in onCameraFrameReady
-    fps_label_ = new QLabel("-- FPS", this);
-    fps_label_->setStyleSheet("color: #D9534F; font-weight: bold;");
-    fps_label_->setMinimumWidth(60);
-    fps_label_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-
-    // Camera preview toggle — placed after resolution combo + FPS label
-    camera_preview_check_ = new QCheckBox("实时预览", this);
-    camera_preview_check_->setChecked(true);
-    camera_preview_check_->setStyleSheet("color: #D9534F; font-weight: bold;");
-    {
-        for (auto* w : this->findChildren<QLayout*>()) {
-            if (w->objectName() == "cameraResolutionRow") {
-                auto* lay = qobject_cast<QBoxLayout*>(w);
-                if (lay) { lay->addStretch(); lay->addWidget(fps_label_); lay->addWidget(camera_preview_check_); }
-                break;
-            }
-        }
-    }
+    // FPS label and camera preview are defined in .ui file
+    fps_label_ = ui_->fpsLabel;
+    camera_preview_check_ = ui_->cameraPreviewCheck;
 
     // Stitch progress bar — placed below stitch preview
     stitch_progress_ = new QProgressBar(this);
@@ -179,29 +132,39 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     stitch_progress_->setFormat("拼接进度: %p%");
     stitch_progress_->setVisible(false);
     QWidget* stitch_parent = ui_->stitchImageLabel->parentWidget();
-    if (stitch_parent && stitch_parent->layout()) {
-        // Find stitchImageLabel index and insert progress bar after it
-        QBoxLayout* lay = qobject_cast<QBoxLayout*>(stitch_parent->layout());
-        if (!lay) {
-            // If parent uses a grid/splitter, use a vertical container
-            auto* container = new QWidget(this);
-            auto* vlay = new QVBoxLayout(container);
-            vlay->setContentsMargins(0, 0, 0, 0);
-            vlay->addWidget(ui_->stitchImageLabel);
-            vlay->addWidget(stitch_progress_);
-            // Replace stitchImageLabel in the parent layout with the container
-            if (auto* gl = qobject_cast<QGridLayout*>(stitch_parent->layout())) {
-                int idx = gl->indexOf(ui_->stitchImageLabel);
-                if (idx >= 0) {
-                    int row, col, rs, cs;
-                    gl->getItemPosition(idx, &row, &col, &rs, &cs);
-                    gl->removeWidget(ui_->stitchImageLabel);
-                    gl->addWidget(container, row, col, rs, cs);
-                }
+    if (stitch_parent) {
+        // Create a container that holds both the label and the progress bar
+        auto* container = new QWidget(this);
+        auto* vlay = new QVBoxLayout(container);
+        vlay->setContentsMargins(0, 0, 0, 0);
+        vlay->addWidget(ui_->stitchImageLabel);
+        vlay->addWidget(stitch_progress_);
+
+        // Handle different parent types
+        if (auto* splitter = qobject_cast<QSplitter*>(stitch_parent)) {
+            // QSplitter: replaceWidget replaces the old widget with the container
+            int idx = splitter->indexOf(ui_->stitchImageLabel);
+            if (idx >= 0) {
+                splitter->replaceWidget(idx, container);
             }
-        } else {
+        } else if (auto* gl = qobject_cast<QGridLayout*>(stitch_parent->layout())) {
+            // QGridLayout: remove old widget, insert container at same position
+            int idx = gl->indexOf(ui_->stitchImageLabel);
+            if (idx >= 0) {
+                int row, col, rs, cs;
+                gl->getItemPosition(idx, &row, &col, &rs, &cs);
+                gl->removeWidget(ui_->stitchImageLabel);
+                gl->addWidget(container, row, col, rs, cs);
+            }
+        } else if (auto* lay = qobject_cast<QBoxLayout*>(stitch_parent->layout())) {
+            // QBoxLayout: insert progress bar after the label
             int idx = lay->indexOf(ui_->stitchImageLabel);
-            if (idx >= 0) lay->insertWidget(idx + 1, stitch_progress_);
+            if (idx >= 0) {
+                lay->insertWidget(idx + 1, stitch_progress_);
+            }
+            // Container not needed for simple box layout case
+            delete container;
+            container = nullptr;
         }
     }
 
@@ -221,7 +184,7 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
         QMetaObject::invokeMethod(this, "onArmStatusChanged", Q_ARG(const arm::ArmStatus&, s));
     });
     ctrl_.movementController().setStatusCallback([this](const arm::SMovementStatus& s) {
-        QMetaObject::invokeMethod(this, "onMovementStatus", Q_ARG(const arm::SMovementStatus&, s));
+        QMetaObject::invokeMethod(this, [this, s]() { onMovementStatus(s); }, Qt::QueuedConnection);
     });
     ctrl_.stitcher().setProgressCallback([this](int cur, int total) {
         int pct = total > 0 ? cur * 100 / total : 0;
@@ -243,7 +206,7 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     // Workspace selection dialog (deferred to after main window is shown)
     QTimer::singleShot(0, this, [this]() {
         QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-        QString defaultWs = docs + "/ArmSightStitch";
+        QString defaultWs = docs + "/ScannerData";
 
         QDialog dlg(this);
         dlg.setWindowTitle("选择工作空间");
@@ -339,10 +302,8 @@ void MainWindow::connectSignals() {
     });
     connect(ui_->actionSaveStitch, &QAction::triggered, this, &MainWindow::on_saveStitch);
 
-    // 文件 → 打开扫描文件夹
-    auto* actionOpenScanDir = new QAction("打开扫描文件夹", this);
-    ui_->menuFile->insertAction(ui_->actionImportConfig, actionOpenScanDir);
-    connect(actionOpenScanDir, &QAction::triggered, this, [this]() {
+    // 文件 → 打开扫描文件夹 (defined in .ui)
+    connect(ui_->actionOpenScanDir, &QAction::triggered, this, [this]() {
         QString ws = QString::fromStdString(ConfigManager::instance().imageSaveBasePath());
         QString dir = QFileDialog::getExistingDirectory(this, "选择扫描文件夹", ws,
                                                         QFileDialog::ShowDirsOnly);
@@ -434,10 +395,6 @@ void MainWindow::connectSignals() {
     connect(ui_->actionExit, &QAction::triggered, this, &QWidget::close);
 
     // ---- 视图 ----
-    // View-switching actions removed — sidebar buttons already handle page switching
-    ui_->actionViewScan->setVisible(false);
-    ui_->actionViewStitch->setVisible(false);
-    ui_->actionViewDetect->setVisible(false);
     connect(ui_->actionToggleSidebar, &QAction::toggled, this, [this](bool visible) { ui_->menuPanel->setVisible(visible); });
     connect(ui_->actionToggleLog, &QAction::toggled, this, [this](bool visible) { ui_->statusLogEdit->setVisible(visible); });
 
@@ -469,6 +426,7 @@ void MainWindow::connectSignals() {
             cfg.setSphereCapHeight(dlg.sphereCapHeight());
             cfg.setSphereHeightOffset(dlg.sphereHeightOffset());
             cfg.setZBaseHeight(dlg.zBaseHeight());
+            cfg.saveToFile(QCoreApplication::applicationDirPath().toStdString() + "/config.json");
             appendLog(tr("球冠参数已更新: R=%1, h=%2, dH=%3, zBase=%4")
                 .arg(dlg.sphereRadius()).arg(dlg.sphereCapHeight())
                 .arg(dlg.sphereHeightOffset()).arg(dlg.zBaseHeight()), "INFO");
@@ -478,23 +436,21 @@ void MainWindow::connectSignals() {
     // ---- 帮助 ----
     connect(ui_->actionUserGuide, &QAction::triggered, this, [this]() {
         QMessageBox::information(this, "使用说明",
-            "ArmSightStitch 明场显微成像验证组件\n\n"
+            "明场显微成像验证组件\n\n"
             "工作流程:\n"
-            "1. 连接相机和机械臂 (硬件连接区)\n"
-            "2. 在扫描模式下设置位置参数，执行S型扫描采集图像\n"
-            "3. 切换到拼接模式，执行图像拼接并保存结果\n"
-            "4. 切换到检测模式，加载模型执行目标检测\n\n"
+            "1. 连接相机和机械臂 (左侧硬件连接区)\n"
+            "2. 设置网格参数，点击「开始扫描」执行S型扫描采集\n"
+            "3. 扫描完成后自动拼接，也可手动点击「开始拼接」\n"
+            "4. 加载检测模型后，点击「开始检测」执行目标检测\n\n"
+            "工具栏按钮:\n"
+            "拍照 - 手动拍摄单帧图像\n"
+            "开始扫描 / 暂停 - 控制S型扫描流程\n"
+            "开始拼接 - 对已采集图像执行拼接\n"
+            "保存结果 - 保存拼接或检测结果\n"
+            "开始检测 / 检测单帧 - 执行目标检测\n\n"
             "快捷键:\n"
-            "F5 - 开始/停止扫描  F6 - 暂停/继续\n"
-            "Ctrl+1/2/3 - 切换扫描/拼接/检测模式\n"
-            "Ctrl+P - 拍照  Ctrl+O - 打开图像  Ctrl+S - 保存结果");
-    });
-    connect(ui_->actionAbout, &QAction::triggered, this, [this]() {
-        QMessageBox::about(this, "关于 ArmSightStitch",
-            "ArmSightStitch v2.0\n\n"
-            "明场显微成像验证组件\n"
-            "基于机械臂Modbus TCP控制\n"
-            "支持YOLO目标检测与图像拼接");
+            "Ctrl+O - 打开图像  Ctrl+S - 保存结果\n"
+            "F1 - 显示使用说明");
     });
 
     // ---- 扫描页面: 相机 ----
@@ -837,7 +793,7 @@ void MainWindow::on_captureImage() {
 
         // Save capture to Documents with timestamp
         QString dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
-                      + "/ArmSightStitch/captures";
+                      + "/ScannerData/captures";
         QDir().mkpath(dir);
         auto now = QDateTime::currentDateTime();
         QString filename = dir + "/capture_" + now.toString("yyyyMMdd_HHmmss") + ".jpg";

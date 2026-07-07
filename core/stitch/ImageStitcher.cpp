@@ -8,8 +8,30 @@
 #include <spdlog/spdlog.h>
 #include <regex>
 #include <algorithm>
+#include <cctype>
 
 namespace stitch {
+
+// Natural string comparison for filenames with embedded numbers:
+// "2.jpg" < "10.jpg" instead of lexicographic "10.jpg" < "2.jpg"
+static bool naturalCompare(const std::string& a, const std::string& b) {
+    auto ait = a.begin(), bit = b.begin();
+    while (ait != a.end() && bit != b.end()) {
+        if (std::isdigit(*ait) && std::isdigit(*bit)) {
+            // Compare numeric runs as integers
+            std::string aNum, bNum;
+            while (ait != a.end() && std::isdigit(*ait)) aNum += *ait++;
+            while (bit != b.end() && std::isdigit(*bit)) bNum += *bit++;
+            if (aNum.length() != bNum.length())
+                return aNum.length() < bNum.length();
+            if (aNum != bNum) return aNum < bNum;
+        } else {
+            if (*ait != *bit) return *ait < *bit;
+            ++ait; ++bit;
+        }
+    }
+    return a.length() < b.length();
+}
 
 ImageStitcher::ImageStitcher()
     : algo1_(std::make_unique<GridStitchAlgorithm>())
@@ -168,7 +190,7 @@ std::vector<cv::Mat> ImageStitcher::loadImagesFromDirectory(const std::string& i
             }
         }
 
-        std::sort(image_files.begin(), image_files.end());
+        std::sort(image_files.begin(), image_files.end(), naturalCompare);
 
         for (size_t i = 0; i < image_files.size(); ++i) {
             cv::Mat image = cv::imread(image_files[i]);

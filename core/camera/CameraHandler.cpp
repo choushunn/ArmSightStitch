@@ -2,6 +2,7 @@
 
 #include <spdlog/spdlog.h>
 #include <opencv2/imgproc.hpp>
+#include <QPointer>
 #include <thread>
 #include <chrono>
 #include <windows.h>
@@ -155,17 +156,21 @@ void __stdcall CameraHandler::pushDataCallback(const void* pData, const ToupcamF
     else if (rot == 180) cv::rotate(preview, preview, cv::ROTATE_180);
     else if (rot == 270) cv::rotate(preview, preview, cv::ROTATE_90_COUNTERCLOCKWISE);
 
-    // Post to UI thread — preview is already deep-copied and rotated
-    QMetaObject::invokeMethod(handler, [handler, preview]() {
-        emit handler->frameReady(preview);
+    // Post to UI thread — preview is already deep-copied and rotated.
+    // Use QPointer to guard against CameraHandler destruction before the
+    // queued lambda executes (prevents use-after-free).
+    QPointer<CameraHandler> guard(handler);
+    QMetaObject::invokeMethod(handler, [guard, preview]() {
+        if (guard) emit guard->frameReady(preview);
     }, Qt::QueuedConnection);
 }
 
 void __stdcall CameraHandler::pushEventCallback(unsigned nEvent, void* ctx) {
     CameraHandler* handler = static_cast<CameraHandler*>(ctx);
     if (!handler) return;
-    QMetaObject::invokeMethod(handler, [handler, nEvent]() {
-        handler->handlePushEvent(nEvent);
+    QPointer<CameraHandler> guard(handler);
+    QMetaObject::invokeMethod(handler, [guard, nEvent]() {
+        if (guard) guard->handlePushEvent(nEvent);
     }, Qt::QueuedConnection);
 }
 
