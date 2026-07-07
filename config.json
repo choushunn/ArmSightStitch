@@ -15,7 +15,7 @@
     "grid_size_x": 10,
     "grid_size_y": 10,
     "step_size": 42000,
-    "z_height": 50000,
+    "z_height": 80000,
 
 
     "log_path": "./logs/armsightstitch.log",

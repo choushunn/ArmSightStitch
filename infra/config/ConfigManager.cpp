@@ -40,8 +40,8 @@ void ConfigManager::loadDefaults() {
 
 {
     QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-    image_save_base_path_ = (docs + "/ArmSightStitch/captured_images").toStdString();
-    log_path_ = (docs + "/ArmSightStitch/logs/armsightstitch.log").toStdString();
+    image_save_base_path_ = (docs + "/ScannerData/captured_images").toStdString();
+    log_path_ = (docs + "/ScannerData/logs/scanner.log").toStdString();
 }
 }
 

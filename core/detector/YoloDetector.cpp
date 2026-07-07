@@ -26,18 +26,21 @@ YoloDetector::~YoloDetector() {
 }
 
 bool YoloDetector::loadModel(const std::string& param_path, const std::string& bin_path) {
-    if (model_loaded_) {
-        yolo_net_.clear();
-    }
+    // Reset state first so a partial failure doesn't leave the detector
+    // thinking a valid model is loaded (which would crash detect())
+    model_loaded_ = false;
+    yolo_net_.clear();
 
     // Load model
     int ret = yolo_net_.load_param(param_path.c_str());
     if (ret != 0) {
+        SPDLOG_ERROR("Failed to load model param: {} (ret={})", param_path, ret);
         return false;
     }
 
     ret = yolo_net_.load_model(bin_path.c_str());
     if (ret != 0) {
+        SPDLOG_ERROR("Failed to load model bin: {} (ret={})", bin_path, ret);
         return false;
     }
 
@@ -98,9 +101,23 @@ std::vector<Detection> YoloDetector::detect(const cv::Mat& image) {
     SPDLOG_DEBUG("Processing YOLOv5 output based on Python script...");
     
     // Get output dimensions
-    int output_channels = out.w; // Should be 8 for this model
-    int total_detections = out.h; // Should be 25200 for YOLOv5
-    
+    int output_channels = out.w;   // Number of values per detection
+    int total_detections = out.h;  // Number of detections
+
+    // Validate output shape to prevent out-of-bounds access with mismatched models
+    if (out.c != 1) {
+        SPDLOG_ERROR("Unexpected output batch size: expected 1, got {} — model may be incompatible", out.c);
+        return detections;
+    }
+    if (output_channels < 6) {
+        SPDLOG_ERROR("Output channels too small: {} (minimum 6 required: cx,cy,w,h,conf,cls)", output_channels);
+        return detections;
+    }
+    if (total_detections <= 0 || total_detections > 1000000) {
+        SPDLOG_ERROR("Invalid detection count: {} (expected 1–1000000)", total_detections);
+        return detections;
+    }
+
     SPDLOG_DEBUG("Output channels={}, total detections={}", output_channels, total_detections);
     
     float* data = (float*)out.data;

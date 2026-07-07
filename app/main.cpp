@@ -11,9 +11,9 @@
 int main(int argc, char *argv[]) {
     QApplication a(argc, argv);
 
-    a.setApplicationName("ArmSightStitch");
+    a.setApplicationName("ScannerApp");
     a.setApplicationVersion("2.0.0");
-    a.setOrganizationName("ArmSight");
+    a.setOrganizationName("");
 
     // Load configuration from JSON file if available
     auto& cfg = ConfigManager::instance();

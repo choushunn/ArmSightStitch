@@ -176,8 +176,12 @@ bool AppController::startSMovement(const cv::Size& gridSize, int stepSize, int z
 
     std::string savePath = infra::createNextRunDir(cfg.imageSaveBasePath());
     sm.setSaveDirectory(savePath);
-    // Extract run number from path for the controller
-    sm.setRunNumber(std::stoi(savePath.substr(savePath.rfind('/') + 1)));
+    // Extract run number from path for the controller (cross-platform)
+    QString qSavePath = QString::fromStdString(savePath);
+    QString dirName = QDir(qSavePath).dirName();
+    bool ok = false;
+    int runNumber = dirName.toInt(&ok);
+    sm.setRunNumber(ok ? runNumber : 0);
     sm.setMovementSpeed(cfg.defaultSpeed());
     sm.setPositionTolerance(cfg.positionTolerance());
 

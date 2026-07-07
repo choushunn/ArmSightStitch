@@ -10,7 +10,6 @@
 #include <QComboBox>
 #include <QProgressBar>
 #include <QProgressDialog>
-#include <QRadioButton>
 #include <QSpinBox>
 #include <QTextEdit>
 #include <QFutureWatcher>
@@ -133,10 +132,6 @@ private:
 
     // FPS label next to resolution combo
     QLabel* fps_label_ = nullptr;
-
-    // Stitch algorithm radio buttons in toolbar
-    QRadioButton* algo1Radio_ = nullptr;
-    QRadioButton* algo2Radio_ = nullptr;
 
     // Camera preview toggle in toolbar
     QCheckBox* camera_preview_check_ = nullptr;

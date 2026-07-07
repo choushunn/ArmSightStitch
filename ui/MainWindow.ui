@@ -103,6 +103,27 @@
                 <item>
                  <widget class="QComboBox" name="resolutionCombo"/>
                 </item>
+                <item>
+                 <spacer name="resolutionSpacer">
+                  <property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property>
+                  <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+                 </spacer>
+                </item>
+                <item>
+                 <widget class="QLabel" name="fpsLabel">
+                  <property name="text"><string>-- FPS</string></property>
+                  <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
+                  <property name="styleSheet"><string notr="true">color: #D9534F; font-weight: bold;</string></property>
+                  <property name="alignment"><set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignVCenter</set></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QCheckBox" name="cameraPreviewCheck">
+                  <property name="text"><string>实时预览</string></property>
+                  <property name="checked"><bool>true</bool></property>
+                  <property name="styleSheet"><string notr="true">color: #D9534F; font-weight: bold;</string></property>
+                 </widget>
+                </item>
                </layout>
               </item>
               <item>
@@ -488,6 +509,7 @@
    <widget class="QMenu" name="menuFile">
     <property name="title"><string>文件(&amp;F)</string></property>
     <addaction name="actionOpenImage"/>
+    <addaction name="actionOpenScanDir"/>
     <addaction name="actionSaveStitch"/>
     <addaction name="separator"/>
     <addaction name="actionImportConfig"/>
@@ -497,10 +519,6 @@
    </widget>
    <widget class="QMenu" name="menuView">
     <property name="title"><string>视图(&amp;V)</string></property>
-    <addaction name="actionViewScan"/>
-    <addaction name="actionViewStitch"/>
-    <addaction name="actionViewDetect"/>
-    <addaction name="separator"/>
     <addaction name="actionToggleSidebar"/>
     <addaction name="actionToggleLog"/>
    </widget>
@@ -508,17 +526,13 @@
     <property name="title"><string>设置(&amp;S)</string></property>
     <addaction name="actionStitchSettings"/>
     <addaction name="actionDetSettings"/>
-    <addaction name="separator"/>
     <addaction name="actionLoadModel"/>
     <addaction name="actionArmZero"/>
-    <addaction name="separator"/>
     <addaction name="actionSphereSettings"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title"><string>帮助(&amp;H)</string></property>
     <addaction name="actionUserGuide"/>
-    <addaction name="separator"/>
-    <addaction name="actionAbout"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuView"/>
@@ -535,8 +549,11 @@
 
   <!-- ===== ACTIONS ===== -->
   <action name="actionOpenImage">
-   <property name="text"><string>打开图像文件...</string></property>
+   <property name="text"><string>打开图像...</string></property>
    <property name="shortcut"><string>Ctrl+O</string></property>
+  </action>
+  <action name="actionOpenScanDir">
+   <property name="text"><string>打开扫描文件夹...</string></property>
   </action>
   <action name="actionSaveStitch">
    <property name="text"><string>保存拼接结果...</string></property>
@@ -552,22 +569,6 @@
   <action name="actionExit">
    <property name="text"><string>退出</string></property>
    <property name="shortcut"><string>Ctrl+Q</string></property>
-  </action>
-  <action name="actionViewScan">
-   <property name="text"><string>扫描模式</string></property>
-   <property name="shortcut"><string>Ctrl+1</string></property>
-   <property name="checkable"><bool>true</bool></property>
-   <property name="checked"><bool>true</bool></property>
-  </action>
-  <action name="actionViewStitch">
-   <property name="text"><string>拼接模式</string></property>
-   <property name="shortcut"><string>Ctrl+2</string></property>
-   <property name="checkable"><bool>true</bool></property>
-  </action>
-  <action name="actionViewDetect">
-   <property name="text"><string>检测模式</string></property>
-   <property name="shortcut"><string>Ctrl+3</string></property>
-   <property name="checkable"><bool>true</bool></property>
   </action>
   <action name="actionToggleSidebar">
    <property name="text"><string>侧边栏</string></property>
@@ -586,20 +587,17 @@
    <property name="text"><string>检测参数...</string></property>
   </action>
   <action name="actionLoadModel">
-   <property name="text"><string>加载检测模型...</string></property>
+   <property name="text"><string>加载模型...</string></property>
   </action>
   <action name="actionArmZero">
-   <property name="text"><string>机械臂归零</string></property>
+   <property name="text"><string>归零</string></property>
   </action>
   <action name="actionSphereSettings">
-   <property name="text"><string>球冠参数设置...</string></property>
+   <property name="text"><string>球冠参数...</string></property>
   </action>
   <action name="actionUserGuide">
-   <property name="text"><string>使用说明...</string></property>
+   <property name="text"><string>使用说明</string></property>
    <property name="shortcut"><string>F1</string></property>
-  </action>
-  <action name="actionAbout">
-   <property name="text"><string>关于 ArmSightStitch...</string></property>
   </action>
  </widget>
  <resources/>
