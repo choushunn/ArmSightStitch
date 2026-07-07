@@ -230,6 +230,11 @@ std::vector<cv::Mat> AppController::loadImages(const std::string& dir) {
     return pimpl_->image_stitcher_.loadImagesFromDirectory(dir);
 }
 
+std::vector<stitch::PositionedImage> AppController::loadImagesWithPositions(const std::string& dir,
+                                                                             cv::Size& outGridSize) {
+    return pimpl_->image_stitcher_.loadImagesWithPositions(dir, outGridSize);
+}
+
 bool AppController::loadDetectorModel(const std::string& paramPath, const std::string& binPath) {
     bool ok = pimpl_->yolo_detector_.loadModel(paramPath, binPath);
     emit statusMessage(ok ? "Model loaded" : "Model loading failed");

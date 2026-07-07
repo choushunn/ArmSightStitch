@@ -10,10 +10,12 @@ public:
 
     int gridSizeX() const;
     int gridSizeY() const;
+    int centerCropSize() const;
     QString inputDir() const;
 
     void setGridSizeX(int val);
     void setGridSizeY(int val);
+    void setCenterCropSize(int val);
     void setInputDir(const QString& dir);
 
 private:

@@ -37,6 +37,17 @@ public:
         reportStatus("Feature-based stitching completed");
         return result;
     }
+
+    /// Feature-based stitching ignores positions — delegates to stitch().
+    cv::Mat stitchWithPositions(const std::vector<cv::Mat>& images,
+                                const std::vector<std::pair<int, int>>& /*positions*/,
+                                const cv::Size& gridSize)
+    {
+        return stitch(images, gridSize);
+    }
+
+    /// No-op: feature-based stitching doesn't use center crop.
+    void setCenterCropSize(int /*pixels*/) {}
 };
 
 } // namespace stitch

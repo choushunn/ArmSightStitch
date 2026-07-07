@@ -22,6 +22,9 @@ public:
     cv::Mat stitchImages(const std::vector<cv::Mat>& images,
                         const cv::Size& grid_size = cv::Size(10, 10));
 
+    cv::Mat stitchImagesWithPositions(const std::vector<PositionedImage>& positioned,
+                                      const cv::Size& grid_size) override;
+
     void setProgressCallback(std::function<void(int, int)> callback);
     void setStatusCallback(std::function<void(const std::string&)> callback);
 
@@ -29,6 +32,8 @@ public:
 
     /// Switch stitch strategy: 0=GridStitchAlgorithm, 1=FeatureStitchAlgorithm
     void setAlgorithm(int algo);
+    void setCropMargin(int pixels) override;
+    void setCenterCropSize(int pixels) override;
 
     /**
      * @brief Load images from directory
@@ -36,6 +41,16 @@ public:
      * @return Vector of loaded images
      */
     std::vector<cv::Mat> loadImagesFromDirectory(const std::string& input_dir);
+
+    /**
+     * @brief Load images with grid positions parsed from filenames (row_col.ext).
+     *        Auto-detects grid dimensions from max row/col (like docs/stitch.py).
+     * @param input_dir Path to input directory
+     * @param out_grid_size [out] Detected grid size (width = max_col+1, height = max_row+1)
+     * @return Vector of positioned images
+     */
+    std::vector<PositionedImage> loadImagesWithPositions(const std::string& input_dir,
+                                                         cv::Size& out_grid_size) override;
 
     /**
      * @brief Sort images in S-curve order
