@@ -392,9 +392,18 @@ void MainWindow::connectSignals() {
                 s_movement_images_[{row, col}] = fn;
             }
 
-            // Show thumbnail in cell
+            // Show thumbnail in cell (center-crop to match stitching before resize)
+            int cropSize = ConfigManager::instance().centerCropSize();
+            cv::Mat cropped;
+            if (cropSize > 0 && cropSize < img.cols && cropSize < img.rows) {
+                int left = (img.cols - cropSize) / 2;
+                int top = (img.rows - cropSize) / 2;
+                cropped = img(cv::Rect(left, top, cropSize, cropSize));
+            } else {
+                cropped = img;
+            }
             cv::Mat thumb;
-            cv::resize(img, thumb, cv::Size(50, 50), 0, 0, cv::INTER_AREA);
+            cv::resize(cropped, thumb, cv::Size(50, 50), 0, 0, cv::INTER_AREA);
             QPixmap pix = QPixmap::fromImage(cvMatToQImage(thumb));
             auto* item = ui_->topCellsTable->item(row, col);
             if (item) {
@@ -649,13 +658,15 @@ void MainWindow::initGridTables() {
     int gx = ConfigManager::instance().gridSizeX();
     int gy = ConfigManager::instance().gridSizeY();
 
-    QStringList headers;
-    for (int i = 1; i <= gx; ++i) headers << QString::number(i);
+    // Headers: columns right-to-left (col 1 = rightmost), rows top-to-bottom
+    QStringList colHeaders, rowHeaders;
+    for (int i = gx; i >= 1; --i) colHeaders << QString::number(i);
+    for (int i = 1; i <= gy; ++i) rowHeaders << QString::number(i);
 
     ui_->topCellsTable->setRowCount(gy);
     ui_->topCellsTable->setColumnCount(gx);
-    ui_->topCellsTable->setHorizontalHeaderLabels(headers);
-    ui_->topCellsTable->setVerticalHeaderLabels(headers);
+    ui_->topCellsTable->setHorizontalHeaderLabels(colHeaders);
+    ui_->topCellsTable->setVerticalHeaderLabels(rowHeaders);
     ui_->topCellsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     ui_->topCellsTable->verticalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     ui_->topCellsTable->horizontalHeader()->setDefaultAlignment(Qt::AlignCenter);
@@ -945,24 +956,36 @@ void MainWindow::startScanSequence() {
     cv::Size gs(cfg.gridSizeX(), cfg.gridSizeY());
 
     ctrl_.movementController().setImageSaveCallback([this](const cv::Mat& frame, const std::string& path, int row, int col) {
-        std::string fn = path + "/" + std::to_string(row) + "_" + std::to_string(col) + ".jpg";
+        // Display numbering: 1-indexed, columns right-to-left
+        int gx = ConfigManager::instance().gridSizeX();
+        int dispRow = row + 1;
+        int dispCol = gx - col;  // physical col 0 → display col gx, physical col (gx-1) → display col 1
+        std::string fn = path + "/" + std::to_string(dispRow) + "_" + std::to_string(dispCol) + ".jpg";
         bool ok = cv::imwrite(fn, frame);
         if (ok) {
-            // Reverse column mapping: table col 0 = arm X max
-            int gx = ConfigManager::instance().gridSizeX();
-            int displayCol = gx - 1 - col;
+            // Store with display coordinates (reverse column for table)
+            int tableCol = gx - 1 - col; // table column index (col 0 = leftmost)
             {
                 std::lock_guard<std::mutex> lock(s_movement_images_mutex_);
-                s_movement_images_[{row, displayCol}] = fn;
+                s_movement_images_[{row, tableCol}] = fn;
             }
             // Thumbnail generation in scan thread: avoid passing full-res frame to UI
-            if (row < 10 && displayCol < 10) {
+            if (row < 10 && tableCol < 10) {
+                // Center-crop to match stitching behavior, then resize to thumbnail
+                int cropSize = ConfigManager::instance().centerCropSize();
+                cv::Mat cropped;
+                if (cropSize > 0 && cropSize < frame.cols && cropSize < frame.rows) {
+                    int left = (frame.cols - cropSize) / 2;
+                    int top = (frame.rows - cropSize) / 2;
+                    cropped = frame(cv::Rect(left, top, cropSize, cropSize));
+                } else {
+                    cropped = frame;
+                }
                 cv::Mat thumb;
-                cv::resize(frame, thumb, cv::Size(50, 50), 0, 0, cv::INTER_AREA);
-                QImage thumbImage(thumb.data, thumb.cols, thumb.rows, thumb.step, QImage::Format_BGR888);
-                QPixmap pix = QPixmap::fromImage(thumbImage.copy());
-                QMetaObject::invokeMethod(this, [this, row, displayCol, pix]() {
-                    auto* item = ui_->topCellsTable->item(row, displayCol);
+                cv::resize(cropped, thumb, cv::Size(50, 50), 0, 0, cv::INTER_AREA);
+                QPixmap pix = QPixmap::fromImage(cvMatToQImage(thumb));
+                QMetaObject::invokeMethod(this, [this, row, tableCol, pix]() {
+                    auto* item = ui_->topCellsTable->item(row, tableCol);
                     if (item) {
                         item->setBackground(QColor(144, 238, 144));
                         auto* lbl = new QLabel();
@@ -971,7 +994,7 @@ void MainWindow::startScanSequence() {
                         lbl->setContentsMargins(0, 0, 0, 0);
                         lbl->setAlignment(Qt::AlignCenter);
                         lbl->setAttribute(Qt::WA_TransparentForMouseEvents, true);
-                        ui_->topCellsTable->setCellWidget(row, displayCol, lbl);
+                        ui_->topCellsTable->setCellWidget(row, tableCol, lbl);
                     }
                 }, Qt::QueuedConnection);
             }
@@ -1160,16 +1183,48 @@ void MainWindow::on_stitchRun() {
 
     if (dlg.exec() != QDialog::Accepted || pathEdit->text().isEmpty()) return;
 
-    auto images = ctrl_.loadImages(pathEdit->text().toStdString());
-    if (images.empty()) {
-        QMessageBox::warning(this, "警告",
-            QString("目录 %1 中没有图像。\n请先执行扫描采集图像").arg(pathEdit->text()));
+    std::string dirPath = pathEdit->text().toStdString();
+
+    // Use position-based loading: parse row_col from filenames (like docs/stitch.py)
+    cv::Size detectedGrid = gs;
+    auto positioned = ctrl_.loadImagesWithPositions(dirPath, detectedGrid);
+
+    if (positioned.empty()) {
+        // Fallback: legacy sequential loading
+        auto images = ctrl_.loadImages(dirPath);
+        if (images.empty()) {
+            QMessageBox::warning(this, "警告",
+                QString("目录 %1 中没有图像。\n请先执行扫描采集图像").arg(pathEdit->text()));
+            return;
+        }
+        // Confirm before stitching
+        auto btn = QMessageBox::question(this, "确认拼接",
+            QString("已选择 %1 张图像，是否开始拼接？").arg(images.size()),
+            QMessageBox::Yes | QMessageBox::No);
+        if (btn != QMessageBox::Yes) return;
+
+        stitch_progress_dlg_ = new QProgressDialog("正在拼接图像...", QString(), 0, 100, this);
+        stitch_progress_dlg_->setWindowModality(Qt::WindowModal);
+        stitch_progress_dlg_->setAutoClose(false);
+        stitch_progress_dlg_->show();
+
+        stitch_progress_->setValue(0);
+        stitch_progress_->setVisible(true);
+        ui_->statusLabel->setText("正在拼接...");
+        stitching_future_ = QtConcurrent::run([this, images, gs]() {
+            auto sorted = ctrl_.stitcher().sortImagesInSCurveOrder(images, gs);
+            return ctrl_.stitcher().stitchImages(sorted, gs);
+        });
+        stitching_watcher_.setFuture(stitching_future_);
         return;
     }
 
     // Confirm before stitching
     auto btn = QMessageBox::question(this, "确认拼接",
-        QString("已选择 %1 张图像，是否开始拼接？").arg(images.size()),
+        QString("已选择 %1 张图像 (网格 %2x%3)，是否开始拼接？")
+            .arg(positioned.size())
+            .arg(detectedGrid.width)
+            .arg(detectedGrid.height),
         QMessageBox::Yes | QMessageBox::No);
     if (btn != QMessageBox::Yes) return;
 
@@ -1181,9 +1236,12 @@ void MainWindow::on_stitchRun() {
     stitch_progress_->setValue(0);
     stitch_progress_->setVisible(true);
     ui_->statusLabel->setText("正在拼接...");
-    stitching_future_ = QtConcurrent::run([this, images, gs]() {
-        auto sorted = ctrl_.stitcher().sortImagesInSCurveOrder(images, gs);
-        return ctrl_.stitcher().stitchImages(sorted, gs);
+
+    // Apply center crop setting from config
+    ctrl_.stitcher().setCenterCropSize(ConfigManager::instance().centerCropSize());
+
+    stitching_future_ = QtConcurrent::run([this, positioned, detectedGrid]() {
+        return ctrl_.stitcher().stitchImagesWithPositions(positioned, detectedGrid);
     });
     stitching_watcher_.setFuture(stitching_future_);
 }
@@ -1224,10 +1282,12 @@ void MainWindow::on_stitchSettings() {
     StitchingSettingsDialog dlg(this);
     dlg.setGridSizeX(cfg.gridSizeX());
     dlg.setGridSizeY(cfg.gridSizeY());
+    dlg.setCenterCropSize(cfg.centerCropSize());
     dlg.setInputDir(QString::fromStdString(cfg.imageSaveBasePath()));
     if (dlg.exec() == QDialog::Accepted) {
         cfg.setGridSizeX(dlg.gridSizeX());
         cfg.setGridSizeY(dlg.gridSizeY());
+        cfg.setCenterCropSize(dlg.centerCropSize());
         cfg.setImageSaveBasePath(dlg.inputDir().toStdString());
     }
 }

@@ -218,15 +218,35 @@ void WorkflowManager::onSMovementFinished() {
     std::string loadPath = infra::findLatestRunDir(basePath);
     if (loadPath.empty()) loadPath = basePath;
 
-    auto images = stitcher_.loadImagesFromDirectory(loadPath);
-    if (images.empty()) {
-        emit workflowError("No images found for stitching");
+    // Use position-based loading: parse row_col from filenames, auto-detect grid
+    cv::Size detected_grid = grid_size_;
+    auto positioned = stitcher_.loadImagesWithPositions(loadPath, detected_grid);
+
+    if (positioned.empty()) {
+        // Fallback: try legacy sequential loading for backward compatibility
+        auto images = stitcher_.loadImagesFromDirectory(loadPath);
+        if (images.empty()) {
+            emit workflowError("No images found for stitching");
+            setState(State::Idle);
+            return;
+        }
+        auto sorted = stitcher_.sortImagesInSCurveOrder(images, grid_size_);
+        cv::Mat result = stitcher_.stitchImages(sorted, grid_size_);
+        if (!result.empty()) {
+            emit stitchingFinished(result);
+            emit statusMessage("Workflow completed successfully");
+        } else {
+            emit workflowError("Stitching failed");
+        }
         setState(State::Idle);
         return;
     }
 
-    auto sorted = stitcher_.sortImagesInSCurveOrder(images, grid_size_);
-    cv::Mat result = stitcher_.stitchImages(sorted, grid_size_);
+    // Apply center crop setting from config
+    stitcher_.setCenterCropSize(cfg.centerCropSize());
+
+    // Direct position-based stitching (like docs/stitch.py)
+    cv::Mat result = stitcher_.stitchImagesWithPositions(positioned, detected_grid);
 
     if (!result.empty()) {
         emit stitchingFinished(result);

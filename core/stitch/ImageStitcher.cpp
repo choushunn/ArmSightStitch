@@ -37,23 +37,50 @@ void ImageStitcher::setAlgorithm(int algo) {
     }
 }
 
+void ImageStitcher::setCropMargin(int pixels) {
+    auto* grid = dynamic_cast<GridStitchAlgorithm*>(algo1_.get());
+    if (grid) grid->setCropMargin(pixels);
+}
+
+void ImageStitcher::setCenterCropSize(int pixels) {
+    auto* grid = dynamic_cast<GridStitchAlgorithm*>(algo1_.get());
+    if (grid) grid->setCenterCropSize(pixels);
+    auto* feat = dynamic_cast<FeatureStitchAlgorithm*>(algo2_.get());
+    if (feat) feat->setCenterCropSize(pixels);
+}
+
 bool ImageStitcher::stitchImagesFromDirectory(const std::string& input_dir,
                                              const std::string& output_path,
                                              const cv::Size& grid_size) {
     try {
         updateStatus("Loading images...");
-        std::vector<cv::Mat> images = loadImagesFromDirectory(input_dir);
 
-        if (images.empty()) {
-            updateStatus("No images found");
-            return false;
+        // Use position-based loading when grid_size is default (auto-detect),
+        // otherwise fall back to sequential loading + S-curve sort.
+        cv::Size detected_grid = grid_size;
+        auto positioned = loadImagesWithPositions(input_dir, detected_grid);
+
+        if (positioned.empty()) {
+            // Fallback: try legacy sequential loading
+            std::vector<cv::Mat> images = loadImagesFromDirectory(input_dir);
+            if (images.empty()) {
+                updateStatus("No images found");
+                return false;
+            }
+            updateStatus("Sorting images in S-curve order...");
+            std::vector<cv::Mat> sorted_images = sortImagesInSCurveOrder(images, grid_size);
+            updateStatus("Stitching images...");
+            result_image_ = stitchImages(sorted_images, grid_size);
+        } else {
+            // Use auto-detected grid if none was explicitly provided (default 10x10)
+            if (grid_size.width == 10 && grid_size.height == 10
+                && (detected_grid.width != 10 || detected_grid.height != 10)) {
+                SPDLOG_INFO("Auto-detected grid: {}x{}", detected_grid.width, detected_grid.height);
+            }
+            updateStatus("Stitching " + std::to_string(positioned.size()) +
+                         " images with positions...");
+            result_image_ = stitchImagesWithPositions(positioned, detected_grid);
         }
-
-        updateStatus("Sorting images in S-curve order...");
-        std::vector<cv::Mat> sorted_images = sortImagesInSCurveOrder(images, grid_size);
-
-        updateStatus("Stitching images...");
-        result_image_ = stitchImages(sorted_images, grid_size);
 
         if (result_image_.empty()) {
             updateStatus("Stitching failed");
@@ -78,6 +105,32 @@ bool ImageStitcher::stitchImagesFromDirectory(const std::string& input_dir,
 cv::Mat ImageStitcher::stitchImages(const std::vector<cv::Mat>& images,
                                    const cv::Size& grid_size) {
     cv::Mat result = current_algo_->stitch(images, grid_size);
+    if (!result.empty()) result_image_ = result;
+    return result;
+}
+
+cv::Mat ImageStitcher::stitchImagesWithPositions(const std::vector<PositionedImage>& positioned,
+                                                  const cv::Size& grid_size) {
+    // Separate images and positions for the algorithm call
+    std::vector<cv::Mat> images;
+    std::vector<std::pair<int, int>> positions;
+    images.reserve(positioned.size());
+    positions.reserve(positioned.size());
+    for (const auto& p : positioned) {
+        images.push_back(p.image);
+        positions.emplace_back(p.row, p.col);
+    }
+
+    cv::Mat result;
+    if (auto* grid = dynamic_cast<GridStitchAlgorithm*>(current_algo_)) {
+        result = grid->stitchWithPositions(images, positions, grid_size);
+    } else if (auto* feat = dynamic_cast<FeatureStitchAlgorithm*>(current_algo_)) {
+        result = feat->stitchWithPositions(images, positions, grid_size);
+    } else {
+        // Fallback: ignore positions, use sequential stitching
+        result = current_algo_->stitch(images, grid_size);
+    }
+
     if (!result.empty()) result_image_ = result;
     return result;
 }
@@ -131,6 +184,75 @@ std::vector<cv::Mat> ImageStitcher::loadImagesFromDirectory(const std::string& i
     }
 
     return images;
+}
+
+std::vector<PositionedImage> ImageStitcher::loadImagesWithPositions(const std::string& input_dir,
+                                                                     cv::Size& out_grid_size) {
+    std::vector<PositionedImage> result;
+
+    try {
+        if (!std::filesystem::exists(input_dir)) {
+            SPDLOG_ERROR("Directory does not exist: {}", input_dir);
+            return result;
+        }
+
+        // Regex to match "row_col" at start of filename (like stitch.py parse_row_col)
+        std::regex rowColPattern(R"(^(\d+)_(\d+))");
+
+        int maxRow = -1;
+        int maxCol = -1;
+        std::vector<std::pair<std::string, std::pair<int, int>>> found; // path, (row, col)
+
+        for (const auto& entry : std::filesystem::directory_iterator(input_dir)) {
+            if (!entry.is_regular_file()) continue;
+
+            std::string ext = entry.path().extension().string();
+            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+            if (ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".bmp") continue;
+
+            std::string stem = entry.path().stem().string();
+            // Remove spaces from stem (like stitch.py: name.replace(" ", ""))
+            stem.erase(std::remove(stem.begin(), stem.end(), ' '), stem.end());
+
+            std::smatch match;
+            if (std::regex_search(stem, match, rowColPattern)) {
+                int row = std::stoi(match[1].str());
+                int col = std::stoi(match[2].str());
+                found.emplace_back(entry.path().string(), std::make_pair(row, col));
+                maxRow = std::max(maxRow, row);
+                maxCol = std::max(maxCol, col);
+            }
+        }
+
+        if (found.empty()) {
+            SPDLOG_WARN("No images with row_col pattern found in {}", input_dir);
+            return result;
+        }
+
+        // Convert 1-indexed display coordinates to 0-indexed (like stitch.py)
+        // The filenames use display coordinates (1-indexed), we need 0-indexed for grid placement
+        out_grid_size = cv::Size(maxCol, maxRow);  // width = max col, height = max row
+        SPDLOG_INFO("Detected grid: {}x{} from {} images", maxCol, maxRow, found.size());
+
+        // Load images and build result
+        for (const auto& [path, rc] : found) {
+            cv::Mat image = cv::imread(path);
+            if (!image.empty()) {
+                PositionedImage pi;
+                pi.image = image;
+                // Filename is 1-indexed display coords; convert to 0-indexed
+                pi.row = rc.first - 1;
+                pi.col = rc.second - 1;
+                result.push_back(pi);
+            }
+        }
+
+        SPDLOG_INFO("Loaded {} images with positions", result.size());
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("Error loading images with positions: {}", e.what());
+    }
+
+    return result;
 }
 
 std::vector<cv::Mat> ImageStitcher::sortImagesInSCurveOrder(const std::vector<cv::Mat>& images, const cv::Size& grid_size) {

@@ -62,6 +62,10 @@ public:
     void setSphereHeightOffset(int d);
     void setZBaseHeight(int z);
 
+    // Stitching / crop
+    int centerCropSize() const { return center_crop_size_; }
+    void setCenterCropSize(int size);
+
     // Image save path
     std::string imageSaveBasePath() const { return image_save_base_path_; }
     void setImageSaveBasePath(const std::string& path);
@@ -112,6 +116,7 @@ private:
     int grid_size_y_ = 10;
     int step_size_ = 43000;
     int z_height_ = 50000;
+    int center_crop_size_ = 1775;  // center crop like docs/stitch.py
 
     int sphere_radius_ = 230000;
     int sphere_cap_height_ = 50000;

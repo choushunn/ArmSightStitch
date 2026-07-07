@@ -72,6 +72,7 @@ void ConfigManager::applyEnvironmentOverrides() {
     env_override_int("ARM_SIGHT_STITCH_GRID_Y", grid_size_y_);
     env_override_int("ARM_SIGHT_STITCH_STEP_SIZE", step_size_);
     env_override_int("ARM_SIGHT_STITCH_Z_HEIGHT", z_height_);
+    env_override_int("ARM_SIGHT_STITCH_CENTER_CROP_SIZE", center_crop_size_);
 }
 
 bool ConfigManager::loadFromFile(const std::string& filepath) {
@@ -141,6 +142,7 @@ bool ConfigManager::loadFromJson(const QJsonObject& json) {
     readInt("grid_size_y", grid_size_y_);
     readInt("step_size", step_size_);
     readInt("z_height", z_height_);
+    readInt("center_crop_size", center_crop_size_);
 
     readInt("sphere_radius", sphere_radius_);
     readInt("sphere_cap_height", sphere_cap_height_);
@@ -213,6 +215,7 @@ QJsonObject ConfigManager::toJson() const {
     json["grid_size_y"] = grid_size_y_;
     json["step_size"] = step_size_;
     json["z_height"] = z_height_;
+    json["center_crop_size"] = center_crop_size_;
     json["sphere_radius"] = sphere_radius_;
     json["sphere_cap_height"] = sphere_cap_height_;
     json["sphere_height_offset"] = sphere_height_offset_;
@@ -340,6 +343,10 @@ void ConfigManager::setStepSize(int s) {
 
 void ConfigManager::setZHeight(int z) {
     z_height_ = z;
+}
+
+void ConfigManager::setCenterCropSize(int size) {
+    if (size >= 0) center_crop_size_ = size;
 }
 
 void ConfigManager::setSphereRadius(int r) {

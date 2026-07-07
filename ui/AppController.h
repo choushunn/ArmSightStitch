@@ -44,6 +44,8 @@ public:
 
     void stitchImages(const std::vector<cv::Mat>& images, const cv::Size& gridSize);
     std::vector<cv::Mat> loadImages(const std::string& dir);
+    std::vector<stitch::PositionedImage> loadImagesWithPositions(const std::string& dir,
+                                                                  cv::Size& outGridSize);
 
     bool loadDetectorModel(const std::string& paramPath, const std::string& binPath);
     bool isModelLoaded() const;
