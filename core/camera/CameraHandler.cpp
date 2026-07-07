@@ -89,7 +89,7 @@ bool CameraHandler::connect(const std::string& device_id) {
 
 void CameraHandler::disconnect() {
     if (hcam_) { capturing_ = false; push_active_ = false; Toupcam_Stop(hcam_); Toupcam_Close(hcam_); hcam_ = nullptr; }
-    connected_ = false; capturing_ = false;
+    connected_ = false; capturing_ = false; negative_ = false;
     updateStatus(false, "Disconnected from camera");
 }
 
@@ -155,6 +155,11 @@ void __stdcall CameraHandler::pushDataCallback(const void* pData, const ToupcamF
     if (rot == 90)       cv::rotate(preview, preview, cv::ROTATE_90_CLOCKWISE);
     else if (rot == 180) cv::rotate(preview, preview, cv::ROTATE_180);
     else if (rot == 270) cv::rotate(preview, preview, cv::ROTATE_90_COUNTERCLOCKWISE);
+
+    // Software negative (preview-only — does not affect latest_full_frame_ or captures)
+    if (handler->negative_) {
+        cv::bitwise_not(preview, preview);
+    }
 
     // Post to UI thread — preview is already deep-copied and rotated.
     // Use QPointer to guard against CameraHandler destruction before the
@@ -261,6 +266,8 @@ bool CameraHandler::setHFlip(bool f) { return connected_ && SUCCEEDED(Toupcam_pu
 bool CameraHandler::getHFlip() const { if(!connected_)return false; int v=0; return SUCCEEDED(Toupcam_get_HFlip(hcam_,&v))&&v; }
 bool CameraHandler::setVFlip(bool f) { return connected_ && SUCCEEDED(Toupcam_put_VFlip(hcam_,f?1:0)); }
 bool CameraHandler::getVFlip() const { if(!connected_)return false; int v=0; return SUCCEEDED(Toupcam_get_VFlip(hcam_,&v))&&v; }
+bool CameraHandler::setNegative(bool enable) { negative_ = enable; return true; }
+bool CameraHandler::getNegative() const { return negative_; }
 bool CameraHandler::setGain(float g) { return connected_ && SUCCEEDED(Toupcam_put_ExpoAGain(hcam_,static_cast<unsigned short>(g*100))); }
 float CameraHandler::getGain() const { if(!connected_)return 0; unsigned short g=0; return SUCCEEDED(Toupcam_get_ExpoAGain(hcam_,&g))?g/100.f:0; }
 

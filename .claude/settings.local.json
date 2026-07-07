@@ -61,7 +61,8 @@
       "Bash(powershell -Command \"Stop-Process -Name ArmSightStitch -Force -ErrorAction SilentlyContinue\")",
       "Bash(git config *)",
       "Bash(git stash *)",
-      "PowerShell(taskkill /F /IM ArmSightStitch.exe 2>$null)"
+      "PowerShell(taskkill /F /IM ArmSightStitch.exe 2>$null)",
+      "Bash(cmake -S . -B build/vcpkg-mingw --preset default -DCMAKE_BUILD_TYPE=Release)"
     ]
   }
 }

@@ -43,6 +43,8 @@ public:
     bool getHFlip() const;
     bool setVFlip(bool flip);
     bool getVFlip() const;
+    bool setNegative(bool enable) override;
+    bool getNegative() const override;
     bool setGain(float gain);
     float getGain() const;
     bool setResolution(int width, int height);
@@ -79,6 +81,7 @@ private:
     int image_width_ = 0;
     int image_height_ = 0;
     int rotation_ = 0;  // software: 0/90/180/270
+    bool negative_ = false;  // software: preview-only negative film
 };
 
 } // namespace camera
