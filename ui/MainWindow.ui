@@ -246,7 +246,7 @@
               <layout class="QHBoxLayout" name="speedRow">
                <property name="spacing"><number>2</number></property>
                <item><widget class="QLabel" name="labelSpeed"><property name="text"><string>速度</string></property><property name="minimumSize"><size><width>20</width><height>0</height></size></property></widget></item>
-               <item><widget class="QSpinBox" name="speedSpin"><property name="enabled"><bool>false</bool></property><property name="minimum"><number>1</number></property><property name="maximum"><number>200000</number></property><property name="value"><number>70000</number></property></widget></item>
+               <item><widget class="QSpinBox" name="speedSpin"><property name="enabled"><bool>false</bool></property><property name="minimum"><number>1</number></property><property name="maximum"><number>200000</number></property><property name="value"><number>35000</number></property></widget></item>
                <item><widget class="QPushButton" name="setSpeedBtn"><property name="enabled"><bool>false</bool></property><property name="text"><string>设置速度</string></property></widget></item>
                <item><spacer name="speedSpacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
               </layout>

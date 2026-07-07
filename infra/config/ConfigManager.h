@@ -98,7 +98,7 @@ private:
 
     std::string arm_ip_;
     int arm_port_ = 502;
-    int default_speed_ = 26000;
+    int default_speed_ = 35000;
 
     int camera_width_ = 640;
     int camera_height_ = 480;

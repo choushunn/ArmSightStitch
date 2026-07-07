@@ -317,8 +317,8 @@ void SMovementController::movementThread() {
                 updateStatus("Arrived at target, capturing...");
                 updateAction("Capturing");
 
-                // 最小化机械臂稳定等待时间
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                // 机械臂稳定等待时间
+                std::this_thread::sleep_for(std::chrono::milliseconds(150));
 
                 // 确认到达目标位置后，拍摄照片
                 bool image_captured = false;
