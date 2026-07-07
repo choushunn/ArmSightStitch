@@ -87,6 +87,9 @@ private:
     void addCameraOverlay(cv::Mat& image);
     void appendLog(const QString& msg, const QString& level = "INFO");
     void showImageFullscreen(const QPixmap& pixmap);
+    void startNegativeStitching(const std::string& directory, const cv::Size& grid_size);
+    void onNegativeStitchingFinished();
+    bool hasNegativeImages(const std::string& directory) const;
 
     bool eventFilter(QObject* obj, QEvent* event) override;
 
@@ -100,8 +103,15 @@ private:
     std::map<std::pair<int, int>, std::string> s_movement_images_;
     mutable std::mutex s_movement_images_mutex_;
     cv::Mat current_image_, stitched_result_;
+    cv::Mat stitched_result_negative_;           // 负片拼接结果
+    std::string last_scan_dir_;                   // 最近扫描目录（用于负片拼接查找）
+    std::string scan_base_dir_;                   // 扫描目录（用于子文件夹路径构造）
+    std::map<std::pair<int,int>, std::pair<QPixmap, QPixmap>> grid_thumbnails_;  // {orig, neg}
     QPixmap stitched_pixmap_, detected_pixmap_;
     QLabel* fullscreen_dlg_ = nullptr;
+    QPushButton* negative_toggle_btn_ = nullptr;  // 拼接结果显示切换按钮
+    bool stitch_showing_negative_ = false;         // 当前是否显示负片拼接结果
+    bool scan_showing_negative_ = false;          // 扫描网格负片显示
     bool camera_fullscreen_active_ = false;
     bool detect_fullscreen_active_ = false;
     bool model_loaded_ = false;
@@ -114,6 +124,8 @@ private:
 
     QFuture<cv::Mat> stitching_future_;
     QFutureWatcher<cv::Mat> stitching_watcher_;
+    QFuture<cv::Mat> negative_stitching_future_;
+    QFutureWatcher<cv::Mat> negative_stitching_watcher_;
 
     struct DetectionResult {
         cv::Mat frame;

@@ -31,6 +31,7 @@
 #include <QScrollArea>
 #include <QSplitter>
 #include <filesystem>
+#include <regex>
 
 MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     : QMainWindow(parent)
@@ -68,6 +69,8 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     ui_->zeroButton->setEnabled(false);
     ui_->cellMoveCheck->setEnabled(false);
     ui_->cellMoveCheck->setChecked(false);
+    ui_->scanNegativeCheck->setEnabled(false);
+    ui_->scanNegativeCheck->setChecked(false);
     ui_->toolbarEmergStopBtn->setEnabled(false);
     ui_->speedSpin->setValue(ConfigManager::instance().defaultSpeed());
 
@@ -90,6 +93,9 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
 
     connect(&stitching_watcher_, &QFutureWatcher<cv::Mat>::finished, this, &MainWindow::onStitchingFinished);
     connect(&detection_watcher_, &QFutureWatcher<DetectionResult>::finished, this, &MainWindow::onDetectionFinished);
+    connect(&negative_stitching_watcher_, &QFutureWatcher<cv::Mat>::finished, this, [this]() {
+        onNegativeStitchingFinished();
+    });
     connect(&manual_detect_watcher_, &QFutureWatcher<DetectionResult>::finished, this, [this]() {
         DetectionResult result = manual_detect_future_.result();
         if (!result.frame.empty()) {
@@ -168,6 +174,27 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
             container = nullptr;
         }
     }
+
+    // Negative film display toggle (in stitch area, after progress bar)
+    negative_toggle_btn_ = new QPushButton("显示负片结果", this);
+    negative_toggle_btn_->setCheckable(true);
+    negative_toggle_btn_->setVisible(false);
+    negative_toggle_btn_->setEnabled(false);
+    if (stitch_progress_->parentWidget()) {
+        auto* parentLayout = stitch_progress_->parentWidget()->layout();
+        if (parentLayout) {
+            parentLayout->addWidget(negative_toggle_btn_);
+        }
+    }
+    connect(negative_toggle_btn_, &QPushButton::toggled, this, [this](bool checked) {
+        stitch_showing_negative_ = checked;
+        const cv::Mat& mat = (checked && !stitched_result_negative_.empty())
+            ? stitched_result_negative_ : stitched_result_;
+        if (!mat.empty()) {
+            displayImageFullQuality(mat, ui_->stitchImageLabel, stitched_pixmap_);
+        }
+        negative_toggle_btn_->setText(checked ? "显示原始结果" : "显示负片结果");
+    });
 
     setupMenuNavigation();
     connectSignals();
@@ -263,6 +290,7 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
                 if (btnIdx >= 0) {
                     ui_->enableDetectionCheck->setText("实时检测");
                     tlay->insertWidget(btnIdx + 1, ui_->enableDetectionCheck);
+                    tlay->insertWidget(tlay->indexOf(ui_->enableDetectionCheck) + 1, ui_->scanNegativeCheck);
                 }
             }
         }
@@ -342,6 +370,8 @@ void MainWindow::connectSignals() {
             std::lock_guard<std::mutex> lock(s_movement_images_mutex_);
             s_movement_images_.clear();
         }
+        grid_thumbnails_.clear();
+        scan_base_dir_ = dir.toStdString();
         ui_->topCellsTable->clearContents();
 
         // Load images into cells
@@ -367,7 +397,13 @@ void MainWindow::connectSignals() {
             }
             cv::Mat thumb;
             cv::resize(cropped, thumb, cv::Size(50, 50), 0, 0, cv::INTER_AREA);
-            QPixmap pix = QPixmap::fromImage(cvMatToQImage(thumb));
+            QPixmap pixOrig = QPixmap::fromImage(cvMatToQImage(thumb));
+            // Negative thumbnail
+            cv::Mat thumbNeg;
+            cv::bitwise_not(thumb, thumbNeg);
+            QPixmap pixNeg = QPixmap::fromImage(cvMatToQImage(thumbNeg));
+            grid_thumbnails_[{row, col}] = {pixOrig, pixNeg};
+            QPixmap pix = scan_showing_negative_ ? pixNeg : pixOrig;
             auto* item = ui_->topCellsTable->item(row, col);
             if (item) {
                 auto* lbl = new QLabel();
@@ -380,6 +416,7 @@ void MainWindow::connectSignals() {
             }
         }
         appendLog(QString("已加载 %1 张图像: %2").arg(cellImages.size()).arg(dir), "INFO");
+        ui_->scanNegativeCheck->setEnabled(true);
     });
 
     connect(ui_->actionImportConfig, &QAction::triggered, this, [this]() {
@@ -535,6 +572,15 @@ void MainWindow::connectSignals() {
         }
     });
 
+    // ---- 扫描网格负片显示 ----
+    connect(ui_->scanNegativeCheck, &QCheckBox::toggled, this, [this](bool checked) {
+        scan_showing_negative_ = checked;
+        for (auto& [rc, pixmaps] : grid_thumbnails_) {
+            auto* lbl = qobject_cast<QLabel*>(ui_->topCellsTable->cellWidget(rc.first, rc.second));
+            if (lbl) lbl->setPixmap(checked ? pixmaps.second : pixmaps.first);
+        }
+    });
+
     // ---- 扫描页面: 机械臂 ----
     connect(ui_->armToggleButton, &QPushButton::clicked, this, [this]() {
         if (ctrl_.armController().isConnected()) {
@@ -615,8 +661,23 @@ void MainWindow::connectSignals() {
     });
     connect(&ctrl_, &AppController::stitchingFinished, this, [this](const cv::Mat& result) {
         stitched_result_ = result;
+        stitched_result_negative_ = cv::Mat();  // 清除旧负片结果
         displayImageFullQuality(result, ui_->stitchImageLabel, stitched_pixmap_);
         ui_->quickSaveBtn->setEnabled(true);
+        if (negative_toggle_btn_) {
+            negative_toggle_btn_->setVisible(false);
+            negative_toggle_btn_->setEnabled(false);
+            negative_toggle_btn_->setChecked(false);
+        }
+        stitch_showing_negative_ = false;
+
+        // 如果扫描目录中存在负片图像，异步拼接
+        if (!scan_base_dir_.empty() && hasNegativeImages(scan_base_dir_)) {
+            int gx = ConfigManager::instance().gridSizeX();
+            int gy = ConfigManager::instance().gridSizeY();
+            appendLog("检测到负片图像，开始负片拼接...", "INFO");
+            startNegativeStitching(scan_base_dir_, cv::Size(gx, gy));
+        }
     });
 
     // Camera preview (event-driven, replaces QTimer polling)
@@ -803,9 +864,20 @@ void MainWindow::on_captureImage() {
                       + "/ScannerData/captures";
         QDir().mkpath(dir);
         auto now = QDateTime::currentDateTime();
-        QString filename = dir + "/capture_" + now.toString("yyyyMMdd_HHmmss") + ".jpg";
+        QString ts = now.toString("yyyyMMdd_HHmmss");
+        QString filename = dir + "/capture_" + ts + ".jpg";
         cv::imwrite(filename.toStdString(), frame);
         appendLog(QString("捕获已保存: %1").arg(filename), "INFO");
+
+        // 负片版本（始终保存）
+        {
+            cv::Mat neg;
+            cv::bitwise_not(frame, neg);
+            QString negDir = dir + "/negative";
+            QDir().mkpath(negDir);
+            QString negFn = negDir + "/capture_" + ts + ".jpg";
+            cv::imwrite(negFn.toStdString(), neg);
+        }
     }
 }
 
@@ -852,6 +924,7 @@ void MainWindow::onArmConnectFinished() {
         ui_->emergStopBtn->setEnabled(true);
         ui_->toolbarEmergStopBtn->setEnabled(true);
         ui_->quickScanBtn->setEnabled(true);
+        ui_->scanNegativeCheck->setEnabled(true);
         ui_->zeroButton->setEnabled(true);
     } else {
         ui_->armStatusLabel->setText(QString::fromUtf8("●"));
@@ -948,24 +1021,49 @@ bool MainWindow::isArmAtZero() {
 void MainWindow::startScanSequence() {
     auto& cfg = ConfigManager::instance();
     cv::Size gs(cfg.gridSizeX(), cfg.gridSizeY());
+    scan_base_dir_.clear();  // 新扫描开始，清除旧目录
+    grid_thumbnails_.clear();
 
     ctrl_.movementController().setImageSaveCallback([this](const cv::Mat& frame, const std::string& path, int row, int col) {
+        // Track scan base directory for later stitching
+        if (scan_base_dir_.empty()) scan_base_dir_ = path;
+        // Ensure original/ and negative/ subdirectories exist
+        std::string origDir = path + "/original";
+        std::string negDir  = path + "/negative";
+        static bool dirs_created = false;
+        if (!dirs_created) {
+            std::filesystem::create_directories(origDir);
+            std::filesystem::create_directories(negDir);
+            dirs_created = false; // reset for next call (static but scoped per lambda)
+            // Actually, create_directories is idempotent — just call every time
+        }
+        std::filesystem::create_directories(origDir);
+        std::filesystem::create_directories(negDir);
+
         // Display numbering: 1-indexed, columns right-to-left
         int gx = ConfigManager::instance().gridSizeX();
         int dispRow = row + 1;
-        int dispCol = gx - col;  // physical col 0 → display col gx, physical col (gx-1) → display col 1
-        std::string fn = path + "/" + std::to_string(dispRow) + "_" + std::to_string(dispCol) + ".jpg";
+        int dispCol = gx - col;
+
+        // Save full-resolution original
+        std::string fn = origDir + "/" + std::to_string(dispRow) + "_" + std::to_string(dispCol) + ".jpg";
         bool ok = cv::imwrite(fn, frame);
+        // Save full-resolution negative (always)
+        {
+            cv::Mat negFrame;
+            cv::bitwise_not(frame, negFrame);
+            std::string negFn = negDir + "/" + std::to_string(dispRow) + "_" + std::to_string(dispCol) + ".jpg";
+            cv::imwrite(negFn, negFrame);
+        }
         if (ok) {
             // Store with display coordinates (reverse column for table)
-            int tableCol = gx - 1 - col; // table column index (col 0 = leftmost)
+            int tableCol = gx - 1 - col;
             {
                 std::lock_guard<std::mutex> lock(s_movement_images_mutex_);
                 s_movement_images_[{row, tableCol}] = fn;
             }
-            // Thumbnail generation in scan thread: avoid passing full-res frame to UI
+            // Generate BOTH original and negative thumbnails for instant toggling
             if (row < 10 && tableCol < 10) {
-                // Center-crop to match stitching behavior, then resize to thumbnail
                 int cropSize = ConfigManager::instance().centerCropSize();
                 cv::Mat cropped;
                 if (cropSize > 0 && cropSize < frame.cols && cropSize < frame.rows) {
@@ -975,9 +1073,20 @@ void MainWindow::startScanSequence() {
                 } else {
                     cropped = frame;
                 }
-                cv::Mat thumb;
-                cv::resize(cropped, thumb, cv::Size(50, 50), 0, 0, cv::INTER_AREA);
-                QPixmap pix = QPixmap::fromImage(cvMatToQImage(thumb));
+                // Original thumbnail
+                cv::Mat thumbOrig;
+                cv::resize(cropped, thumbOrig, cv::Size(50, 50), 0, 0, cv::INTER_AREA);
+                QPixmap pixOrig = QPixmap::fromImage(cvMatToQImage(thumbOrig));
+                // Negative thumbnail
+                cv::Mat thumbNeg;
+                cv::bitwise_not(thumbOrig, thumbNeg);
+                QPixmap pixNeg = QPixmap::fromImage(cvMatToQImage(thumbNeg));
+                // Store both
+                {
+                    std::lock_guard<std::mutex> lock(s_movement_images_mutex_);
+                    grid_thumbnails_[{row, tableCol}] = {pixOrig, pixNeg};
+                }
+                QPixmap pix = scan_showing_negative_ ? pixNeg : pixOrig;
                 QMetaObject::invokeMethod(this, [this, row, tableCol, pix]() {
                     auto* item = ui_->topCellsTable->item(row, tableCol);
                     if (item) {
@@ -1177,6 +1286,7 @@ void MainWindow::on_stitchRun() {
     if (dlg.exec() != QDialog::Accepted || pathEdit->text().isEmpty()) return;
 
     std::string dirPath = pathEdit->text().toStdString();
+    last_scan_dir_ = dirPath;  // 记录目录用于负片拼接
 
     // Use position-based loading: parse row_col from filenames (like docs/stitch.py)
     cv::Size detectedGrid = gs;
@@ -1264,6 +1374,13 @@ void MainWindow::onStitchingFinished() {
         ui_->statusLabel->setText("拼接完成");
         QMessageBox::information(this, "拼接完成",
             QString("图像拼接已完成！\n已保存至：%1").arg(savePath));
+
+        // 触发负片拼接
+        if (!last_scan_dir_.empty() && hasNegativeImages(last_scan_dir_)) {
+            int gx = ConfigManager::instance().gridSizeX();
+            int gy = ConfigManager::instance().gridSizeY();
+            startNegativeStitching(last_scan_dir_, cv::Size(gx, gy));
+        }
     } else {
         ui_->statusLabel->setText("拼接失败");
         QMessageBox::warning(this, "拼接失败", "图像拼接失败，请检查图像文件。");
@@ -1286,7 +1403,9 @@ void MainWindow::on_stitchSettings() {
 }
 
 void MainWindow::on_saveStitch() {
-    if (stitched_result_.empty()) {
+    const cv::Mat& saveMat = (stitch_showing_negative_ && !stitched_result_negative_.empty())
+        ? stitched_result_negative_ : stitched_result_;
+    if (saveMat.empty()) {
         QMessageBox::warning(this, "警告", "没有拼接结果");
         return;
     }
@@ -1294,7 +1413,7 @@ void MainWindow::on_saveStitch() {
     QString defPath = ws + "/stitched.png";
     QString path = QFileDialog::getSaveFileName(this, "保存拼接结果", defPath,
         "PNG (*.png);;BMP (*.bmp);;TIFF (*.tiff)");
-    if (!path.isEmpty()) cv::imwrite(path.toStdString(), stitched_result_);
+    if (!path.isEmpty()) cv::imwrite(path.toStdString(), saveMat);
 }
 
 // ==================== Camera Preview (event-driven, via signal) ====================
@@ -1412,10 +1531,12 @@ void MainWindow::onMovementStatus(const arm::SMovementStatus& status) {
             scan_stopped_by_user_ = false;
             appendLog("S型扫描已停止", "WARN");
             ui_->statusLabel->setText("扫描已停止");
+            ui_->scanNegativeCheck->setEnabled(true);
         } else {
             appendLog("S型扫描完成", "INFO");
             ui_->statusLabel->setText("扫描完成");
             QMessageBox::information(this, "扫描完成", "扫描已完成！");
+            ui_->scanNegativeCheck->setEnabled(true);
         }
     }
 }
@@ -1531,7 +1652,20 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                 if (it != s_movement_images_.end()) img_path = it->second;
             }
             if (!img_path.empty()) {
-                cv::Mat img = cv::imread(img_path);
+                // If showing negative, reconstruct path to negative/ subfolder
+                std::string loadPath = img_path;
+                if (scan_showing_negative_ && !scan_base_dir_.empty()) {
+                    int gx = ConfigManager::instance().gridSizeX();
+                    int dispRow = row + 1;
+                    int dispCol = col + 1;  // table col 0-based → display col 1-based
+                    loadPath = scan_base_dir_ + "/negative/" + std::to_string(dispRow)
+                             + "_" + std::to_string(dispCol) + ".jpg";
+                }
+                cv::Mat img = cv::imread(loadPath);
+                // Fallback to original if negative file doesn't exist
+                if (img.empty() && scan_showing_negative_) {
+                    img = cv::imread(img_path);
+                }
                 if (!img.empty()) {
                     auto* dlg = new QLabel(nullptr, Qt::Window | Qt::FramelessWindowHint);
                     preview_dlg_ = dlg;
@@ -1612,6 +1746,82 @@ void MainWindow::showImageFullscreen(const QPixmap& pixmap) {
     dlg->installEventFilter(this);
     dlg->showFullScreen();
     fullscreen_dlg_ = dlg;
+}
+
+// ── Negative Film Helpers ─────────────────────────────────────────────
+
+bool MainWindow::hasNegativeImages(const std::string& directory) const {
+    if (directory.empty()) return false;
+    try {
+        std::string negDir = directory + "/negative";
+        if (!std::filesystem::exists(negDir)) return false;
+        for (const auto& entry : std::filesystem::directory_iterator(negDir)) {
+            if (entry.is_regular_file()) return true;
+        }
+    } catch (...) {}
+    return false;
+}
+
+void MainWindow::startNegativeStitching(const std::string& directory, const cv::Size& grid_size) {
+    std::string negDir = directory + "/negative";
+    negative_stitching_future_ = QtConcurrent::run([this, negDir, grid_size]() -> cv::Mat {
+        std::regex pattern(R"(^(\d+)_(\d+))");
+        std::vector<stitch::PositionedImage> positioned;
+        int maxRow = 0, maxCol = 0;
+
+        try {
+            for (const auto& entry : std::filesystem::directory_iterator(negDir)) {
+                if (!entry.is_regular_file()) continue;
+                std::string ext = entry.path().extension().string();
+                std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                if (ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".bmp") continue;
+
+                std::string stem = entry.path().stem().string();
+                stem.erase(std::remove(stem.begin(), stem.end(), ' '), stem.end());
+
+                std::smatch match;
+                if (std::regex_search(stem, match, pattern)) {
+                    int row = std::stoi(match[1].str());
+                    int col = std::stoi(match[2].str());
+                    cv::Mat img = cv::imread(entry.path().string());
+                    if (!img.empty()) {
+                        stitch::PositionedImage pi;
+                        pi.image = img;
+                        pi.row = row - 1;  // 1-indexed → 0-indexed
+                        pi.col = col - 1;
+                        positioned.push_back(pi);
+                        maxRow = std::max(maxRow, row);
+                        maxCol = std::max(maxCol, col);
+                    }
+                }
+            }
+        } catch (const std::exception& e) {
+            SPDLOG_ERROR("Error loading negative images: {}", e.what());
+            return cv::Mat();
+        }
+
+        if (positioned.empty()) return cv::Mat();
+        cv::Size detectedGrid(maxCol, maxRow);
+        ctrl_.stitcher().setCenterCropSize(ConfigManager::instance().centerCropSize());
+        return ctrl_.stitcher().stitchImagesWithPositions(positioned, detectedGrid);
+    });
+    negative_stitching_watcher_.setFuture(negative_stitching_future_);
+}
+
+void MainWindow::onNegativeStitchingFinished() {
+    cv::Mat negResult = negative_stitching_future_.result();
+    if (!negResult.empty()) {
+        stitched_result_negative_ = negResult;
+        if (negative_toggle_btn_) {
+            negative_toggle_btn_->setVisible(true);
+            negative_toggle_btn_->setEnabled(true);
+            negative_toggle_btn_->setChecked(false);
+            negative_toggle_btn_->setText("显示负片结果");
+        }
+        appendLog("负片拼接完成", "INFO");
+    } else {
+        appendLog("负片拼接失败或无负片图像", "WARN");
+    }
 }
 
 #ifdef _WIN32

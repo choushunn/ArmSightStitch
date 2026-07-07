@@ -220,8 +220,8 @@ void WorkflowManager::onSMovementFinished() {
     auto& cfg = ConfigManager::instance();
     std::string basePath = cfg.imageSaveBasePath();
 
-    std::string loadPath = infra::findLatestRunDir(basePath);
-    if (loadPath.empty()) loadPath = basePath;
+    std::string runDir = infra::findLatestRunDir(basePath);
+    std::string loadPath = runDir.empty() ? basePath : runDir + "/original";
 
     // Use position-based loading: parse row_col from filenames, auto-detect grid
     cv::Size detected_grid = grid_size_;
