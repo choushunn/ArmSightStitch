@@ -1,6 +1,5 @@
 #pragma once
 
-#include <thread>
 #include <mutex>
 #include <atomic>
 #include <toupcam.h>
@@ -57,25 +56,29 @@ signals:
     void cameraError(const QString& msg);
 
 private:
-    static void __stdcall eventCallback(unsigned nEvent, void* ctx);
-    void handleEvent(unsigned nEvent);
-    void handleFrame();
-    void updateFinalSize();
+    // Push Mode: SDK pushes frame data (zero-copy, no PullImageV4 overhead)
+    static void __stdcall pushDataCallback(const void* pData, const ToupcamFrameInfoV3* pInfo, int bSnap, void* ctx);
+    static void __stdcall pushEventCallback(unsigned nEvent, void* ctx);
+    void handlePushEvent(unsigned nEvent);
+
     void updateStatus(bool is_connected, const std::string& message);
+
+    // Frame capture: pushDataCallback stores full-res copy, captureTriggerFrame reads it
+    std::mutex frame_mutex_;
+    cv::Mat latest_full_frame_;
 
     HToupcam hcam_ = nullptr;
     std::atomic<bool> connected_ = false;
     std::atomic<bool> capturing_ = false;
+    std::atomic<bool> push_active_ = false;
     mutable std::mutex status_mutex_;
     std::function<void(const CameraStatus&)> status_callback_;
     CameraStatus current_status_;
     std::vector<CameraDevice> available_cameras_;
-    std::vector<uint8_t> pull_buffer_;
-    std::mutex capture_mutex_;
+
     int image_width_ = 0;
     int image_height_ = 0;
-    int final_width_ = 0;
-    int final_height_ = 0;
+    int rotation_ = 0;  // software: 0/90/180/270
 };
 
 } // namespace camera

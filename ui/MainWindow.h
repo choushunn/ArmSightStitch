@@ -9,6 +9,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QProgressBar>
+#include <QProgressDialog>
 #include <QRadioButton>
 #include <QSpinBox>
 #include <QTextEdit>
@@ -106,6 +107,10 @@ private:
     bool detect_fullscreen_active_ = false;
     bool model_loaded_ = false;
     bool image_detection_enabled_ = false;
+    bool scanning_ = false;
+    bool scan_was_running_ = false; // tracks if SMovement actually started
+    QWidget* preview_dlg_ = nullptr; // grid cell fullscreen preview
+    QProgressDialog* stitch_progress_dlg_ = nullptr;
 
     QFuture<cv::Mat> stitching_future_;
     QFutureWatcher<cv::Mat> stitching_watcher_;
@@ -131,6 +136,9 @@ private:
     // Stitch algorithm radio buttons in toolbar
     QRadioButton* algo1Radio_ = nullptr;
     QRadioButton* algo2Radio_ = nullptr;
+
+    // Camera preview toggle in toolbar
+    QCheckBox* camera_preview_check_ = nullptr;
 
     // FPS tracking for camera overlay
     qint64 last_fps_timestamp_ = 0;
