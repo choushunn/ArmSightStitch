@@ -208,7 +208,14 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     connectSignals();
 
     // Wire module callbacks
-    ctrl_.cameraHandler().setStatusCallback([this](const camera::CameraStatus&) {});
+    ctrl_.cameraHandler().setStatusCallback([this](const camera::CameraStatus& s) {
+        if (!s.status_message.empty()) {
+            QString lvl = s.connected ? "INFO" : "ERROR";
+            QMetaObject::invokeMethod(this, [this, msg = QString::fromStdString(s.status_message), lvl]() {
+                appendLog("相机: " + msg, lvl);
+            }, Qt::QueuedConnection);
+        }
+    });
     ctrl_.armController().setStatusCallback([this](const arm::ArmStatus& s) {
         QMetaObject::invokeMethod(this, "onArmStatusChanged", Q_ARG(const arm::ArmStatus&, s));
     });
@@ -975,6 +982,7 @@ void MainWindow::startScanSequence() {
     if (ctrl_.startSMovement(gs, cfg.stepSize(), cfg.zHeight())) {
         // Freeze preview during scan — captureTriggerFrame manages stream internally
         scanning_ = true;
+        scan_stopped_by_user_ = false;
         ui_->cameraImageLabel->clear();
         ui_->cameraImageLabel->setText("扫描中...");
         ui_->quickScanBtn->setText("停止扫描");
@@ -986,6 +994,7 @@ void MainWindow::startScanSequence() {
 
 void MainWindow::on_toggleStartStopSMovement() {
     if (ctrl_.movementController().getStatus().running) {
+        scan_stopped_by_user_ = true;
         ctrl_.stopSMovement();
         ui_->quickScanBtn->setText("开始扫描");
         ui_->quickPauseBtn->setEnabled(false);
@@ -1320,8 +1329,15 @@ void MainWindow::onArmStatusChanged(const arm::ArmStatus& status) {
 }
 
 void MainWindow::onMovementStatus(const arm::SMovementStatus& status) {
-    appendLog(QString::fromStdString(status.status_message), "INFO");
-    if (status.total_points > 0) {
+    // Throttle per-point updates: only log meaningful status changes
+    if (!status.status_message.empty()
+        && status.status_message.find("Moving") == std::string::npos
+        && status.status_message.find("Arrived") == std::string::npos) {
+        appendLog(QString::fromStdString(status.status_message), "INFO");
+    }
+    // Throttle progress: update every 5 points or at completion
+    if (status.total_points > 0
+        && (status.current_point % 5 == 0 || status.current_point >= status.total_points)) {
         appendLog(QString("采集进度: %1/%2").arg(status.current_point).arg(status.total_points), "INFO");
     }
 
@@ -1331,7 +1347,6 @@ void MainWindow::onMovementStatus(const arm::SMovementStatus& status) {
     // Reset UI when S-movement completes or is stopped (only if it was running)
     if (!status.running && !status.paused && scan_was_running_) {
         scan_was_running_ = false;
-        // Resume camera preview — captureTriggerFrame already resumed the stream
         scanning_ = false;
         if (ctrl_.cameraHandler().isConnected()) {
             ui_->cameraImageLabel->clear();
@@ -1339,9 +1354,16 @@ void MainWindow::onMovementStatus(const arm::SMovementStatus& status) {
         ui_->quickScanBtn->setText("开始扫描");
         ui_->quickPauseBtn->setEnabled(false);
         ui_->quickPauseBtn->setText("暂停扫描");
-        appendLog("S型扫描完成", "INFO");
-        ui_->statusLabel->setText("扫描完成");
-        QMessageBox::information(this, "扫描完成", "扫描已完成！");
+
+        if (scan_stopped_by_user_) {
+            scan_stopped_by_user_ = false;
+            appendLog("S型扫描已停止", "WARN");
+            ui_->statusLabel->setText("扫描已停止");
+        } else {
+            appendLog("S型扫描完成", "INFO");
+            ui_->statusLabel->setText("扫描完成");
+            QMessageBox::information(this, "扫描完成", "扫描已完成！");
+        }
     }
 }
 

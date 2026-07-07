@@ -108,7 +108,8 @@ private:
     bool model_loaded_ = false;
     bool image_detection_enabled_ = false;
     bool scanning_ = false;
-    bool scan_was_running_ = false; // tracks if SMovement actually started
+    bool scan_was_running_ = false;
+    bool scan_stopped_by_user_ = false;
     QWidget* preview_dlg_ = nullptr; // grid cell fullscreen preview
     QProgressDialog* stitch_progress_dlg_ = nullptr;
 

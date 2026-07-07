@@ -291,8 +291,7 @@ void SMovementController::movementThread() {
                 // Update current position
                 current_status_.current_position = point;
                 
-                // Update status
-                updateStatus("Moving to point " + std::to_string(i + 1) + " of " + std::to_string(movement_path_.size()));
+                SPDLOG_INFO("Moving to point {} of {}", i + 1, movement_path_.size());
                 updateAction("Moving");
                 
                 // 直接向机械臂发送固定点
@@ -313,8 +312,7 @@ void SMovementController::movementThread() {
                 }
                 if (stop_requested_) break;
 
-                // 更新状态栏显示到达目标
-                updateStatus("Arrived at target, capturing...");
+                SPDLOG_INFO("Arrived at point {}, capturing", i + 1);
                 updateAction("Capturing");
 
                 // 机械臂稳定等待时间
