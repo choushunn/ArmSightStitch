@@ -451,6 +451,12 @@
             </widget>
            </item>
            <item>
+            <widget class="QCheckBox" name="scanNegativeCheck">
+             <property name="text"><string>负片显示</string></property>
+             <property name="enabled"><bool>false</bool></property>
+            </widget>
+           </item>
+           <item>
             <spacer name="toolbarSpacer">
              <property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property>
              <property name="sizeHint" stdset="0">
