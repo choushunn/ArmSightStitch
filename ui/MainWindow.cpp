@@ -347,19 +347,25 @@ void MainWindow::connectSignals() {
             return;
         }
 
-        // Parse filename pattern {row}_{col}.jpg to build image map
+        // Parse filename pattern {row}_{col}[_{z}].jpg to build image map.
+        // Matches the stitcher's regex so folders produced by this app's scan
+        // (which save as {row}_{col}_{z}.jpg) load correctly, and legacy
+        // {row}_{col}.jpg files still work.
         std::map<std::pair<int,int>, cv::Mat> cellImages;
+        std::map<std::pair<int,int>, QString> cellFiles;  // remember the actual file per cell
+        std::regex namePattern(R"(^(\d+)_(\d+)(?:_(\d+))?$)");
         QDir qdir(dir);
         for (const auto& fi : qdir.entryInfoList({"*.jpg", "*.png", "*.bmp"}, QDir::Files)) {
-            QString name = fi.baseName(); // e.g. "0_1"
-            int us = name.indexOf('_');
-            if (us < 0) continue;
-            bool okR, okC;
-            int r = name.left(us).toInt(&okR);
-            int c = name.mid(us+1).toInt(&okC);
-            if (!okR || !okC) continue;
+            std::string name = fi.baseName().toStdString(); // e.g. "0_1" or "0_1_75000"
+            std::smatch m;
+            if (!std::regex_match(name, m, namePattern)) continue;
+            int r = std::stoi(m[1].str());
+            int c = std::stoi(m[2].str());
             cv::Mat img = cv::imread(fi.absoluteFilePath().toStdString());
-            if (!img.empty()) cellImages[{r, c}] = img;
+            if (!img.empty()) {
+                cellImages[{r, c}] = img;
+                cellFiles[{r, c}] = fi.absoluteFilePath();
+            }
         }
         if (cellImages.empty()) {
             QMessageBox::warning(this, "警告", "文件夹中没有 {row}_{col}.jpg 格式的图像。");
@@ -380,7 +386,7 @@ void MainWindow::connectSignals() {
             int row = rc.first, col = rc.second;
             if (row >= gs.height || col >= gs.width) continue;
 
-            std::string fn = dir.toStdString() + "/" + std::to_string(row) + "_" + std::to_string(col) + ".jpg";
+            std::string fn = cellFiles[{row, col}].toStdString();  // actual file on disk
             {
                 std::lock_guard<std::mutex> lock(s_movement_images_mutex_);
                 s_movement_images_[{row, col}] = fn;
@@ -428,8 +434,17 @@ void MainWindow::connectSignals() {
         }
     });
     connect(ui_->actionExportConfig, &QAction::triggered, this, [this]() {
-        ConfigManager::instance().saveToFile("config_export.json");
-        ui_->statusLabel->setText("配置已导出");
+        // Symmetric with 导入配置: let the user choose where to write, defaulting to
+        // the app directory's config.json (the same file the app actually loads).
+        QString defPath = QCoreApplication::applicationDirPath() + "/config.json";
+        QString path = QFileDialog::getSaveFileName(this, "导出配置", defPath, "JSON (*.json)");
+        if (path.isEmpty()) return;
+        if (ConfigManager::instance().saveToFile(path.toStdString())) {
+            ui_->statusLabel->setText("配置已导出: " + path);
+            appendLog("配置已导出: " + path, "INFO");
+        } else {
+            QMessageBox::warning(this, "警告", "配置导出失败");
+        }
     });
     connect(ui_->actionExit, &QAction::triggered, this, &QWidget::close);
 
