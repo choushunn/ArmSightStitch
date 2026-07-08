@@ -9,11 +9,12 @@
 
 namespace stitch {
 
-/// Image with its grid position parsed from filename (row_col.jpg)
+/// Image with its grid position parsed from filename (row_col.jpg or row_col_z.jpg)
 struct PositionedImage {
     cv::Mat image;
     int row = 0;  // 0-indexed grid row
     int col = 0;  // 0-indexed grid column
+    int z = 0;    // Z-axis height (pulses) at capture time; 0 = unknown
 };
 
 class IStitcher {

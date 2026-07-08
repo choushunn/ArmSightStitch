@@ -1,6 +1,7 @@
 #include "ImageStitcher.h"
 #include "GridStitchAlgorithm.h"
 #include "FeatureStitchAlgorithm.h"
+#include "ZScaleGridStitchAlgorithm.h"
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
@@ -36,6 +37,7 @@ static bool naturalCompare(const std::string& a, const std::string& b) {
 ImageStitcher::ImageStitcher()
     : algo1_(std::make_unique<GridStitchAlgorithm>())
     , algo2_(std::make_unique<FeatureStitchAlgorithm>())
+    , algo3_(std::make_unique<ZScaleGridStitchAlgorithm>())
 {
     result_image_ = cv::Mat();
     // Default to algorithm 1, forwarding callbacks
@@ -47,8 +49,10 @@ ImageStitcher::ImageStitcher()
 ImageStitcher::~ImageStitcher() = default;
 
 void ImageStitcher::setAlgorithm(int algo) {
-    auto* next = (algo == 1) ? algo2_.get() : algo1_.get();
-    if (algo != 0 && algo != 1) {
+    auto* next = (algo == 1) ? algo2_.get()
+               : (algo == 2) ? algo3_.get()
+               : algo1_.get();
+    if (algo != 0 && algo != 1 && algo != 2) {
         SPDLOG_WARN("Unknown stitch algorithm {}, defaulting to 0", algo);
         next = algo1_.get();
     }
@@ -62,6 +66,8 @@ void ImageStitcher::setAlgorithm(int algo) {
 void ImageStitcher::setCropMargin(int pixels) {
     auto* grid = dynamic_cast<GridStitchAlgorithm*>(algo1_.get());
     if (grid) grid->setCropMargin(pixels);
+    auto* zgrid = dynamic_cast<ZScaleGridStitchAlgorithm*>(algo3_.get());
+    if (zgrid) zgrid->setCropMargin(pixels);
 }
 
 void ImageStitcher::setCenterCropSize(int pixels) {
@@ -69,6 +75,8 @@ void ImageStitcher::setCenterCropSize(int pixels) {
     if (grid) grid->setCenterCropSize(pixels);
     auto* feat = dynamic_cast<FeatureStitchAlgorithm*>(algo2_.get());
     if (feat) feat->setCenterCropSize(pixels);
+    auto* zgrid = dynamic_cast<ZScaleGridStitchAlgorithm*>(algo3_.get());
+    if (zgrid) zgrid->setCenterCropSize(pixels);
 }
 
 bool ImageStitcher::stitchImagesFromDirectory(const std::string& input_dir,
@@ -133,18 +141,23 @@ cv::Mat ImageStitcher::stitchImages(const std::vector<cv::Mat>& images,
 
 cv::Mat ImageStitcher::stitchImagesWithPositions(const std::vector<PositionedImage>& positioned,
                                                   const cv::Size& grid_size) {
-    // Separate images and positions for the algorithm call
+    // Separate images, positions, and Z values for the algorithm call
     std::vector<cv::Mat> images;
     std::vector<std::pair<int, int>> positions;
+    std::vector<int> zValues;
     images.reserve(positioned.size());
     positions.reserve(positioned.size());
+    zValues.reserve(positioned.size());
     for (const auto& p : positioned) {
         images.push_back(p.image);
         positions.emplace_back(p.row, p.col);
+        zValues.push_back(p.z);
     }
 
     cv::Mat result;
-    if (auto* grid = dynamic_cast<GridStitchAlgorithm*>(current_algo_)) {
+    if (auto* zgrid = dynamic_cast<ZScaleGridStitchAlgorithm*>(current_algo_)) {
+        result = zgrid->stitchWithPositions(images, positions, zValues, grid_size);
+    } else if (auto* grid = dynamic_cast<GridStitchAlgorithm*>(current_algo_)) {
         result = grid->stitchWithPositions(images, positions, grid_size);
     } else if (auto* feat = dynamic_cast<FeatureStitchAlgorithm*>(current_algo_)) {
         result = feat->stitchWithPositions(images, positions, grid_size);
@@ -218,12 +231,14 @@ std::vector<PositionedImage> ImageStitcher::loadImagesWithPositions(const std::s
             return result;
         }
 
-        // Regex to match "row_col" at start of filename (like stitch.py parse_row_col)
-        std::regex rowColPattern(R"(^(\d+)_(\d+))");
+        // Regex to match "row_col" or "row_col_z" at start of filename (like stitch.py parse_row_col)
+        std::regex rowColPattern(R"(^(\d+)_(\d+)(?:_(\d+))?)");
 
         int maxRow = -1;
         int maxCol = -1;
-        std::vector<std::pair<std::string, std::pair<int, int>>> found; // path, (row, col)
+        bool hasZValues = false;
+        // path, row, col, z
+        std::vector<std::tuple<std::string, int, int, int>> found;
 
         for (const auto& entry : std::filesystem::directory_iterator(input_dir)) {
             if (!entry.is_regular_file()) continue;
@@ -240,7 +255,12 @@ std::vector<PositionedImage> ImageStitcher::loadImagesWithPositions(const std::s
             if (std::regex_search(stem, match, rowColPattern)) {
                 int row = std::stoi(match[1].str());
                 int col = std::stoi(match[2].str());
-                found.emplace_back(entry.path().string(), std::make_pair(row, col));
+                int z = 0;
+                if (match[3].matched) {
+                    z = std::stoi(match[3].str());
+                    hasZValues = true;
+                }
+                found.emplace_back(entry.path().string(), row, col, z);
                 maxRow = std::max(maxRow, row);
                 maxCol = std::max(maxCol, col);
             }
@@ -254,17 +274,18 @@ std::vector<PositionedImage> ImageStitcher::loadImagesWithPositions(const std::s
         // Convert 1-indexed display coordinates to 0-indexed (like stitch.py)
         // The filenames use display coordinates (1-indexed), we need 0-indexed for grid placement
         out_grid_size = cv::Size(maxCol, maxRow);  // width = max col, height = max row
-        SPDLOG_INFO("Detected grid: {}x{} from {} images", maxCol, maxRow, found.size());
+        SPDLOG_INFO("Detected grid: {}x{} from {} images (hasZ={})", maxCol, maxRow, found.size(), hasZValues);
 
         // Load images and build result
-        for (const auto& [path, rc] : found) {
+        for (const auto& [path, row, col, z] : found) {
             cv::Mat image = cv::imread(path);
             if (!image.empty()) {
                 PositionedImage pi;
                 pi.image = image;
                 // Filename is 1-indexed display coords; convert to 0-indexed
-                pi.row = rc.first - 1;
-                pi.col = rc.second - 1;
+                pi.row = row - 1;
+                pi.col = col - 1;
+                pi.z = z;
                 result.push_back(pi);
             }
         }

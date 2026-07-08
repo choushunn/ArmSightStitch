@@ -63,7 +63,7 @@ public:
      * @brief Set image save callback
      * @param callback Callback function to be called when image needs to be saved
      */
-    void setImageSaveCallback(std::function<bool(const cv::Mat&, const std::string&, int, int)> callback);
+    void setImageSaveCallback(std::function<bool(const cv::Mat&, const std::string&, int, int, int)> callback);
 
     /**
      * @brief Set status callback
@@ -129,6 +129,7 @@ private:
         std::string directory;
         int row;
         int col;
+        int z = 0;
     };
     /**
      * @brief Generate fixed point S movement path
@@ -197,7 +198,7 @@ private:
     
     // Callbacks
     std::function<bool(cv::Mat&)> image_capture_callback_;
-    std::function<bool(const cv::Mat&, const std::string&, int, int)> image_save_callback_;
+    std::function<bool(const cv::Mat&, const std::string&, int, int, int)> image_save_callback_;
     std::function<void(const SMovementStatus&)> status_callback_;
 };
 

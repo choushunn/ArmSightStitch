@@ -249,6 +249,7 @@ void WorkflowManager::onSMovementFinished() {
 
     // Apply center crop setting from config
     stitcher_.setCenterCropSize(cfg.centerCropSize());
+    stitcher_.setAlgorithm(cfg.stitchAlgorithm());
 
     // Direct position-based stitching (like docs/stitch.py)
     cv::Mat result = stitcher_.stitchImagesWithPositions(positioned, detected_grid);

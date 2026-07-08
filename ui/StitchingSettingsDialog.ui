@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>400</width>
-    <height>220</height>
+    <height>280</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -134,6 +134,35 @@
         <property name="text">
          <string notr="true">./captured_images</string>
         </property>
+       </widget>
+      </item>
+      <item row="4" column="0">
+       <widget class="QLabel" name="labelAlgorithm">
+        <property name="text">
+         <string>拼接算法:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="1">
+       <widget class="QComboBox" name="algorithmCombo">
+        <property name="toolTip">
+         <string>0=网格拼接(默认) 1=OpenCV特征匹配 2=Z轴缩放网格拼接</string>
+        </property>
+        <item>
+         <property name="text">
+          <string>0 - 网格拼接 (Grid)</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>1 - 特征匹配 (Feature)</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>2 - Z轴缩放网格 (Z-Scale)</string>
+         </property>
+        </item>
        </widget>
       </item>
      </layout>
