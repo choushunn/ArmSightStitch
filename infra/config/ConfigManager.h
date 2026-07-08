@@ -62,6 +62,10 @@ public:
     void setSphereHeightOffset(int d);
     void setZBaseHeight(int z);
 
+    // Scanning timing
+    int dwellTimeMs() const { return dwell_time_ms_; }
+    void setDwellTimeMs(int ms);
+
     // Stitching / crop
     int centerCropSize() const { return center_crop_size_; }
     void setCenterCropSize(int size);
@@ -122,6 +126,8 @@ private:
     int sphere_cap_height_ = 50000;
     int sphere_height_offset_ = 0;
     int z_base_height_ = 80000;
+
+    int dwell_time_ms_ = 20;
 
     std::string image_save_base_path_;
     std::string log_path_;

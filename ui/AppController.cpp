@@ -184,6 +184,7 @@ bool AppController::startSMovement(const cv::Size& gridSize, int stepSize, int z
     sm.setRunNumber(ok ? runNumber : 0);
     sm.setMovementSpeed(cfg.defaultSpeed());
     sm.setPositionTolerance(cfg.positionTolerance());
+    sm.setDwellTimeMs(cfg.dwellTimeMs());
 
     arm::SMovementPoint startPos = {0, 0, zHeight, 0, 0, 0, 0};
     arm::SMovementPoint endPos = {endX, endY, zHeight, 0, 0,

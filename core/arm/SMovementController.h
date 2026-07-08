@@ -112,6 +112,12 @@ public:
     void setSphereParams(int radius, int capHeight, int heightOffset, int zBase);
 
     /**
+     * @brief Set dwell time at each scan position
+     * @param ms Dwell time in milliseconds (0–5000)
+     */
+    void setDwellTimeMs(int ms);
+
+    /**
      * @brief Get saved images count
      * @return Number of saved images
      */
@@ -185,6 +191,9 @@ private:
     int sphere_cap_height_ = 50000;
     int sphere_height_offset_ = 0;
     int z_base_height_ = 80000;
+
+    // Scan timing
+    int dwell_time_ms_ = 20;
     
     // Callbacks
     std::function<bool(cv::Mat&)> image_capture_callback_;
