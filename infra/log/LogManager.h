@@ -31,6 +31,9 @@ public:
             auto logger = std::make_shared<spdlog::logger>("arm", sinks.begin(), sinks.end());
             logger->set_level(level);
             logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [%s:%#] %v");
+            // Flush every info-and-above record immediately so logs survive a crash
+            // or hard kill (important for diagnosing shutdown/GPU-teardown issues).
+            logger->flush_on(spdlog::level::info);
             set_default_logger(logger);
 
             SPDLOG_INFO("LogManager initialized (file: {})",

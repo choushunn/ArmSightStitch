@@ -89,7 +89,8 @@ bool CameraHandler::connect(const std::string& device_id) {
 
 void CameraHandler::disconnect() {
     if (hcam_) { capturing_ = false; push_active_ = false; Toupcam_Stop(hcam_); Toupcam_Close(hcam_); hcam_ = nullptr; }
-    connected_ = false; capturing_ = false; negative_ = false;
+    connected_ = false; capturing_ = false;
+    // Note: negative_ is a user preview preference (default on) — not reset on disconnect.
     updateStatus(false, "Disconnected from camera");
 }
 

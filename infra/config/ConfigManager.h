@@ -130,7 +130,7 @@ private:
     int sphere_height_offset_ = 0;
     int z_base_height_ = 80000;
 
-    int dwell_time_ms_ = 20;
+    int dwell_time_ms_ = 100;
 
     std::string image_save_base_path_;
     std::string log_path_;

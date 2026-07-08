@@ -81,7 +81,7 @@ private:
     int image_width_ = 0;
     int image_height_ = 0;
     int rotation_ = 0;  // software: 0/90/180/270
-    bool negative_ = false;  // software: preview-only negative film
+    bool negative_ = true;  // software: preview-only negative film (default on)
 };
 
 } // namespace camera
