@@ -29,7 +29,25 @@ bool YoloDetector::loadModel(const std::string& param_path, const std::string& b
     // Reset state first so a partial failure doesn't leave the detector
     // thinking a valid model is loaded (which would crash detect())
     model_loaded_ = false;
+    gpu_enabled_ = false;
     yolo_net_.clear();
+
+    // Try to use the GPU (Vulkan) when the ncnn build supports it and a compatible
+    // device is present. Falls back to CPU automatically otherwise. This must be set
+    // BEFORE load_param/load_model so weights are uploaded to the GPU at load time.
+#if NCNN_VULKAN
+    int gpu_count = ncnn::get_gpu_count();
+    if (gpu_count > 0) {
+        yolo_net_.opt.use_vulkan_compute = true;
+        gpu_enabled_ = true;
+        SPDLOG_INFO("NCNN Vulkan enabled: {} GPU(s) detected, using GPU inference", gpu_count);
+    } else {
+        yolo_net_.opt.use_vulkan_compute = false;
+        SPDLOG_WARN("NCNN built with Vulkan but no compatible GPU found, falling back to CPU");
+    }
+#else
+    SPDLOG_INFO("NCNN built without Vulkan support, using CPU inference");
+#endif
 
     // Load model
     int ret = yolo_net_.load_param(param_path.c_str());

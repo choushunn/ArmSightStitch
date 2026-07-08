@@ -111,6 +111,7 @@ private:
     };
     std::vector<int> strides_ = {8, 16, 32};
     bool model_loaded_ = false;
+    bool gpu_enabled_ = false;   // true when Vulkan compute is actually active for inference
 };
 
 } // namespace detector

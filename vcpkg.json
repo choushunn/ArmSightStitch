@@ -6,6 +6,11 @@
   "dependencies": [
     "opencv4",
     "spdlog",
-    "ncnn"
+    {
+      "name": "ncnn",
+      "features": [
+        "vulkan"
+      ]
+    }
   ]
 }
