@@ -66,6 +66,7 @@ infra/log/            — LogManager (spdlog: console + rotating file)
 | `ARM_SIGHT_STITCH_GRID_X` / `_Y` | `grid_size_x` / `_y` |
 | `ARM_SIGHT_STITCH_STEP_SIZE` | `step_size` |
 | `ARM_SIGHT_STITCH_GRID_HEIGHT` | `z_height` |
+| `ARM_SIGHT_STITCH_DWELL_TIME_MS` | `dwell_time_ms` |
 
 ## Key Build Details
 

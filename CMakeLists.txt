@@ -125,6 +125,7 @@ set(SOURCES
     ui/AppController.cpp
     ui/DetectionSettingsDialog.cpp
     ui/SphereSettingsDialog.h
+    ui/ScanParametersDialog.h
     ui/StitchingSettingsDialog.cpp
     core/arm/ModbusArmController.cpp
     core/arm/SMovementController.cpp

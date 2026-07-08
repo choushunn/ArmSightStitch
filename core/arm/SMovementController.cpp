@@ -176,6 +176,10 @@ void SMovementController::setPositionTolerance(double tolerance) {
     if (tolerance > 0) position_tolerance_ = tolerance;
 }
 
+void SMovementController::setDwellTimeMs(int ms) {
+    if (ms >= 0) dwell_time_ms_ = ms;
+}
+
 SMovementStatus SMovementController::getStatus() const {
     std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(status_mutex_));
     return current_status_;
@@ -352,13 +356,33 @@ void SMovementController::movementThread() {
                 }
                 if (stop_requested_) break;
 
-                SPDLOG_INFO("Arrived at point {}, capturing", i + 1);
-                updateAction("Capturing");
+                SPDLOG_INFO("Arrived at point {}, waiting dwell time before capture", i + 1);
+                updateAction("Stabilizing");
 
-                // 机械臂稳定等待时间
+                // 停留时间（可配置，默认20ms；到达后等待稳定再拍照；期间检查暂停/停止）
+                double dwell_sec = dwell_time_ms_ / 1000.0;
+                auto stay_start = std::chrono::steady_clock::now();
+                while (std::chrono::duration<double>(std::chrono::steady_clock::now() - stay_start).count() < dwell_sec) {
+                    if (stop_requested_) {
+                        SPDLOG_DEBUG("Movement stopped by user during dwell");
+                        break;
+                    }
+                    while (paused_ && !stop_requested_) {
+                        SPDLOG_DEBUG("Movement paused during dwell");
+                        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                    }
+                    if (stop_requested_) {
+                        break;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                }
+                if (stop_requested_) break;
+
+                // 机械臂额外稳定等待时间
                 std::this_thread::sleep_for(std::chrono::milliseconds(150));
 
                 // 确认到达目标位置后，拍摄照片
+                updateAction("Capturing");
                 bool image_captured = false;
                 cv::Mat frame;
 
@@ -397,27 +421,6 @@ void SMovementController::movementThread() {
                     updateStatus("Failed to capture image at point " + std::to_string(i + 1) + ", skipping");
                 }
 
-                // 最小化停留时间（仅检查暂停/停止）
-                auto stay_start = std::chrono::steady_clock::now();
-                while (std::chrono::duration<double>(std::chrono::steady_clock::now() - stay_start).count() < 0.02) {
-                    // 首先检查是否已经被停止
-                    if (stop_requested_) {
-                        SPDLOG_DEBUG("Movement stopped by user");
-                        break;
-                    }
-
-                    // 检查是否暂停
-                    while (paused_ && !stop_requested_) {
-                        SPDLOG_DEBUG("Movement paused");
-                        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                    }
-                    if (stop_requested_) {
-                        break;
-                    }
-
-                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                }
-                
                 // 检查是否暂停
                 while (paused_ && !stop_requested_) {
                     SPDLOG_DEBUG("Movement paused");

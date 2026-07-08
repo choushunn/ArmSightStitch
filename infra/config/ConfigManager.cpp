@@ -37,6 +37,7 @@ void ConfigManager::loadDefaults() {
     grid_size_y_ = 10;
     step_size_ = 43000;
     z_height_ = 80000;
+    dwell_time_ms_ = 20;
 
 {
     QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
@@ -72,6 +73,7 @@ void ConfigManager::applyEnvironmentOverrides() {
     env_override_int("ARM_SIGHT_STITCH_GRID_Y", grid_size_y_);
     env_override_int("ARM_SIGHT_STITCH_STEP_SIZE", step_size_);
     env_override_int("ARM_SIGHT_STITCH_Z_HEIGHT", z_height_);
+    env_override_int("ARM_SIGHT_STITCH_DWELL_TIME_MS", dwell_time_ms_);
     env_override_int("ARM_SIGHT_STITCH_CENTER_CROP_SIZE", center_crop_size_);
 }
 
@@ -142,6 +144,7 @@ bool ConfigManager::loadFromJson(const QJsonObject& json) {
     readInt("grid_size_y", grid_size_y_);
     readInt("step_size", step_size_);
     readInt("z_height", z_height_);
+    readInt("dwell_time_ms", dwell_time_ms_);
     readInt("center_crop_size", center_crop_size_);
 
     readInt("sphere_radius", sphere_radius_);
@@ -215,6 +218,7 @@ QJsonObject ConfigManager::toJson() const {
     json["grid_size_y"] = grid_size_y_;
     json["step_size"] = step_size_;
     json["z_height"] = z_height_;
+    json["dwell_time_ms"] = dwell_time_ms_;
     json["center_crop_size"] = center_crop_size_;
     json["sphere_radius"] = sphere_radius_;
     json["sphere_cap_height"] = sphere_cap_height_;
@@ -397,6 +401,10 @@ void ConfigManager::setAxisMaxPos(int axis, int value) {
 
 void ConfigManager::setPositionTolerance(float t) {
     if (t > 0) position_tolerance_ = t;
+}
+
+void ConfigManager::setDwellTimeMs(int ms) {
+    if (ms >= 0) dwell_time_ms_ = ms;
 }
 
 void ConfigManager::setModbusDebug(bool enabled) {

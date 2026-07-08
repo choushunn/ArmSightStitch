@@ -4,6 +4,7 @@
 #include "ui/DetectionSettingsDialog.h"
 #include "ui/StitchingSettingsDialog.h"
 #include "ui/SphereSettingsDialog.h"
+#include "ui/ScanParametersDialog.h"
 #include "infra/config/ConfigManager.h"
 #include "infra/config/PathUtils.h"
 
@@ -441,6 +442,18 @@ void MainWindow::connectSignals() {
     connect(ui_->actionStitchSettings, &QAction::triggered, this, &MainWindow::on_stitchSettings);
     connect(ui_->actionArmZero, &QAction::triggered, this, &MainWindow::on_zeroArm);
     connect(ui_->actionLoadModel, &QAction::triggered, this, &MainWindow::on_loadModel);
+    // ---- 扫描参数设置 ----
+    connect(ui_->actionScanParams, &QAction::triggered, this, [this]() {
+        auto& cfg = ConfigManager::instance();
+        ScanParametersDialog dlg(this);
+        dlg.setDwellTimeMs(cfg.dwellTimeMs());
+        if (dlg.exec() == QDialog::Accepted) {
+            cfg.setDwellTimeMs(dlg.dwellTimeMs());
+            cfg.saveToFile(QCoreApplication::applicationDirPath().toStdString() + "/config.json");
+            appendLog(tr("扫描参数已更新: 停留时间=%1 ms").arg(dlg.dwellTimeMs()), "INFO");
+        }
+    });
+
     // ---- 球冠参数设置 ----
     connect(ui_->actionSphereSettings, &QAction::triggered, this, [this]() {
         auto& cfg = ConfigManager::instance();

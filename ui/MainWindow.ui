@@ -536,6 +536,7 @@
    </widget>
    <widget class="QMenu" name="menuSettings">
     <property name="title"><string>设置(&amp;S)</string></property>
+    <addaction name="actionScanParams"/>
     <addaction name="actionStitchSettings"/>
     <addaction name="actionDetSettings"/>
     <addaction name="actionLoadModel"/>
@@ -591,6 +592,9 @@
    <property name="text"><string>日志面板</string></property>
    <property name="checkable"><bool>true</bool></property>
    <property name="checked"><bool>true</bool></property>
+  </action>
+  <action name="actionScanParams">
+   <property name="text"><string>扫描参数...</string></property>
   </action>
   <action name="actionStitchSettings">
    <property name="text"><string>拼接参数...</string></property>
