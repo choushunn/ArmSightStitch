@@ -11,11 +11,13 @@ public:
     int gridSizeX() const;
     int gridSizeY() const;
     int centerCropSize() const;
+    int stitchAlgorithm() const;
     QString inputDir() const;
 
     void setGridSizeX(int val);
     void setGridSizeY(int val);
     void setCenterCropSize(int val);
+    void setStitchAlgorithm(int algo);
     void setInputDir(const QString& dir);
 
 private:

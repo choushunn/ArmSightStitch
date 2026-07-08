@@ -134,6 +134,7 @@ set(SOURCES
     core/stitch/ImageStitcher.cpp
     core/stitch/GridStitchAlgorithm.h
     core/stitch/FeatureStitchAlgorithm.h
+    core/stitch/ZScaleGridStitchAlgorithm.h
     core/stitch/IStitchAlgorithm.h
     infra/config/ConfigManager.cpp
     ui/WorkflowManager.cpp

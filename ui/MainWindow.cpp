@@ -1037,7 +1037,7 @@ void MainWindow::startScanSequence() {
     scan_base_dir_.clear();  // 新扫描开始，清除旧目录
     grid_thumbnails_.clear();
 
-    ctrl_.movementController().setImageSaveCallback([this](const cv::Mat& frame, const std::string& path, int row, int col) {
+    ctrl_.movementController().setImageSaveCallback([this](const cv::Mat& frame, const std::string& path, int row, int col, int z) {
         // Track scan base directory for later stitching
         if (scan_base_dir_.empty()) scan_base_dir_ = path;
         // Ensure original/ and negative/ subdirectories exist
@@ -1058,14 +1058,14 @@ void MainWindow::startScanSequence() {
         int dispRow = row + 1;
         int dispCol = gx - col;
 
-        // Save full-resolution original
-        std::string fn = origDir + "/" + std::to_string(dispRow) + "_" + std::to_string(dispCol) + ".jpg";
+        // Save full-resolution original (filename includes Z height for scale-aware stitching)
+        std::string fn = origDir + "/" + std::to_string(dispRow) + "_" + std::to_string(dispCol) + "_" + std::to_string(z) + ".jpg";
         bool ok = cv::imwrite(fn, frame);
         // Save full-resolution negative (always)
         {
             cv::Mat negFrame;
             cv::bitwise_not(frame, negFrame);
-            std::string negFn = negDir + "/" + std::to_string(dispRow) + "_" + std::to_string(dispCol) + ".jpg";
+            std::string negFn = negDir + "/" + std::to_string(dispRow) + "_" + std::to_string(dispCol) + "_" + std::to_string(z) + ".jpg";
             cv::imwrite(negFn, negFrame);
         }
         if (ok) {
@@ -1328,6 +1328,8 @@ void MainWindow::on_stitchRun() {
         stitch_progress_->setVisible(true);
         ui_->statusLabel->setText("正在拼接...");
         stitching_future_ = QtConcurrent::run([this, images, gs]() {
+            ctrl_.stitcher().setCenterCropSize(ConfigManager::instance().centerCropSize());
+            ctrl_.stitcher().setAlgorithm(ConfigManager::instance().stitchAlgorithm());
             auto sorted = ctrl_.stitcher().sortImagesInSCurveOrder(images, gs);
             return ctrl_.stitcher().stitchImages(sorted, gs);
         });
@@ -1355,6 +1357,7 @@ void MainWindow::on_stitchRun() {
 
     // Apply center crop setting from config
     ctrl_.stitcher().setCenterCropSize(ConfigManager::instance().centerCropSize());
+    ctrl_.stitcher().setAlgorithm(ConfigManager::instance().stitchAlgorithm());
 
     stitching_future_ = QtConcurrent::run([this, positioned, detectedGrid]() {
         return ctrl_.stitcher().stitchImagesWithPositions(positioned, detectedGrid);
@@ -1406,11 +1409,13 @@ void MainWindow::on_stitchSettings() {
     dlg.setGridSizeX(cfg.gridSizeX());
     dlg.setGridSizeY(cfg.gridSizeY());
     dlg.setCenterCropSize(cfg.centerCropSize());
+    dlg.setStitchAlgorithm(cfg.stitchAlgorithm());
     dlg.setInputDir(QString::fromStdString(cfg.imageSaveBasePath()));
     if (dlg.exec() == QDialog::Accepted) {
         cfg.setGridSizeX(dlg.gridSizeX());
         cfg.setGridSizeY(dlg.gridSizeY());
         cfg.setCenterCropSize(dlg.centerCropSize());
+        cfg.setStitchAlgorithm(dlg.stitchAlgorithm());
         cfg.setImageSaveBasePath(dlg.inputDir().toStdString());
     }
 }
@@ -1778,7 +1783,7 @@ bool MainWindow::hasNegativeImages(const std::string& directory) const {
 void MainWindow::startNegativeStitching(const std::string& directory, const cv::Size& grid_size) {
     std::string negDir = directory + "/negative";
     negative_stitching_future_ = QtConcurrent::run([this, negDir, grid_size]() -> cv::Mat {
-        std::regex pattern(R"(^(\d+)_(\d+))");
+        std::regex pattern(R"(^(\d+)_(\d+)(?:_(\d+))?)");
         std::vector<stitch::PositionedImage> positioned;
         int maxRow = 0, maxCol = 0;
 
@@ -1796,12 +1801,14 @@ void MainWindow::startNegativeStitching(const std::string& directory, const cv::
                 if (std::regex_search(stem, match, pattern)) {
                     int row = std::stoi(match[1].str());
                     int col = std::stoi(match[2].str());
+                    int z = match[3].matched ? std::stoi(match[3].str()) : 0;
                     cv::Mat img = cv::imread(entry.path().string());
                     if (!img.empty()) {
                         stitch::PositionedImage pi;
                         pi.image = img;
                         pi.row = row - 1;  // 1-indexed → 0-indexed
                         pi.col = col - 1;
+                        pi.z = z;
                         positioned.push_back(pi);
                         maxRow = std::max(maxRow, row);
                         maxCol = std::max(maxCol, col);
@@ -1815,7 +1822,9 @@ void MainWindow::startNegativeStitching(const std::string& directory, const cv::
 
         if (positioned.empty()) return cv::Mat();
         cv::Size detectedGrid(maxCol, maxRow);
-        ctrl_.stitcher().setCenterCropSize(ConfigManager::instance().centerCropSize());
+        auto& cfg = ConfigManager::instance();
+        ctrl_.stitcher().setCenterCropSize(cfg.centerCropSize());
+        ctrl_.stitcher().setAlgorithm(cfg.stitchAlgorithm());
         return ctrl_.stitcher().stitchImagesWithPositions(positioned, detectedGrid);
     });
     negative_stitching_watcher_.setFuture(negative_stitching_future_);

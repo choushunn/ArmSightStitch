@@ -98,7 +98,7 @@ public:
     virtual void resume() = 0;
 
     virtual void setImageCaptureCallback(std::function<bool(cv::Mat&)> callback) = 0;
-    virtual void setImageSaveCallback(std::function<bool(const cv::Mat&, const std::string&, int, int)> callback) = 0;
+    virtual void setImageSaveCallback(std::function<bool(const cv::Mat&, const std::string&, int, int, int)> callback) = 0;
     virtual void setStatusCallback(std::function<void(const SMovementStatus&)> callback) = 0;
 
     virtual void setSaveDirectory(const std::string& save_dir) = 0;

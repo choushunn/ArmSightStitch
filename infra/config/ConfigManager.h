@@ -69,6 +69,8 @@ public:
     // Stitching / crop
     int centerCropSize() const { return center_crop_size_; }
     void setCenterCropSize(int size);
+    int stitchAlgorithm() const { return stitch_algorithm_; }
+    void setStitchAlgorithm(int algo);
 
     // Image save path
     std::string imageSaveBasePath() const { return image_save_base_path_; }
@@ -121,6 +123,7 @@ private:
     int step_size_ = 43000;
     int z_height_ = 80000;
     int center_crop_size_ = 1775;  // center crop like docs/stitch.py
+    int stitch_algorithm_ = 0;     // 0=Grid, 1=Feature, 2=ZScaleGrid
 
     int sphere_radius_ = 230000;
     int sphere_cap_height_ = 50000;

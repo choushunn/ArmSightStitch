@@ -155,7 +155,7 @@ void SMovementController::setImageCaptureCallback(std::function<bool(cv::Mat&)> 
     image_capture_callback_ = callback;
 }
 
-void SMovementController::setImageSaveCallback(std::function<bool(const cv::Mat&, const std::string&, int, int)> callback) {
+void SMovementController::setImageSaveCallback(std::function<bool(const cv::Mat&, const std::string&, int, int, int)> callback) {
     image_save_callback_ = callback;
 }
 
@@ -413,7 +413,7 @@ void SMovementController::movementThread() {
                     SPDLOG_DEBUG("Queuing frame for async save at [{}, {}]", point.row, point.col);
                     {
                         std::lock_guard<std::mutex> lock(save_queue_mutex_);
-                        save_queue_.push({frame.clone(), save_directory_, point.row, point.col});
+                        save_queue_.push({frame.clone(), save_directory_, point.row, point.col, point.z});
                     }
                     save_queue_cv_.notify_one();
                     saved_images_count_++;
@@ -514,7 +514,7 @@ void SMovementController::saveConsumerThread() {
         // Process save in background (imwrite + thumbnail → UI)
         if (image_save_callback_) {
             try {
-                image_save_callback_(task.frame, task.directory, task.row, task.col);
+                image_save_callback_(task.frame, task.directory, task.row, task.col, task.z);
             } catch (const std::exception& e) {
                 SPDLOG_ERROR("Save callback error for [{},{}]: {}", task.row, task.col, e.what());
             }
