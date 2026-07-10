@@ -27,6 +27,13 @@ The `default` preset uses Ninja + MinGW + vcpkg (`x64-mingw-static` triplet). An
 
 Output executable: `bin/ArmSightStitch.exe`. The build also copies models (`res/models/`), stylesheet (`industrial_theme.qss`), config, and ToupCam DLL to `bin/`.
 
+## Important Rules
+
+- **NEVER run `cmake --preset` or modify `CMakeLists.txt` unless explicitly asked by the user.** Modifying `CMakeLists.txt` or reconfiguring cmake triggers vcpkg compiler re-detection, which hangs if MinGW is not in the current shell's PATH. Use `ninja` directly to build: `cd build/vcpkg-mingw && ninja`.
+- If a build step triggers cmake regeneration (because `CMakeLists.txt` is newer than `build.ninja`), touch `build.ninja` to prevent it: `touch build/vcpkg-mingw/build.ninja`.
+- **NSIS packaging workaround**: CPack's NSIS generator produces absolute forward-slash paths for MUI resources (`MUI_ICON`, `MUI_WELCOMEFINISHPAGE_BITMAP`, `MUI_PAGE_LICENSE`) which NSIS 3.12 cannot resolve inside MUI macros. Workaround: after `cpack -G NSIS` fails, copy `resources/{R.bmp,logo.ico,License.txt}` into `build/vcpkg-mingw/_CPack_Packages/win64/NSIS/`, edit `project.nsi` to use bare filenames instead of absolute paths, then run `makensis.exe project.nsi` directly.
+- Before running `cpack`, delete `bin/logs/` (log file may be locked by spdlog) and `build/vcpkg-mingw/_CPack_Packages/` (stale state).
+
 ## Architecture
 
 **Pattern overview:**

@@ -23,7 +23,7 @@ ConfigManager::ConfigManager() {
 void ConfigManager::loadDefaults() {
     arm_ip_ = "192.168.0.1";
     arm_port_ = 502;
-    default_speed_ = 40000;
+    default_speed_ = 30000;
 
     camera_width_ = 640;
     camera_height_ = 480;

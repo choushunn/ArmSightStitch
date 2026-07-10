@@ -383,7 +383,8 @@ void MainWindow::connectSignals() {
 
         // Load images into cells
         for (auto& [rc, img] : cellImages) {
-            int row = rc.first, col = rc.second;
+            // Filenames use 1-indexed display coordinates; convert to 0-indexed table coords
+            int row = rc.first - 1, col = rc.second - 1;
             if (row >= gs.height || col >= gs.width) continue;
 
             std::string fn = cellFiles[{row, col}].toStdString();  // actual file on disk
@@ -735,11 +736,13 @@ void MainWindow::initGridTables() {
     int gx = ConfigManager::instance().gridSizeX();
     int gy = ConfigManager::instance().gridSizeY();
 
-    // Headers: columns right-to-left (col 1 = rightmost), rows top-to-bottom
+    // Headers: columns left-to-right (col 1 = leftmost), rows top-to-bottom
+    // Use RTL layout so vertical header (row numbers) appears on the right side
     QStringList colHeaders, rowHeaders;
-    for (int i = gx; i >= 1; --i) colHeaders << QString::number(i);
+    for (int i = 1; i <= gx; ++i) colHeaders << QString::number(i);
     for (int i = 1; i <= gy; ++i) rowHeaders << QString::number(i);
 
+    ui_->topCellsTable->setLayoutDirection(Qt::RightToLeft);
     ui_->topCellsTable->setRowCount(gy);
     ui_->topCellsTable->setColumnCount(gx);
     ui_->topCellsTable->setHorizontalHeaderLabels(colHeaders);
@@ -1068,10 +1071,10 @@ void MainWindow::startScanSequence() {
         std::filesystem::create_directories(origDir);
         std::filesystem::create_directories(negDir);
 
-        // Display numbering: 1-indexed, columns right-to-left
+        // Display numbering: 1-indexed, columns left-to-right (table uses RTL layout)
         int gx = ConfigManager::instance().gridSizeX();
         int dispRow = row + 1;
-        int dispCol = gx - col;
+        int dispCol = col + 1;
 
         // Save full-resolution original (filename includes Z height for scale-aware stitching)
         std::string fn = origDir + "/" + std::to_string(dispRow) + "_" + std::to_string(dispCol) + "_" + std::to_string(z) + ".jpg";
@@ -1084,8 +1087,8 @@ void MainWindow::startScanSequence() {
             cv::imwrite(negFn, negFrame);
         }
         if (ok) {
-            // Store with display coordinates (reverse column for table)
-            int tableCol = gx - 1 - col;
+            // Store directly (table uses RTL layout, col 0 = rightmost)
+            int tableCol = col;
             {
                 std::lock_guard<std::mutex> lock(s_movement_images_mutex_);
                 s_movement_images_[{row, tableCol}] = fn;
