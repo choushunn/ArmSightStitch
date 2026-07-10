@@ -235,6 +235,11 @@ void WorkflowManager::onSMovementFinished() {
             setState(State::Idle);
             return;
         }
+        // Apply config before stitching (consistent with position-based path)
+        auto& cfg2 = ConfigManager::instance();
+        stitcher_.setCenterCropSize(cfg2.centerCropSize());
+        stitcher_.setAlgorithm(cfg2.stitchAlgorithm());
+        stitcher_.setFeatherWidth(cfg2.featherWidth());
         auto sorted = stitcher_.sortImagesInSCurveOrder(images, grid_size_);
         cv::Mat result = stitcher_.stitchImages(sorted, grid_size_);
         if (!result.empty()) {
@@ -250,6 +255,7 @@ void WorkflowManager::onSMovementFinished() {
     // Apply center crop setting from config
     stitcher_.setCenterCropSize(cfg.centerCropSize());
     stitcher_.setAlgorithm(cfg.stitchAlgorithm());
+    stitcher_.setFeatherWidth(cfg.featherWidth());
 
     // Direct position-based stitching (like docs/stitch.py)
     cv::Mat result = stitcher_.stitchImagesWithPositions(positioned, detected_grid);
@@ -266,6 +272,11 @@ void WorkflowManager::onSMovementFinished() {
 void WorkflowManager::startStitching(const std::vector<cv::Mat>& images, const cv::Size& grid_size) {
     setState(State::Stitching);
     emit statusMessage("Stitching images...");
+
+    auto& cfg = ConfigManager::instance();
+    stitcher_.setCenterCropSize(cfg.centerCropSize());
+    stitcher_.setAlgorithm(cfg.stitchAlgorithm());
+    stitcher_.setFeatherWidth(cfg.featherWidth());
 
     cv::Mat result = stitcher_.stitchImages(images, grid_size);
 

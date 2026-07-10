@@ -12,12 +12,14 @@ public:
     int gridSizeY() const;
     int centerCropSize() const;
     int stitchAlgorithm() const;
+    int featherWidth() const;
     QString inputDir() const;
 
     void setGridSizeX(int val);
     void setGridSizeY(int val);
     void setCenterCropSize(int val);
     void setStitchAlgorithm(int algo);
+    void setFeatherWidth(int val);
     void setInputDir(const QString& dir);
 
 private:

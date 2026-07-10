@@ -1345,6 +1345,7 @@ void MainWindow::on_stitchRun() {
         stitching_future_ = QtConcurrent::run([this, images, gs]() {
             ctrl_.stitcher().setCenterCropSize(ConfigManager::instance().centerCropSize());
             ctrl_.stitcher().setAlgorithm(ConfigManager::instance().stitchAlgorithm());
+            ctrl_.stitcher().setFeatherWidth(ConfigManager::instance().featherWidth());
             auto sorted = ctrl_.stitcher().sortImagesInSCurveOrder(images, gs);
             return ctrl_.stitcher().stitchImages(sorted, gs);
         });
@@ -1373,6 +1374,7 @@ void MainWindow::on_stitchRun() {
     // Apply center crop setting from config
     ctrl_.stitcher().setCenterCropSize(ConfigManager::instance().centerCropSize());
     ctrl_.stitcher().setAlgorithm(ConfigManager::instance().stitchAlgorithm());
+    ctrl_.stitcher().setFeatherWidth(ConfigManager::instance().featherWidth());
 
     stitching_future_ = QtConcurrent::run([this, positioned, detectedGrid]() {
         return ctrl_.stitcher().stitchImagesWithPositions(positioned, detectedGrid);
@@ -1394,7 +1396,14 @@ void MainWindow::onStitchingFinished() {
     cv::Mat result = stitching_future_.result();
     if (!result.empty()) {
         stitched_result_ = result;
+        stitched_result_negative_ = cv::Mat();  // 清除旧负片结果
         displayImageFullQuality(result, ui_->stitchImageLabel, stitched_pixmap_);
+        if (negative_toggle_btn_) {
+            negative_toggle_btn_->setVisible(false);
+            negative_toggle_btn_->setEnabled(false);
+            negative_toggle_btn_->setChecked(false);
+        }
+        stitch_showing_negative_ = false;
         // Auto-save to workspace
         QString ws = QString::fromStdString(ConfigManager::instance().imageSaveBasePath());
         QDir().mkpath(ws);
@@ -1425,12 +1434,14 @@ void MainWindow::on_stitchSettings() {
     dlg.setGridSizeY(cfg.gridSizeY());
     dlg.setCenterCropSize(cfg.centerCropSize());
     dlg.setStitchAlgorithm(cfg.stitchAlgorithm());
+    dlg.setFeatherWidth(cfg.featherWidth());
     dlg.setInputDir(QString::fromStdString(cfg.imageSaveBasePath()));
     if (dlg.exec() == QDialog::Accepted) {
         cfg.setGridSizeX(dlg.gridSizeX());
         cfg.setGridSizeY(dlg.gridSizeY());
         cfg.setCenterCropSize(dlg.centerCropSize());
         cfg.setStitchAlgorithm(dlg.stitchAlgorithm());
+        cfg.setFeatherWidth(dlg.featherWidth());
         cfg.setImageSaveBasePath(dlg.inputDir().toStdString());
     }
 }
@@ -1688,11 +1699,10 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                 // If showing negative, reconstruct path to negative/ subfolder
                 std::string loadPath = img_path;
                 if (scan_showing_negative_ && !scan_base_dir_.empty()) {
-                    int gx = ConfigManager::instance().gridSizeX();
-                    int dispRow = row + 1;
-                    int dispCol = col + 1;  // table col 0-based → display col 1-based
-                    loadPath = scan_base_dir_ + "/negative/" + std::to_string(dispRow)
-                             + "_" + std::to_string(dispCol) + ".jpg";
+                    // Extract filename (row_col_z.jpg) from stored original path
+                    // to preserve the Z value, then prepend negative/ directory
+                    std::filesystem::path origPath(img_path);
+                    loadPath = scan_base_dir_ + "/negative/" + origPath.filename().string();
                 }
                 cv::Mat img = cv::imread(loadPath);
                 // Fallback to original if negative file doesn't exist
@@ -1840,6 +1850,7 @@ void MainWindow::startNegativeStitching(const std::string& directory, const cv::
         auto& cfg = ConfigManager::instance();
         ctrl_.stitcher().setCenterCropSize(cfg.centerCropSize());
         ctrl_.stitcher().setAlgorithm(cfg.stitchAlgorithm());
+        ctrl_.stitcher().setFeatherWidth(cfg.featherWidth());
         return ctrl_.stitcher().stitchImagesWithPositions(positioned, detectedGrid);
     });
     negative_stitching_watcher_.setFuture(negative_stitching_future_);

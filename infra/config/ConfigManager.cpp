@@ -23,7 +23,7 @@ ConfigManager::ConfigManager() {
 void ConfigManager::loadDefaults() {
     arm_ip_ = "192.168.0.1";
     arm_port_ = 502;
-    default_speed_ = 35000;
+    default_speed_ = 40000;
 
     camera_width_ = 640;
     camera_height_ = 480;
@@ -37,7 +37,10 @@ void ConfigManager::loadDefaults() {
     grid_size_y_ = 10;
     step_size_ = 43000;
     z_height_ = 80000;
-    dwell_time_ms_ = 100;
+    dwell_time_ms_ = 300;
+    center_crop_size_ = 1775;
+    stitch_algorithm_ = 0;
+    feather_width_ = 120;
 
 {
     QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
@@ -76,6 +79,7 @@ void ConfigManager::applyEnvironmentOverrides() {
     env_override_int("ARM_SIGHT_STITCH_DWELL_TIME_MS", dwell_time_ms_);
     env_override_int("ARM_SIGHT_STITCH_CENTER_CROP_SIZE", center_crop_size_);
     env_override_int("ARM_SIGHT_STITCH_ALGORITHM", stitch_algorithm_);
+    env_override_int("ARM_SIGHT_STITCH_FEATHER_WIDTH", feather_width_);
 }
 
 bool ConfigManager::loadFromFile(const std::string& filepath) {
@@ -148,6 +152,7 @@ bool ConfigManager::loadFromJson(const QJsonObject& json) {
     readInt("dwell_time_ms", dwell_time_ms_);
     readInt("center_crop_size", center_crop_size_);
     readInt("stitch_algorithm", stitch_algorithm_);
+    readInt("feather_width", feather_width_);
 
     readInt("sphere_radius", sphere_radius_);
     readInt("sphere_cap_height", sphere_cap_height_);
@@ -223,6 +228,7 @@ QJsonObject ConfigManager::toJson() const {
     json["dwell_time_ms"] = dwell_time_ms_;
     json["center_crop_size"] = center_crop_size_;
     json["stitch_algorithm"] = stitch_algorithm_;
+    json["feather_width"] = feather_width_;
     json["sphere_radius"] = sphere_radius_;
     json["sphere_cap_height"] = sphere_cap_height_;
     json["sphere_height_offset"] = sphere_height_offset_;
@@ -357,7 +363,11 @@ void ConfigManager::setCenterCropSize(int size) {
 }
 
 void ConfigManager::setStitchAlgorithm(int algo) {
-    if (algo >= 0 && algo <= 2) stitch_algorithm_ = algo;
+    if (algo >= 0 && algo <= 3) stitch_algorithm_ = algo;
+}
+
+void ConfigManager::setFeatherWidth(int width) {
+    if (width >= 0) feather_width_ = width;
 }
 
 void ConfigManager::setSphereRadius(int r) {

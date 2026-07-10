@@ -41,6 +41,7 @@ public:
     virtual void setAlgorithm(int algo) = 0;
     virtual void setCropMargin(int pixels) = 0;
     virtual void setCenterCropSize(int pixels) = 0;
+    virtual void setFeatherWidth(int pixels) = 0;
 
     virtual std::vector<cv::Mat> loadImagesFromDirectory(const std::string& input_dir) = 0;
     /// Load images with grid positions parsed from filenames (row_col.ext).
