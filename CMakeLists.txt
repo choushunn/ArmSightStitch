@@ -256,9 +256,10 @@ if(WINDEPLOYQT_EXECUTABLE)
     get_filename_component(MINGW_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
 
     add_custom_target(deploy
-        COMMAND ${CMAKE_COMMAND} -E echo "=== Step 0: Clean nested bin dirs ==="
+        COMMAND ${CMAKE_COMMAND} -E echo "=== Step 0: Clean nested bin dirs + logs ==="
         COMMAND ${CMAKE_COMMAND} -E rm -rf
             $<TARGET_FILE_DIR:${PROJECT_NAME}>/bin
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/logs
         COMMAND ${CMAKE_COMMAND} -E echo "=== Step 1: Deploying Qt runtime ==="
         COMMAND ${WINDEPLOYQT_EXECUTABLE}
             --dir $<TARGET_FILE_DIR:${PROJECT_NAME}>
@@ -338,10 +339,8 @@ set(CPACK_NSIS_DISPLAY_NAME        "ArmSightStitch ${PROJECT_VERSION}")
 set(CPACK_NSIS_INSTALL_ROOT        "$PROGRAMFILES64")
 set(CPACK_NSIS_PACKAGE_NAME        "ArmSightStitch")
 set(CPACK_NSIS_CREATE_ICONS_EXTRA
-    "CreateShortCut '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\ArmSightStitch.lnk' '$INSTDIR\\\\bin\\\\ArmSightStitch.exe'"
     "CreateShortCut '$DESKTOP\\\\ArmSightStitch.lnk' '$INSTDIR\\\\bin\\\\ArmSightStitch.exe'")
 set(CPACK_NSIS_DELETE_ICONS_EXTRA
-    "Delete '$SMPROGRAMS\\\\$MUI_TEMP\\\\ArmSightStitch.lnk'"
     "Delete '$DESKTOP\\\\ArmSightStitch.lnk'")
 set(CPACK_NSIS_MENU_LINKS
     "bin/ArmSightStitch.exe" "ArmSightStitch")
@@ -359,9 +358,10 @@ set(CPACK_NSIS_MUI_UNWELCOMEFINISHPAGE_BITMAP
     "${CMAKE_CURRENT_SOURCE_DIR}/resources/R.bmp")
 set(CPACK_RESOURCE_FILE_LICENSE    "${CMAKE_CURRENT_SOURCE_DIR}/resources/License.txt")
 
-# Include entire deploy output
+# Include entire deploy output (exclude transient logs to avoid locked-file errors)
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin/
         DESTINATION bin
-        USE_SOURCE_PERMISSIONS)
+        USE_SOURCE_PERMISSIONS
+        PATTERN "logs" EXCLUDE)
 
 include(CPack)

@@ -1,7 +1,7 @@
 {
     "arm_ip": "192.168.0.1",
     "arm_port": 502,
-    "default_speed": 40000,
+    "default_speed": 30000,
     "modbus_debug": true,
 
     "camera_width": 640,
