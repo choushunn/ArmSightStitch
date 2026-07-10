@@ -34,6 +34,7 @@ public:
     void setAlgorithm(int algo);
     void setCropMargin(int pixels) override;
     void setCenterCropSize(int pixels) override;
+    void setFeatherWidth(int pixels) override;
 
     /**
      * @brief Load images from directory
@@ -87,6 +88,7 @@ private:
     std::unique_ptr<IStitchAlgorithm> algo1_;  // GridStitchAlgorithm (0)
     std::unique_ptr<IStitchAlgorithm> algo2_;  // FeatureStitchAlgorithm (1)
     std::unique_ptr<IStitchAlgorithm> algo3_;  // ZScaleGridStitchAlgorithm (2)
+    std::unique_ptr<IStitchAlgorithm> algo4_;  // SeamFeatherStitchAlgorithm (3)
     IStitchAlgorithm* current_algo_ = nullptr;
     std::function<void(int, int)> progress_callback_;
     std::function<void(const std::string&)> status_callback_;

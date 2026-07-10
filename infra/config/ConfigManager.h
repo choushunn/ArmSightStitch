@@ -71,6 +71,8 @@ public:
     void setCenterCropSize(int size);
     int stitchAlgorithm() const { return stitch_algorithm_; }
     void setStitchAlgorithm(int algo);
+    int featherWidth() const { return feather_width_; }
+    void setFeatherWidth(int width);
 
     // Image save path
     std::string imageSaveBasePath() const { return image_save_base_path_; }
@@ -108,7 +110,7 @@ private:
 
     std::string arm_ip_;
     int arm_port_ = 502;
-    int default_speed_ = 35000;
+    int default_speed_ = 40000;
 
     int camera_width_ = 640;
     int camera_height_ = 480;
@@ -123,14 +125,15 @@ private:
     int step_size_ = 43000;
     int z_height_ = 80000;
     int center_crop_size_ = 1775;  // center crop like docs/stitch.py
-    int stitch_algorithm_ = 0;     // 0=Grid, 1=Feature, 2=ZScaleGrid
+    int stitch_algorithm_ = 0;     // 0=Grid, 1=Feature, 2=ZScaleGrid, 3=SeamFeather
+    int feather_width_ = 120;      // seam feather width in pixels
 
     int sphere_radius_ = 230000;
     int sphere_cap_height_ = 50000;
     int sphere_height_offset_ = 0;
     int z_base_height_ = 80000;
 
-    int dwell_time_ms_ = 100;
+    int dwell_time_ms_ = 300;
 
     std::string image_save_base_path_;
     std::string log_path_;

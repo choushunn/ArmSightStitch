@@ -1,7 +1,7 @@
 {
     "arm_ip": "192.168.0.1",
     "arm_port": 502,
-    "default_speed": 35000,
+    "default_speed": 40000,
     "modbus_debug": true,
 
     "camera_width": 640,
@@ -16,7 +16,10 @@
     "grid_size_y": 10,
     "step_size": 42000,
     "z_height": 80000,
-
+    "dwell_time_ms": 300,
+    "center_crop_size": 1775,
+    "stitch_algorithm": 0,
+    "feather_width": 120,
 
     "log_path": "./logs/armsightstitch.log",
     "position_tolerance": 100.0,
