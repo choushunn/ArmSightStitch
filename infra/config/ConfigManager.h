@@ -74,6 +74,27 @@ public:
     int featherWidth() const { return feather_width_; }
     void setFeatherWidth(int width);
 
+    // Detection algorithm selection: 0=YOLO, 1=Dust(traditional CV)
+    int detectionAlgorithm() const { return detection_algorithm_; }
+    void setDetectionAlgorithm(int algo);
+
+    // Dust detection parameters (mirror docs/dust_detection.py)
+    double dustClaheClip() const { return dust_clahe_clip_; }
+    int dustBgBlur() const { return dust_bg_blur_; }
+    int dustMinArea() const { return dust_min_area_; }
+    int dustMaxArea() const { return dust_max_area_; }
+    int dustDilateIter() const { return dust_dilate_iter_; }
+    int dustMaxIter() const { return dust_max_iter_; }
+    double dustNmsIou() const { return dust_nms_iou_; }
+
+    void setDustClaheClip(double v);
+    void setDustBgBlur(int v);
+    void setDustMinArea(int v);
+    void setDustMaxArea(int v);
+    void setDustDilateIter(int v);
+    void setDustMaxIter(int v);
+    void setDustNmsIou(double v);
+
     // Image save path
     std::string imageSaveBasePath() const { return image_save_base_path_; }
     void setImageSaveBasePath(const std::string& path);
@@ -114,7 +135,7 @@ private:
 
     int camera_width_ = 640;
     int camera_height_ = 480;
-    float camera_exposure_ = 100.0f;
+    float camera_exposure_ = 70.0f;
     float camera_gain_ = 1.0f;
 
     std::string model_param_path_;
@@ -127,6 +148,15 @@ private:
     int center_crop_size_ = 1775;  // center crop like docs/stitch.py
     int stitch_algorithm_ = 0;     // 0=Grid, 1=Feature, 2=ZScaleGrid, 3=SeamFeather
     int feather_width_ = 120;      // seam feather width in pixels
+
+    int detection_algorithm_ = 1;  // 0=YOLO, 1=Dust(traditional CV); default dust
+    double dust_clahe_clip_ = 2.0;
+    int dust_bg_blur_ = 31;
+    int dust_min_area_ = 50;
+    int dust_max_area_ = 20000;    // 0 = no upper limit
+    int dust_dilate_iter_ = 0;
+    int dust_max_iter_ = 4;
+    double dust_nms_iou_ = 0.1;    // 0 = disabled
 
     int sphere_radius_ = 230000;
     int sphere_cap_height_ = 50000;

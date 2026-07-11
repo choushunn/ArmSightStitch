@@ -74,7 +74,7 @@ bool CameraHandler::connect(const std::string& device_id) {
         // No hardware rotation — software rotation on preview (after resize, ~0.1ms)
         Toupcam_put_Option(hcam_, TOUPCAM_OPTION_BYTEORDER, 0);
         Toupcam_put_AutoExpoEnable(hcam_, 0);
-        Toupcam_put_ExpoTime(hcam_, 15000);
+        Toupcam_put_ExpoTime(hcam_, 70000);  // 70ms
         Toupcam_put_HFlip(hcam_, 1);   // 默认水平翻转
         Toupcam_put_VFlip(hcam_, 1);   // 默认垂直翻转
 

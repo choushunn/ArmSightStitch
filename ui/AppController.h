@@ -6,6 +6,7 @@
 #include "core/arm/IArmController.h"
 #include "core/camera/ICameraHandler.h"
 #include "core/detector/IDetector.h"
+#include "core/detector/DustDetectionParams.h"
 #include "core/stitch/IStitcher.h"
 
 namespace arm { struct SMovementStatus; }
@@ -51,6 +52,21 @@ public:
     bool isModelLoaded() const;
     std::vector<detector::Detection> detect(const cv::Mat& image);
     cv::Mat drawDetections(const cv::Mat& image, const std::vector<detector::Detection>& detections);
+
+    // Detector algorithm switching: 0=YOLO, 1=Dust(traditional CV)
+    void setDetectorAlgorithm(int algo);
+    int detectorAlgorithm() const;
+    void setDustParams(const detector::DustDetectionParams& params);
+    detector::DustDetectionParams dustParams() const;
+
+    // Scan directory + detection result export
+    void setScanDir(const std::string& dir);
+    std::string scanDir() const;
+    /// Serialize detections (type/size/position) to <scanDir>/<sourceName>_detections.json.
+    /// Returns the written path, or empty on failure.
+    std::string saveDetectionsJson(const std::vector<detector::Detection>& detections,
+                                   const cv::Mat& image,
+                                   const std::string& sourceName);
 
 signals:
     void statusMessage(const QString& msg);

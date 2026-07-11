@@ -104,6 +104,7 @@ private:
     mutable std::mutex s_movement_images_mutex_;
     cv::Mat current_image_, stitched_result_;
     cv::Mat stitched_result_negative_;           // 负片拼接结果
+    std::string current_image_source_;           // 当前图像来源文件（用于检测 JSON 命名，实时帧为空）
     std::string last_scan_dir_;                   // 最近扫描目录（用于负片拼接查找）
     std::string scan_base_dir_;                   // 扫描目录（用于子文件夹路径构造）
     std::map<std::pair<int,int>, std::pair<QPixmap, QPixmap>> grid_thumbnails_;  // {orig, neg}

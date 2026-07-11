@@ -297,8 +297,9 @@ std::vector<PositionedImage> ImageStitcher::loadImagesWithPositions(const std::s
                 PositionedImage pi;
                 pi.image = image;
                 // Filename is 1-indexed display coords; convert to 0-indexed
+                // RTL layout: display col 1 → canvas rightmost, display col gx → canvas leftmost
                 pi.row = row - 1;
-                pi.col = col - 1;
+                pi.col = maxCol - col;
                 pi.z = z;
                 result.push_back(pi);
             }
