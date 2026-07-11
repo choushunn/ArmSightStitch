@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug demo (GDB)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/ArmSightStitch.exe",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [
+        {
+          "name": "PATH",
+          "value": "C:/Programs/Qt/Tools/mingw1310_64/bin;${env:PATH}"
+        }
+      ],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "miDebuggerPath": "C:/Programs/Qt/Tools/mingw1310_64/bin/gdb.exe",
+      "preLaunchTask": "CMake: Deploy",
+      "setupCommands": [
+        {
+          "description": "Enable GDB pretty printing",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    }
+  ]
+}
