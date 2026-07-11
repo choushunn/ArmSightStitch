@@ -27,7 +27,7 @@ void ConfigManager::loadDefaults() {
 
     camera_width_ = 640;
     camera_height_ = 480;
-    camera_exposure_ = 100.0f;
+    camera_exposure_ = 70.0f;
     camera_gain_ = 1.0f;
 
     model_param_path_ = "models/best-sim-opt.ncnn.param";
@@ -41,6 +41,15 @@ void ConfigManager::loadDefaults() {
     center_crop_size_ = 1775;
     stitch_algorithm_ = 0;
     feather_width_ = 120;
+
+    detection_algorithm_ = 1;
+    dust_clahe_clip_ = 2.0;
+    dust_bg_blur_ = 31;
+    dust_min_area_ = 50;
+    dust_max_area_ = 20000;
+    dust_dilate_iter_ = 0;
+    dust_max_iter_ = 4;
+    dust_nms_iou_ = 0.1;
 
 {
     QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
@@ -133,6 +142,12 @@ bool ConfigManager::loadFromJson(const QJsonObject& json) {
         }
     };
 
+    auto readDouble = [&](const QString& key, double& target) {
+        if (json.contains(key) && json[key].isDouble()) {
+            target = json[key].toDouble();
+        }
+    };
+
     readStr("arm_ip", arm_ip_);
     readInt("arm_port", arm_port_);
     readInt("default_speed", default_speed_);
@@ -153,6 +168,15 @@ bool ConfigManager::loadFromJson(const QJsonObject& json) {
     readInt("center_crop_size", center_crop_size_);
     readInt("stitch_algorithm", stitch_algorithm_);
     readInt("feather_width", feather_width_);
+
+    readInt("detection_algorithm", detection_algorithm_);
+    readDouble("dust_clahe_clip", dust_clahe_clip_);
+    readInt("dust_bg_blur", dust_bg_blur_);
+    readInt("dust_min_area", dust_min_area_);
+    readInt("dust_max_area", dust_max_area_);
+    readInt("dust_dilate_iter", dust_dilate_iter_);
+    readInt("dust_max_iter", dust_max_iter_);
+    readDouble("dust_nms_iou", dust_nms_iou_);
 
     readInt("sphere_radius", sphere_radius_);
     readInt("sphere_cap_height", sphere_cap_height_);
@@ -229,6 +253,14 @@ QJsonObject ConfigManager::toJson() const {
     json["center_crop_size"] = center_crop_size_;
     json["stitch_algorithm"] = stitch_algorithm_;
     json["feather_width"] = feather_width_;
+    json["detection_algorithm"] = detection_algorithm_;
+    json["dust_clahe_clip"] = dust_clahe_clip_;
+    json["dust_bg_blur"] = dust_bg_blur_;
+    json["dust_min_area"] = dust_min_area_;
+    json["dust_max_area"] = dust_max_area_;
+    json["dust_dilate_iter"] = dust_dilate_iter_;
+    json["dust_max_iter"] = dust_max_iter_;
+    json["dust_nms_iou"] = dust_nms_iou_;
     json["sphere_radius"] = sphere_radius_;
     json["sphere_cap_height"] = sphere_cap_height_;
     json["sphere_height_offset"] = sphere_height_offset_;
@@ -368,6 +400,32 @@ void ConfigManager::setStitchAlgorithm(int algo) {
 
 void ConfigManager::setFeatherWidth(int width) {
     if (width >= 0) feather_width_ = width;
+}
+
+void ConfigManager::setDetectionAlgorithm(int algo) {
+    if (algo >= 0 && algo <= 1) detection_algorithm_ = algo;
+}
+
+void ConfigManager::setDustClaheClip(double v) {
+    if (v > 0.0) dust_clahe_clip_ = v;
+}
+void ConfigManager::setDustBgBlur(int v) {
+    if (v >= 3) dust_bg_blur_ = v | 1;  // 强制奇数核
+}
+void ConfigManager::setDustMinArea(int v) {
+    if (v >= 0) dust_min_area_ = v;
+}
+void ConfigManager::setDustMaxArea(int v) {
+    if (v >= 0) dust_max_area_ = v;     // 0 = 不限
+}
+void ConfigManager::setDustDilateIter(int v) {
+    if (v >= 0) dust_dilate_iter_ = v;
+}
+void ConfigManager::setDustMaxIter(int v) {
+    if (v >= 1) dust_max_iter_ = v;
+}
+void ConfigManager::setDustNmsIou(double v) {
+    if (v >= 0.0 && v <= 1.0) dust_nms_iou_ = v;
 }
 
 void ConfigManager::setSphereRadius(int r) {

@@ -103,6 +103,11 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
             cv::Mat annotated = ctrl_.drawDetections(result.frame, result.detections);
             displayImageFullQuality(annotated, ui_->detectImageLabel, detected_pixmap_);
             appendLog(QString("手动检测完成: %1 个目标").arg(result.detections.size()), "INFO");
+            // 导出检测结果（类型/尺寸/位置）到扫描目录下的 JSON
+            std::string jsonPath = ctrl_.saveDetectionsJson(
+                result.detections, result.frame, current_image_source_);
+            if (!jsonPath.empty())
+                appendLog(QString("检测结果已导出: %1").arg(QString::fromStdString(jsonPath)), "INFO");
         }
     });
     connect(&arm_connect_watcher_, &QFutureWatcher<bool>::finished, this, &MainWindow::onArmConnectFinished);
@@ -325,6 +330,7 @@ void MainWindow::connectSignals() {
         if (!path.isEmpty()) {
             current_image_ = cv::imread(path.toStdString());
             if (!current_image_.empty()) {
+                current_image_source_ = path.toStdString();
                 displayImage(current_image_, ui_->cameraImageLabel);
                 ui_->quickDetectBtn->setEnabled(true);
             }
@@ -338,6 +344,9 @@ void MainWindow::connectSignals() {
         QString dir = QFileDialog::getExistingDirectory(this, "选择扫描文件夹", ws,
                                                         QFileDialog::ShowDirsOnly);
         if (dir.isEmpty()) return;
+
+        last_scan_dir_ = dir.toStdString();
+        ctrl_.setScanDir(dir.toStdString());  // 同步扫描目录供检测 JSON 导出
 
         auto& cfg = ConfigManager::instance();
         cv::Size gs(cfg.gridSizeX(), cfg.gridSizeY());
@@ -688,6 +697,8 @@ void MainWindow::connectSignals() {
         ui_->statusLabel->setText("默认模型已加载");
         appendLog("自动加载默认检测模型成功", "INFO");
     });
+    // 依当前检测算法刷新就绪状态：灰尘算法无需模型即就绪，可直接检测
+    model_loaded_ = ctrl_.isModelLoaded();
     connect(&ctrl_, &AppController::stitchingFinished, this, [this](const cv::Mat& result) {
         stitched_result_ = result;
         stitched_result_negative_ = cv::Mat();  // 清除旧负片结果
@@ -736,8 +747,8 @@ void MainWindow::initGridTables() {
     int gx = ConfigManager::instance().gridSizeX();
     int gy = ConfigManager::instance().gridSizeY();
 
-    // Headers: columns left-to-right (col 1 = leftmost), rows top-to-bottom
-    // Use RTL layout so vertical header (row numbers) appears on the right side
+    // 第3象限坐标系布局：行号在右侧，右上角为扫描起点 (row=1, col=1)
+    // RTL: column 0 → 右侧，column gx-1 → 左侧，vertical header 自然出现在右侧
     QStringList colHeaders, rowHeaders;
     for (int i = 1; i <= gx; ++i) colHeaders << QString::number(i);
     for (int i = 1; i <= gy; ++i) rowHeaders << QString::number(i);
@@ -752,7 +763,8 @@ void MainWindow::initGridTables() {
     ui_->topCellsTable->horizontalHeader()->setDefaultAlignment(Qt::AlignCenter);
     ui_->topCellsTable->verticalHeader()->setDefaultAlignment(Qt::AlignCenter);
     ui_->topCellsTable->setStyleSheet(
-        "#topCellsTable { gridline-color: #16191D; }"
+        "#topCellsTable { gridline-color: #16191D; border: none; }"
+        "QHeaderView::section { border: none; }"
         "QTableWidget::item { padding: 0px; border: none; }"
         "QTableWidget::item:selected { border: none; }");
 
@@ -898,6 +910,7 @@ void MainWindow::on_captureImage() {
         QString ts = now.toString("yyyyMMdd_HHmmss");
         QString filename = dir + "/capture_" + ts + ".jpg";
         cv::imwrite(filename.toStdString(), frame);
+        current_image_source_ = filename.toStdString();  // 供检测 JSON 命名
         appendLog(QString("捕获已保存: %1").arg(filename), "INFO");
 
         // 负片版本（始终保存）
@@ -1071,7 +1084,7 @@ void MainWindow::startScanSequence() {
         std::filesystem::create_directories(origDir);
         std::filesystem::create_directories(negDir);
 
-        // Display numbering: 1-indexed, columns left-to-right (table uses RTL layout)
+        // 文件名编号 1-indexed；RTL 表格布局下 col=0 在右侧（扫描起点）
         int gx = ConfigManager::instance().gridSizeX();
         int dispRow = row + 1;
         int dispCol = col + 1;
@@ -1087,7 +1100,7 @@ void MainWindow::startScanSequence() {
             cv::imwrite(negFn, negFrame);
         }
         if (ok) {
-            // Store directly (table uses RTL layout, col 0 = rightmost)
+            // tableCol == physical col；RTL 下 col=0 出现在右侧（扫描起点）
             int tableCol = col;
             {
                 std::lock_guard<std::mutex> lock(s_movement_images_mutex_);
@@ -1231,11 +1244,13 @@ void MainWindow::on_togglePauseSMovement() {
 
 void MainWindow::on_loadModel() {
     auto& cfg = ConfigManager::instance();
-    DetectionSettingsDialog dlg(&ctrl_.detector(), this);
+    DetectionSettingsDialog dlg(&ctrl_, this);
+    dlg.setDetectionAlgorithm(cfg.detectionAlgorithm());
     dlg.setParamPath(QString::fromStdString(cfg.modelParamPath()));
     dlg.setBinPath(QString::fromStdString(cfg.modelBinPath()));
     dlg.setConfidenceThreshold(0.3);
     dlg.setNmsThreshold(0.3);
+    dlg.setDustParams(ctrl_.dustParams());
 
     if (dlg.exec() == QDialog::Accepted) {
         model_loaded_ = ctrl_.loadDetectorModel(
@@ -1248,10 +1263,45 @@ void MainWindow::on_loadModel() {
 }
 
 void MainWindow::on_detSettings() {
-    DetectionSettingsDialog dlg(&ctrl_.detector(), this);
+    auto& cfg = ConfigManager::instance();
+
+    // 快照当前状态，取消时回退实时测试对检测器的改动
+    int prevAlgo = ctrl_.detectorAlgorithm();
+    detector::DustDetectionParams prevDust = ctrl_.dustParams();
+
+    DetectionSettingsDialog dlg(&ctrl_, this);
+    dlg.setDetectionAlgorithm(cfg.detectionAlgorithm());
+    dlg.setParamPath(QString::fromStdString(cfg.modelParamPath()));
+    dlg.setBinPath(QString::fromStdString(cfg.modelBinPath()));
+    dlg.setConfidenceThreshold(ctrl_.detector().getConfidenceThreshold());
+    dlg.setNmsThreshold(ctrl_.detector().getNmsThreshold());
+    dlg.setDustParams(prevDust);
+
     if (dlg.exec() == QDialog::Accepted) {
+        int algo = dlg.detectionAlgorithm();
+        detector::DustDetectionParams dp = dlg.dustParams();
+
+        // 持久化到 ConfigManager
+        cfg.setDetectionAlgorithm(algo);
+        cfg.setDustClaheClip(dp.claheClip);
+        cfg.setDustBgBlur(dp.bgBlurSize);
+        cfg.setDustMinArea(dp.minArea);
+        cfg.setDustMaxArea(dp.maxArea);
+        cfg.setDustDilateIter(dp.dilateIter);
+        cfg.setDustMaxIter(dp.maxIter);
+        cfg.setDustNmsIou(dp.nmsIou);
+
+        // 应用到运行时检测器
+        ctrl_.setDustParams(dp);
+        ctrl_.setDetectorAlgorithm(algo);
         ctrl_.detector().setConfidenceThreshold(dlg.confidenceThreshold());
         ctrl_.detector().setNmsThreshold(dlg.nmsThreshold());
+        model_loaded_ = ctrl_.isModelLoaded();
+    } else {
+        // 回退实时测试可能造成的算法/参数改动
+        ctrl_.setDustParams(prevDust);
+        ctrl_.setDetectorAlgorithm(prevAlgo);
+        model_loaded_ = ctrl_.isModelLoaded();
     }
 }
 
@@ -1318,6 +1368,7 @@ void MainWindow::on_stitchRun() {
 
     std::string dirPath = pathEdit->text().toStdString();
     last_scan_dir_ = dirPath;  // 记录目录用于负片拼接
+    ctrl_.setScanDir(dirPath);  // 同步给 AppController 供检测 JSON 导出定位
 
     // Use position-based loading: parse row_col from filenames (like docs/stitch.py)
     cv::Size detectedGrid = gs;
@@ -1472,6 +1523,7 @@ void MainWindow::onCameraFrameReady(const cv::Mat& frame) {
     if (!camera_preview_check_ || !camera_preview_check_->isChecked()) return;
 
     current_image_ = frame;
+    current_image_source_.clear();  // 实时帧无源文件，检测 JSON 用时间戳命名
 
     // FPS counting (per-second window)
     fps_frame_count_++;
@@ -1734,8 +1786,8 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             int row = item->row(), col = item->column();
             int step = ConfigManager::instance().stepSize();
             int gx = ConfigManager::instance().gridSizeX();
-            int actualCol = gx - 1 - col;
-            int x = actualCol * step, y = row * step, z = ConfigManager::instance().zHeight();
+            // tableCol == physical grid column (no reversal)
+            int x = col * step, y = row * step, z = ConfigManager::instance().zHeight();
             auto* ctrl = &ctrl_;
             QtConcurrent::run([ctrl, x, y, z]() {
                 ctrl->armController().moveAxesConcurrent(x, y, z);
@@ -1816,6 +1868,26 @@ void MainWindow::startNegativeStitching(const std::string& directory, const cv::
         int maxRow = 0, maxCol = 0;
 
         try {
+            // Pass 1: find max row/col
+            for (const auto& entry : std::filesystem::directory_iterator(negDir)) {
+                if (!entry.is_regular_file()) continue;
+                std::string ext = entry.path().extension().string();
+                std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                if (ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".bmp") continue;
+
+                std::string stem = entry.path().stem().string();
+                stem.erase(std::remove(stem.begin(), stem.end(), ' '), stem.end());
+
+                std::smatch match;
+                if (std::regex_search(stem, match, pattern)) {
+                    maxRow = std::max(maxRow, std::stoi(match[1].str()));
+                    maxCol = std::max(maxCol, std::stoi(match[2].str()));
+                }
+            }
+
+            if (maxRow == 0 || maxCol == 0) return cv::Mat();
+
+            // Pass 2: load images with RTL column mapping
             for (const auto& entry : std::filesystem::directory_iterator(negDir)) {
                 if (!entry.is_regular_file()) continue;
                 std::string ext = entry.path().extension().string();
@@ -1834,12 +1906,10 @@ void MainWindow::startNegativeStitching(const std::string& directory, const cv::
                     if (!img.empty()) {
                         stitch::PositionedImage pi;
                         pi.image = img;
-                        pi.row = row - 1;  // 1-indexed → 0-indexed
-                        pi.col = col - 1;
+                        pi.row = row - 1;             // 1-indexed → 0-indexed
+                        pi.col = maxCol - col;        // RTL: disp col 1 → canvas rightmost
                         pi.z = z;
                         positioned.push_back(pi);
-                        maxRow = std::max(maxRow, row);
-                        maxCol = std::max(maxCol, col);
                     }
                 }
             }

@@ -6,7 +6,7 @@
 
     "camera_width": 640,
     "camera_height": 480,
-    "camera_exposure": 100.0,
+    "camera_exposure": 70.0,
     "camera_gain": 1.0,
 
     "model_param_path": "models/best-sim-opt.ncnn.param",
@@ -20,6 +20,15 @@
     "center_crop_size": 1775,
     "stitch_algorithm": 0,
     "feather_width": 120,
+
+    "detection_algorithm": 1,
+    "dust_clahe_clip": 2.0,
+    "dust_bg_blur": 31,
+    "dust_min_area": 50,
+    "dust_max_area": 20000,
+    "dust_dilate_iter": 0,
+    "dust_max_iter": 4,
+    "dust_nms_iou": 0.1,
 
     "log_path": "./logs/armsightstitch.log",
     "position_tolerance": 100.0,

@@ -6,6 +6,7 @@
 #include "core/arm/SMovementController.h"
 #include "core/camera/CameraHandler.h"
 #include "core/detector/YoloDetector.h"
+#include "core/detector/DustDetector.h"
 #include "core/stitch/ImageStitcher.h"
 #include "ui/WorkflowManager.h"
 
@@ -13,7 +14,13 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QFile>
+#include <QDateTime>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <filesystem>
+#include <cmath>
 
 // ── pimpl: concrete implementations are hidden from the header ────────
 struct AppController::Impl {
@@ -21,8 +28,11 @@ struct AppController::Impl {
     arm::SMovementController s_movement_controller_;
     camera::CameraHandler camera_handler_;
     detector::YoloDetector yolo_detector_;
+    detector::DustDetector dust_detector_;
+    detector::IDetector* current_detector_ = &yolo_detector_;  // active algorithm
     stitch::ImageStitcher image_stitcher_;
     WorkflowManager* workflow_mgr_ = nullptr;
+    std::string last_scan_dir_;  // most recent scan run / working directory for exports
 
     Impl() : s_movement_controller_(arm_controller_) {}
 };
@@ -38,7 +48,7 @@ camera::ICameraHandler& AppController::cameraHandler() {
     return pimpl_->camera_handler_;
 }
 detector::IDetector& AppController::detector() {
-    return pimpl_->yolo_detector_;
+    return *pimpl_->current_detector_;
 }
 stitch::IStitcher& AppController::stitcher() {
     return pimpl_->image_stitcher_;
@@ -92,6 +102,18 @@ AppController::AppController(QObject* parent)
             }
         }
     }
+
+    // Initialize dust detector params + active algorithm from config
+    detector::DustDetectionParams dp;
+    dp.claheClip  = cfg.dustClaheClip();
+    dp.bgBlurSize = cfg.dustBgBlur();
+    dp.minArea    = cfg.dustMinArea();
+    dp.maxArea    = cfg.dustMaxArea();
+    dp.dilateIter = cfg.dustDilateIter();
+    dp.maxIter    = cfg.dustMaxIter();
+    dp.nmsIou     = cfg.dustNmsIou();
+    pimpl_->dust_detector_.setParams(dp);
+    setDetectorAlgorithm(cfg.detectionAlgorithm());
 
     SPDLOG_INFO("AppController initialized");
 }
@@ -176,6 +198,7 @@ bool AppController::startSMovement(const cv::Size& gridSize, int stepSize, int z
 
     std::string savePath = infra::createNextRunDir(cfg.imageSaveBasePath());
     sm.setSaveDirectory(savePath);
+    pimpl_->last_scan_dir_ = savePath;  // 供检测结果 JSON 导出定位扫描目录
     // Extract run number from path for the controller (cross-platform)
     QString qSavePath = QString::fromStdString(savePath);
     QString dirName = QDir(qSavePath).dirName();
@@ -251,13 +274,128 @@ bool AppController::loadDetectorModel(const std::string& paramPath, const std::s
 }
 
 bool AppController::isModelLoaded() const {
-    return pimpl_->yolo_detector_.isModelLoaded();
+    return pimpl_->current_detector_->isModelLoaded();
 }
 
 std::vector<detector::Detection> AppController::detect(const cv::Mat& image) {
-    return pimpl_->yolo_detector_.detect(image);
+    return pimpl_->current_detector_->detect(image);
 }
 
 cv::Mat AppController::drawDetections(const cv::Mat& image, const std::vector<detector::Detection>& detections) {
-    return pimpl_->yolo_detector_.drawDetections(image, detections);
+    return pimpl_->current_detector_->drawDetections(image, detections);
+}
+
+void AppController::setDetectorAlgorithm(int algo) {
+    pimpl_->current_detector_ = (algo == 1)
+                                    ? static_cast<detector::IDetector*>(&pimpl_->dust_detector_)
+                                    : static_cast<detector::IDetector*>(&pimpl_->yolo_detector_);
+    SPDLOG_INFO("Detector algorithm set to {}", algo == 1 ? "Dust" : "YOLO");
+}
+
+int AppController::detectorAlgorithm() const {
+    return (pimpl_->current_detector_ == &pimpl_->dust_detector_) ? 1 : 0;
+}
+
+void AppController::setDustParams(const detector::DustDetectionParams& params) {
+    pimpl_->dust_detector_.setParams(params);
+}
+
+detector::DustDetectionParams AppController::dustParams() const {
+    return pimpl_->dust_detector_.params();
+}
+
+void AppController::setScanDir(const std::string& dir) {
+    pimpl_->last_scan_dir_ = dir;
+}
+
+std::string AppController::scanDir() const {
+    // 1) 显式记录的扫描目录（S 扫描运行目录 / on_stitchRun 选择目录）
+    if (!pimpl_->last_scan_dir_.empty()) {
+        QString d = QString::fromStdString(pimpl_->last_scan_dir_);
+        if (QDir(d).exists()) return pimpl_->last_scan_dir_;
+    }
+    // 2) 回退：工作目录下编号最大的运行目录
+    QString base = QString::fromStdString(ConfigManager::instance().imageSaveBasePath());
+    QDir baseDir(base);
+    if (baseDir.exists()) {
+        int best = -1;
+        QString bestName;
+        const auto names = baseDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+        for (const QString& name : names) {
+            bool ok = false;
+            int n = name.toInt(&ok);
+            if (ok && n > best) { best = n; bestName = name; }
+        }
+        if (best >= 0) return baseDir.absoluteFilePath(bestName).toStdString();
+    }
+    // 3) 回退：工作目录根
+    if (!base.isEmpty()) {
+        baseDir.mkpath(".");
+        return base.toStdString();
+    }
+    return {};
+}
+
+std::string AppController::saveDetectionsJson(const std::vector<detector::Detection>& detections,
+                                              const cv::Mat& image,
+                                              const std::string& sourceName) {
+    std::string dirStd = scanDir();
+    if (dirStd.empty()) {
+        SPDLOG_WARN("saveDetectionsJson: no scan directory available");
+        return {};
+    }
+    QDir dir(QString::fromStdString(dirStd));
+    dir.mkpath(".");
+
+    // 输出文件名：<源图基名>_detections.json；无源图时用时间戳
+    QString baseName;
+    if (!sourceName.empty())
+        baseName = QFileInfo(QString::fromStdString(sourceName)).completeBaseName();
+    if (baseName.isEmpty())
+        baseName = "detect_" + QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
+    QString outPath = dir.absoluteFilePath(baseName + "_detections.json");
+
+    QJsonObject root;
+    root["source"] = QString::fromStdString(sourceName);
+    root["algorithm"] = (detectorAlgorithm() == 1) ? "dust" : "yolo";
+    root["timestamp"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+    QJsonObject size;
+    size["width"] = image.cols;
+    size["height"] = image.rows;
+    root["image_size"] = size;
+    root["count"] = static_cast<int>(detections.size());
+
+    QJsonArray arr;
+    int id = 1;
+    for (const auto& d : detections) {
+        QJsonObject o;
+        o["id"] = id++;
+        o["type"] = QString::fromStdString(d.class_name);   // 类型
+        o["class_id"] = d.class_id;
+        o["confidence"] = std::round(d.confidence * 10000.0) / 10000.0;
+        QJsonObject bbox;                                    // 位置 + 尺寸
+        bbox["x"] = d.bounding_box.x;
+        bbox["y"] = d.bounding_box.y;
+        bbox["width"] = d.bounding_box.width;
+        bbox["height"] = d.bounding_box.height;
+        o["bbox"] = bbox;
+        QJsonObject center;
+        center["x"] = d.bounding_box.x + d.bounding_box.width / 2;
+        center["y"] = d.bounding_box.y + d.bounding_box.height / 2;
+        o["center"] = center;
+        o["area"] = d.bounding_box.width * d.bounding_box.height;  // 尺寸（框面积）
+        arr.append(o);
+    }
+    root["detections"] = arr;
+
+    QFile f(outPath);
+    if (!f.open(QIODevice::WriteOnly)) {
+        SPDLOG_ERROR("saveDetectionsJson: cannot write {}", outPath.toStdString());
+        emit errorMessage(QString("检测结果导出失败: %1").arg(outPath));
+        return {};
+    }
+    f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    f.close();
+    SPDLOG_INFO("Detection JSON saved: {} ({} items)", outPath.toStdString(), detections.size());
+    return outPath.toStdString();
 }
