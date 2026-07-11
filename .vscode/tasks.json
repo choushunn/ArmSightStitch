@@ -1,0 +1,59 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CMake: Configure",
+      "type": "shell",
+      "command": "cmake --preset default",
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PATH": "C:/Programs/Qt/Tools/mingw1310_64/bin;${env:PATH}",
+          "VCPKG_ROOT": "C:/Programs/vcpkg-2025.04.09",
+          "VCPKG_FORCE_DOWNLOADED_BINARIES": "1"
+        }
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "CMake: Build",
+      "type": "shell",
+      "command": "cmake --build --preset default",
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PATH": "C:/Programs/Qt/Tools/mingw1310_64/bin;${env:PATH}",
+          "VCPKG_ROOT": "C:/Programs/vcpkg-2025.04.09",
+          "VCPKG_FORCE_DOWNLOADED_BINARIES": "1"
+        }
+      },
+      "dependsOn": "CMake: Configure",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "CMake: Deploy",
+      "type": "shell",
+      "command": "cmake --build --preset deploy",
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PATH": "C:/Programs/Qt/Tools/mingw1310_64/bin;${env:PATH}",
+          "VCPKG_ROOT": "C:/Programs/vcpkg-2025.04.09",
+          "VCPKG_FORCE_DOWNLOADED_BINARIES": "1"
+        }
+      },
+      "dependsOn": "CMake: Configure",
+      "group": "build",
+      "problemMatcher": [
+        "$gcc"
+      ]
+    }
+  ]
+}

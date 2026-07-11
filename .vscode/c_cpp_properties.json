@@ -1,0 +1,19 @@
+{
+    "configurations": [
+        {
+            "name": "Win64",
+            "includePath": [
+                "${workspaceFolder}/include/**",
+                "${workspaceFolder}/src/**",
+                "C:/Programs/Qt/Tools/mingw1310_64/include",
+                "C:/Programs/Qt/Tools/mingw1310_64/lib/gcc/x86_64-mingw32/15.2.0/include"
+            ],
+            "defines": ["_WIN32", "UNICODE"],
+            "compilerPath": "C:/Programs/Qt/Tools/mingw1310_64/bin/g++.exe",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "gcc-x64"
+        }
+    ],
+    "version": 4
+}

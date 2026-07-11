@@ -1,0 +1,17 @@
+{
+    "files.encoding": "utf8",
+    "terminal.integrated.encoding": "utf8",
+    "terminal.integrated.env.windows": {
+        "PATH": "C:/Programs/Qt/Tools/mingw1310_64/bin;${env:PATH}",
+        "VCPKG_ROOT": "C:/Programs/vcpkg-2025.04.09",
+        "VCPKG_FORCE_DOWNLOADED_BINARIES": "1"
+    },
+    "cmake.generator": "Ninja",
+    "cmake.buildDirectory": "${workspaceFolder}/build/vcpkg-mingw",
+    "cmake.configureOnOpen": true,
+    "cmake.useCMakePresets": "always",
+    "cmake.configurePreset": "default",
+    "cmake.buildPreset": "default",
+    "C_Cpp.default.compilerPath": "C:/Programs/Qt/Tools/mingw1310_64/bin/g++.exe",
+    "C_Cpp.default.intelliSenseMode": "gcc-x64"
+}
