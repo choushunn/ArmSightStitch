@@ -74,6 +74,12 @@ public:
     int featherWidth() const { return feather_width_; }
     void setFeatherWidth(int width);
 
+    // Scale mode: 0=Z-based auto-scaling, 1=manual scale-map from file
+    int scaleMode() const { return scale_mode_; }
+    void setScaleMode(int mode);
+    std::string scaleMapFile() const { return scale_map_file_; }
+    void setScaleMapFile(const std::string& path);
+
     // Detection algorithm selection: 0=YOLO, 1=Dust(traditional CV)
     int detectionAlgorithm() const { return detection_algorithm_; }
     void setDetectionAlgorithm(int algo);
@@ -94,6 +100,12 @@ public:
     void setDustDilateIter(int v);
     void setDustMaxIter(int v);
     void setDustNmsIou(double v);
+
+    // Z-axis mode: 0=spherical cap (default), 1=manual per-position Z-map
+    int zMode() const { return z_mode_; }
+    void setZMode(int mode);
+    std::string zMapFile() const { return z_map_file_; }
+    void setZMapFile(const std::string& path);
 
     // Image save path
     std::string imageSaveBasePath() const { return image_save_base_path_; }
@@ -148,6 +160,8 @@ private:
     int center_crop_size_ = 1775;  // center crop like docs/stitch.py
     int stitch_algorithm_ = 0;     // 0=Grid, 1=Feature, 2=ZScaleGrid, 3=SeamFeather
     int feather_width_ = 120;      // seam feather width in pixels
+    int scale_mode_ = 0;           // 0=Z-based auto, 1=manual scale-map from file
+    std::string scale_map_file_;   // path to scale-map JSON file when scale_mode_ == 1
 
     int detection_algorithm_ = 1;  // 0=YOLO, 1=Dust(traditional CV); default dust
     double dust_clahe_clip_ = 2.0;
@@ -162,6 +176,8 @@ private:
     int sphere_cap_height_ = 50000;
     int sphere_height_offset_ = 0;
     int z_base_height_ = 80000;
+    int z_mode_ = 0;              // 0=spherical cap, 1=manual per-position Z-map
+    std::string z_map_file_;      // path to Z-map JSON file when z_mode_ == 1
 
     int dwell_time_ms_ = 300;
 

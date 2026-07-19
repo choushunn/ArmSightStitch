@@ -2,6 +2,10 @@
 #include "core/arm/ArmUtils.h"
 
 #include <spdlog/spdlog.h>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 #include <cmath>
 #include <chrono>
 #include <thread>
@@ -180,6 +184,63 @@ void SMovementController::setDwellTimeMs(int ms) {
     if (ms >= 0) dwell_time_ms_ = ms;
 }
 
+void SMovementController::setZMode(int mode) {
+    z_mode_ = (mode == 1) ? 1 : 0;
+    SPDLOG_INFO("Z mode set to: {} ({})", z_mode_, z_mode_ == 0 ? "spherical cap" : "manual Z-map");
+}
+
+void SMovementController::setZMapFile(const std::string& path) {
+    z_map_file_ = path;
+    // Load the Z-map immediately so we can validate it
+    if (!path.empty()) {
+        try {
+            QFile file(QString::fromStdString(path));
+            if (!file.open(QIODevice::ReadOnly)) {
+                SPDLOG_ERROR("Cannot open Z-map file: {}", path);
+                z_map_.clear();
+                return;
+            }
+            QByteArray data = file.readAll();
+            file.close();
+            QJsonDocument doc = QJsonDocument::fromJson(data);
+            if (!doc.isObject()) {
+                SPDLOG_ERROR("Z-map file is not a valid JSON object: {}", path);
+                z_map_.clear();
+                return;
+            }
+            QJsonObject root = doc.object();
+            if (!root.contains("z_values") || !root["z_values"].isArray()) {
+                SPDLOG_ERROR("Z-map file missing 'z_values' array: {}", path);
+                z_map_.clear();
+                return;
+            }
+            QJsonArray rows = root["z_values"].toArray();
+            z_map_.clear();
+            z_map_.reserve(rows.size());
+            for (int r = 0; r < rows.size(); ++r) {
+                if (!rows[r].isArray()) {
+                    SPDLOG_ERROR("Z-map row {} is not an array", r);
+                    z_map_.clear();
+                    return;
+                }
+                QJsonArray cols = rows[r].toArray();
+                std::vector<int> rowVals;
+                rowVals.reserve(cols.size());
+                for (int c = 0; c < cols.size(); ++c) {
+                    rowVals.push_back(cols[c].toInt());
+                }
+                z_map_.push_back(std::move(rowVals));
+            }
+            SPDLOG_INFO("Z-map loaded from {}: {} rows", path, z_map_.size());
+        } catch (const std::exception& e) {
+            SPDLOG_ERROR("Failed to parse Z-map file {}: {}", path, e.what());
+            z_map_.clear();
+        }
+    } else {
+        z_map_.clear();
+    }
+}
+
 SMovementStatus SMovementController::getStatus() const {
     std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(status_mutex_));
     return current_status_;
@@ -268,20 +329,32 @@ std::vector<SMovementPoint> SMovementController::generateFixedPointSMovementPath
                 point.y = static_cast<int>(start_pos.y + y_idx * y_step);
                 point.z = start_pos.z; // fallback (overridden below)
 
-                // ── Spherical cap Z compensation ──
+                // ── Z-axis height determination ──
                 {
-                    double dx = static_cast<double>(point.x) - cx;
-                    double dy = static_cast<double>(point.y) - cy;
-                    double r = std::sqrt(dx * dx + dy * dy);
+                    if (z_mode_ == 1) {
+                        // Manual per-position Z-map: look up Z from loaded map
+                        if (y_idx < static_cast<int>(z_map_.size()) &&
+                            actual_x_idx < static_cast<int>(z_map_[y_idx].size())) {
+                            point.z = std::max(0, std::min(z_map_[y_idx][actual_x_idx], zBase));
+                        } else {
+                            point.z = start_pos.z; // fallback if map is missing/incomplete
+                            SPDLOG_WARN("Z-map missing entry for row={}, col={}", y_idx, actual_x_idx);
+                        }
+                    } else {
+                        // Spherical cap Z compensation (default)
+                        double dx = static_cast<double>(point.x) - cx;
+                        double dy = static_cast<double>(point.y) - cy;
+                        double r = std::sqrt(dx * dx + dy * dy);
 
-                    double cap = 0.0;
-                    if (h_cap > 0.0 && r <= R) {
-                        double sq = Rs * Rs - r * r;
-                        cap = std::sqrt(std::max(0.0, sq)) - (Rs - h_cap);
+                        double cap = 0.0;
+                        if (h_cap > 0.0 && r <= R) {
+                            double sq = Rs * Rs - r * r;
+                            cap = std::sqrt(std::max(0.0, sq)) - (Rs - h_cap);
+                        }
+                        // Z = ground plane - cap height - offset
+                        int zVal = static_cast<int>(std::round(static_cast<double>(zBase) - cap - static_cast<double>(dH)));
+                        point.z = std::max(0, std::min(zVal, zBase));
                     }
-                    // Z = ground plane - cap height - offset; larger Z = closer to ground
-                    int zVal = static_cast<int>(std::round(static_cast<double>(zBase) - cap - static_cast<double>(dH)));
-                    point.z = std::max(0, std::min(zVal, zBase));
                 }
                 point.a = start_pos.a; // Use same A angle for all points
                 point.b = start_pos.b; // Use same B angle for all points

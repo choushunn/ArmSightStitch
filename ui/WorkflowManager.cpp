@@ -112,10 +112,15 @@ void WorkflowManager::stopAutoWorkflow() {
 void WorkflowManager::startSMovement(const cv::Size& grid_size,
                                      const arm::SMovementPoint& start_pos,
                                      const arm::SMovementPoint& end_pos) {
-    // Pass spherical cap parameters from config
+    // Pass spherical cap / Z-axis parameters and timing from config
     auto& cfg = ConfigManager::instance();
     s_movement_.setSphereParams(cfg.sphereRadius(), cfg.sphereCapHeight(),
                                 cfg.sphereHeightOffset(), cfg.zBaseHeight());
+    s_movement_.setZMode(cfg.zMode());
+    if (cfg.zMode() == 1 && !cfg.zMapFile().empty()) {
+        s_movement_.setZMapFile(cfg.zMapFile());
+    }
+    s_movement_.setDwellTimeMs(cfg.dwellTimeMs());
 
     if (!s_movement_.initialize(grid_size, start_pos, end_pos)) {
         emit workflowError("S-movement initialization failed");
@@ -240,6 +245,8 @@ void WorkflowManager::onSMovementFinished() {
         stitcher_.setCenterCropSize(cfg2.centerCropSize());
         stitcher_.setAlgorithm(cfg2.stitchAlgorithm());
         stitcher_.setFeatherWidth(cfg2.featherWidth());
+        stitcher_.setScaleMode(cfg2.scaleMode());
+        stitcher_.setScaleMapFile(cfg2.scaleMapFile());
         auto sorted = stitcher_.sortImagesInSCurveOrder(images, grid_size_);
         cv::Mat result = stitcher_.stitchImages(sorted, grid_size_);
         if (!result.empty()) {
@@ -256,6 +263,8 @@ void WorkflowManager::onSMovementFinished() {
     stitcher_.setCenterCropSize(cfg.centerCropSize());
     stitcher_.setAlgorithm(cfg.stitchAlgorithm());
     stitcher_.setFeatherWidth(cfg.featherWidth());
+    stitcher_.setScaleMode(cfg.scaleMode());
+    stitcher_.setScaleMapFile(cfg.scaleMapFile());
 
     // Direct position-based stitching (like docs/stitch.py)
     cv::Mat result = stitcher_.stitchImagesWithPositions(positioned, detected_grid);
@@ -277,6 +286,8 @@ void WorkflowManager::startStitching(const std::vector<cv::Mat>& images, const c
     stitcher_.setCenterCropSize(cfg.centerCropSize());
     stitcher_.setAlgorithm(cfg.stitchAlgorithm());
     stitcher_.setFeatherWidth(cfg.featherWidth());
+    stitcher_.setScaleMode(cfg.scaleMode());
+    stitcher_.setScaleMapFile(cfg.scaleMapFile());
 
     cv::Mat result = stitcher_.stitchImages(images, grid_size);
 

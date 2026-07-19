@@ -1,7 +1,9 @@
 #include <QApplication>
 #include <QFileInfo>
 #include <QDir>
+#include <QFile>
 #include <QString>
+#include <QStandardPaths>
 
 #include "ui/MainWindow.h"
 #include "ui/AppController.h"
@@ -35,6 +37,25 @@ int main(int argc, char *argv[]) {
     } else {
         SPDLOG_INFO("No config file found, using defaults");
     }
+
+    // ── Ensure Z-map template exists in Documents ──
+    auto ensureTemplate = [&](const std::string& cfgPath, const std::string& templateFileName,
+                               const std::string& label) {
+        QString targetPath = QString::fromStdString(cfgPath);
+        if (!targetPath.isEmpty() && !QFileInfo::exists(targetPath)) {
+            QString templatePath = QApplication::applicationDirPath() + "/" + QString::fromStdString(templateFileName);
+            if (QFileInfo::exists(templatePath)) {
+                QDir().mkpath(QFileInfo(targetPath).absolutePath());
+                if (QFile::copy(templatePath, targetPath)) {
+                    SPDLOG_INFO("{} template copied to {}", label, targetPath.toStdString());
+                } else {
+                    SPDLOG_WARN("Failed to copy {} template to {}", label, targetPath.toStdString());
+                }
+            }
+        }
+    };
+    ensureTemplate(cfg.zMapFile(), "z_map_template.json", "Z-map");
+    ensureTemplate(cfg.scaleMapFile(), "scale_map_template.json", "Scale-map");
 
     // Create application controller and main window (MVP)
     AppController ctrl;

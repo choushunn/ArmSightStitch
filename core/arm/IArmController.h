@@ -104,6 +104,12 @@ public:
     virtual void setSaveDirectory(const std::string& save_dir) = 0;
     virtual void setPositionTolerance(double tolerance) = 0;
     virtual void setSphereParams(int radius, int capHeight, int heightOffset, int zBase) = 0;
+    virtual void setDwellTimeMs(int ms) = 0;
+    /// Z-axis mode: 0 = spherical cap compensation (default), 1 = manual per-position Z-map
+    virtual void setZMode(int mode) = 0;
+    /// Set path to Z-map JSON file used when zMode == 1.
+    /// File format: { "z_values": [[row0_z0, row0_z1, ...], [row1_z0, ...], ...] }
+    virtual void setZMapFile(const std::string& path) = 0;
     virtual SMovementStatus getStatus() const = 0;
     virtual std::vector<SMovementPoint> getMovementPath() const = 0;
     virtual int getSavedImagesCount() const = 0;

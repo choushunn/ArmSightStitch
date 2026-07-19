@@ -91,6 +91,22 @@ void ImageStitcher::setFeatherWidth(int pixels) {
     if (seam) seam->setFeatherWidth(pixels);
 }
 
+void ImageStitcher::setScaleMode(int mode) {
+    scale_mode_ = mode;
+    auto* seam  = dynamic_cast<SeamFeatherStitchAlgorithm*>(algo4_.get());
+    if (seam) seam->setScaleMode(mode);
+    auto* zgrid = dynamic_cast<ZScaleGridStitchAlgorithm*>(algo3_.get());
+    if (zgrid) zgrid->setScaleMode(mode);
+}
+
+void ImageStitcher::setScaleMapFile(const std::string& path) {
+    scale_map_file_ = path;
+    auto* seam  = dynamic_cast<SeamFeatherStitchAlgorithm*>(algo4_.get());
+    if (seam) seam->setScaleMapFile(path);
+    auto* zgrid = dynamic_cast<ZScaleGridStitchAlgorithm*>(algo3_.get());
+    if (zgrid) zgrid->setScaleMapFile(path);
+}
+
 bool ImageStitcher::stitchImagesFromDirectory(const std::string& input_dir,
                                              const std::string& output_path,
                                              const cv::Size& grid_size) {
@@ -170,7 +186,7 @@ cv::Mat ImageStitcher::stitchImagesWithPositions(const std::vector<PositionedIma
     if (auto* zgrid = dynamic_cast<ZScaleGridStitchAlgorithm*>(current_algo_)) {
         result = zgrid->stitchWithPositions(images, positions, zValues, grid_size);
     } else if (auto* seam = dynamic_cast<SeamFeatherStitchAlgorithm*>(current_algo_)) {
-        result = seam->stitchWithPositions(images, positions, grid_size);
+        result = seam->stitchWithPositions(images, positions, zValues, grid_size);
     } else if (auto* grid = dynamic_cast<GridStitchAlgorithm*>(current_algo_)) {
         result = grid->stitchWithPositions(images, positions, grid_size);
     } else if (auto* feat = dynamic_cast<FeatureStitchAlgorithm*>(current_algo_)) {

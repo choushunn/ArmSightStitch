@@ -3,6 +3,10 @@
 #include "IStitchAlgorithm.h"
 #include <opencv2/imgproc.hpp>
 #include <spdlog/spdlog.h>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -23,6 +27,8 @@ class ZScaleGridStitchAlgorithm : public IStitchAlgorithm {
 public:
     void setCropMargin(int pixels) { cropMargin_ = pixels; }
     void setCenterCropSize(int pixels) { centerCropSize_ = pixels; }
+    void setScaleMode(int mode) { scale_mode_ = (mode == 1) ? 1 : 0; }
+    void setScaleMapFile(const std::string& path) { loadScaleMap(path); }
 
     /// Standard stitch (no Z info) — falls back to plain grid tiling.
     cv::Mat stitch(const std::vector<cv::Mat>& images,
@@ -44,6 +50,43 @@ public:
 private:
     int cropMargin_ = 0;
     int centerCropSize_ = 0;
+    int scale_mode_ = 0;
+    std::vector<std::vector<double>> scale_map_;
+
+    void loadScaleMap(const std::string& path) {
+        scale_map_.clear();
+        if (path.empty()) return;
+        try {
+            QFile file(QString::fromStdString(path));
+            if (!file.open(QIODevice::ReadOnly)) return;
+            QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+            file.close();
+            if (!doc.isObject() || !doc["scale_values"].isArray()) return;
+            QJsonArray rows = doc["scale_values"].toArray();
+            scale_map_.reserve(rows.size());
+            for (int r = 0; r < rows.size(); ++r) {
+                if (!rows[r].isArray()) { scale_map_.clear(); return; }
+                QJsonArray cols = rows[r].toArray();
+                std::vector<double> rowVals;
+                rowVals.reserve(cols.size());
+                for (int c = 0; c < cols.size(); ++c)
+                    rowVals.push_back(cols[c].toDouble());
+                scale_map_.push_back(std::move(rowVals));
+            }
+        } catch (...) {}
+    }
+
+    double getScaleFactor(int row, int col, int z_i, int zRef) const {
+        if (scale_mode_ == 1) {
+            if (row >= 0 && row < static_cast<int>(scale_map_.size()) &&
+                col >= 0 && col < static_cast<int>(scale_map_[row].size()))
+                return scale_map_[row][col];
+            return 1.0;
+        }
+        if (zRef > 0 && z_i > 0)
+            return static_cast<double>(zRef) / static_cast<double>(z_i);
+        return 1.0;
+    }
 
     /// Compute median Z from non-zero values.
     static int computeMedianZ(const std::vector<int>& zValues) {
@@ -91,35 +134,10 @@ private:
             int zRef = hasZ ? computeMedianZ(zValues) : 0;
             SPDLOG_INFO("Z-scale stitch: zRef={}, hasZ={}, imageCount={}", zRef, hasZ, images.size());
 
-            // ── Determine output tile size ──
-            // Scale the reference image first to determine target tile dimensions.
+            // ── Determine tile size from original image dimensions ──
+            // After Z-scaling + interpolation, all images are back to original size,
+            // so the tile size is based on the original (uniform) image dimensions.
             cv::Size refSize = images[0].size();
-            cv::Mat refScaled = images[0];
-            double refScale = 1.0;
-
-            if (hasZ && zRef > 0 && hasPositions) {
-                // Find an image whose Z is closest to zRef for reference sizing
-                int bestIdx = 0;
-                int bestDiff = std::abs(zValues[0] - zRef);
-                for (size_t i = 1; i < zValues.size(); ++i) {
-                    int diff = std::abs(zValues[i] - zRef);
-                    if (diff < bestDiff) {
-                        bestDiff = diff;
-                        bestIdx = static_cast<int>(i);
-                    }
-                }
-                refSize = images[bestIdx].size();
-                int zBest = std::max(zValues[bestIdx], 1);
-                refScale = static_cast<double>(zRef) / zBest;
-                if (std::abs(refScale - 1.0) > 0.001) {
-                    int sw = static_cast<int>(std::round(refSize.width * refScale));
-                    int sh = static_cast<int>(std::round(refSize.height * refScale));
-                    cv::resize(images[bestIdx], refScaled, cv::Size(sw, sh), 0, 0, cv::INTER_LINEAR);
-                } else {
-                    refScaled = images[bestIdx];
-                }
-                refSize = refScaled.size();
-            }
 
             int tileW, tileH;
             computeTileSize(refSize, tileW, tileH);
@@ -150,19 +168,20 @@ private:
 
                 cv::Mat processed = images[i];
 
-                // ── Z-scale compensation ──
-                if (hasZ && zRef > 0) {
-                    int z_i = zValues[i];
-                    double scale = (z_i > 0)
-                        ? static_cast<double>(zRef) / static_cast<double>(z_i)
-                        : 1.0;
-
+                // ── Scale compensation → interpolate to original size ──
+                {
+                    double scale = getScaleFactor(row, col,
+                        hasZ ? zValues[i] : 0, zRef);
                     if (std::abs(scale - 1.0) > 0.001) {
+                        cv::Mat scaled;
                         int sw = static_cast<int>(std::round(images[i].cols * scale));
                         int sh = static_cast<int>(std::round(images[i].rows * scale));
-                        cv::resize(images[i], processed, cv::Size(sw, sh), 0, 0, cv::INTER_LINEAR);
-                        SPDLOG_DEBUG("Image[{}] Z={} scale={:.4f} -> {}x{}",
-                                     i, z_i, scale, sw, sh);
+                        cv::resize(images[i], scaled, cv::Size(sw, sh), 0, 0, cv::INTER_LINEAR);
+                        // Interpolate back to original size for uniform tile dimensions
+                        cv::resize(scaled, processed, images[i].size(), 0, 0, cv::INTER_LINEAR);
+                        SPDLOG_DEBUG("Image[{}] Z={} scale={:.4f} -> {}x{} -> uniform {}x{}",
+                                     i, hasZ ? zValues[i] : 0, scale, sw, sh,
+                                     images[i].cols, images[i].rows);
                     }
                 }
 

@@ -1,13 +1,5 @@
 #pragma once
 
-// Windows SOCKET handles can exceed the default FD_SETSIZE (64),
-// causing libmodbus to fail with EINVAL. Define a larger limit.
-#ifdef _WIN32
-#  ifndef FD_SETSIZE
-#    define FD_SETSIZE 1024
-#  endif
-#endif
-
 #include <modbus.h>
 #include <mutex>
 #include <thread>
