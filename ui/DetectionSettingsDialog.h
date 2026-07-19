@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QDialog>
+#include <QComboBox>
+#include <QLabel>
 #include "ui_DetectionSettingsDialog.h"
 #include "core/detector/DustDetectionParams.h"
 
@@ -35,8 +37,18 @@ private slots:
     void onBrowseImage();
     void onDetectAndSave();
     void onAlgorithmChanged(int index);
+    void onModeChanged(int index);
 
 private:
+    void runSingleDetection(const QString& imagePath, int algo,
+                            const detector::DustDetectionParams& dp,
+                            float conf, float nms);
+    void runBatchDetection(const QString& folderPath, int algo,
+                           const detector::DustDetectionParams& dp,
+                           float conf, float nms);
+
     Ui::DetectionSettingsDialog ui;
     AppController* app_ = nullptr;
+    QComboBox* modeCombo_ = nullptr;
+    QLabel* pathLabel_ = nullptr;
 };

@@ -326,7 +326,7 @@ void MainWindow::onMenuButtonClicked(int) {
 void MainWindow::connectSignals() {
     // ---- 文件 ----
     connect(ui_->actionOpenImage, &QAction::triggered, this, [this]() {
-        QString path = QFileDialog::getOpenFileName(this, "打开图像", "", "图像 (*.jpg *.png *.bmp)");
+        QString path = QFileDialog::getOpenFileName(this, "打开图像", QDir::currentPath(), "图像 (*.jpg *.png *.bmp)");
         if (!path.isEmpty()) {
             current_image_ = cv::imread(path.toStdString());
             if (!current_image_.empty()) {
@@ -437,7 +437,7 @@ void MainWindow::connectSignals() {
     });
 
     connect(ui_->actionImportConfig, &QAction::triggered, this, [this]() {
-        QString path = QFileDialog::getOpenFileName(this, "导入配置", "", "JSON (*.json)");
+        QString path = QFileDialog::getOpenFileName(this, "导入配置", QDir::currentPath(), "JSON (*.json)");
         if (!path.isEmpty()) {
             ConfigManager::instance().loadFromFile(path.toStdString());
             ui_->statusLabel->setText("配置已导入: " + path);
@@ -479,33 +479,47 @@ void MainWindow::connectSignals() {
         }
     });
 
-    // ---- 球冠参数设置 ----
+    // ---- Z 轴参数设置 ----
     connect(ui_->actionSphereSettings, &QAction::triggered, this, [this]() {
         auto& cfg = ConfigManager::instance();
         SphereSettingsDialog dlg(this);
+        dlg.setZMode(cfg.zMode());
         dlg.setSphereRadius(cfg.sphereRadius());
         dlg.setSphereCapHeight(cfg.sphereCapHeight());
         dlg.setSphereHeightOffset(cfg.sphereHeightOffset());
         dlg.setZBaseHeight(cfg.zBaseHeight());
+        dlg.setZMapFile(cfg.zMapFile());
         if (dlg.exec() == QDialog::Accepted) {
-            int dH = dlg.sphereHeightOffset();
-            int h  = dlg.sphereCapHeight();
-            int zBase = dlg.zBaseHeight();
-            // Constraint: dH <= zBase - h (so Z at cap center >= 0)
-            if (dH > zBase - h) {
-                QMessageBox::warning(this, tr("参数错误"),
-                    tr("高度偏移 dH (%1) 不能大于 %2 (zBase - h = %3 - %4)")
-                        .arg(dH).arg(zBase - h).arg(zBase).arg(h));
-                return;
+            int mode = dlg.zMode();
+            if (mode == 0) {
+                // Spherical cap mode — validate constraints
+                int dH = dlg.sphereHeightOffset();
+                int h  = dlg.sphereCapHeight();
+                int zBase = dlg.zBaseHeight();
+                if (dH > zBase - h) {
+                    QMessageBox::warning(this, tr("参数错误"),
+                        tr("高度偏移 dH (%1) 不能大于 %2 (zBase - h = %3 - %4)")
+                            .arg(dH).arg(zBase - h).arg(zBase).arg(h));
+                    return;
+                }
+                cfg.setSphereRadius(dlg.sphereRadius());
+                cfg.setSphereCapHeight(dlg.sphereCapHeight());
+                cfg.setSphereHeightOffset(dlg.sphereHeightOffset());
+                cfg.setZBaseHeight(dlg.zBaseHeight());
+                appendLog(tr("球冠参数已更新: R=%1, h=%2, dH=%3, zBase=%4")
+                    .arg(dlg.sphereRadius()).arg(dlg.sphereCapHeight())
+                    .arg(dlg.sphereHeightOffset()).arg(dlg.zBaseHeight()), "INFO");
+            } else {
+                // Manual per-position Z-map mode
+                std::string mapPath = dlg.zMapFile();
+                if (!mapPath.empty()) {
+                    cfg.setZMapFile(mapPath);
+                    appendLog(tr("Z-Map 文件已设置: %1").arg(QString::fromStdString(mapPath)), "INFO");
+                }
             }
-            cfg.setSphereRadius(dlg.sphereRadius());
-            cfg.setSphereCapHeight(dlg.sphereCapHeight());
-            cfg.setSphereHeightOffset(dlg.sphereHeightOffset());
-            cfg.setZBaseHeight(dlg.zBaseHeight());
+            cfg.setZMode(mode);
             cfg.saveToFile(QCoreApplication::applicationDirPath().toStdString() + "/config.json");
-            appendLog(tr("球冠参数已更新: R=%1, h=%2, dH=%3, zBase=%4")
-                .arg(dlg.sphereRadius()).arg(dlg.sphereCapHeight())
-                .arg(dlg.sphereHeightOffset()).arg(dlg.zBaseHeight()), "INFO");
+            appendLog(tr("Z 轴模式已切换为: %1").arg(mode == 0 ? "球冠补偿" : "手动 Z-Map"), "INFO");
         }
     });
 
@@ -1268,6 +1282,8 @@ void MainWindow::on_detSettings() {
     // 快照当前状态，取消时回退实时测试对检测器的改动
     int prevAlgo = ctrl_.detectorAlgorithm();
     detector::DustDetectionParams prevDust = ctrl_.dustParams();
+    float prevConf = ctrl_.detector().getConfidenceThreshold();
+    float prevNms  = ctrl_.detector().getNmsThreshold();
 
     DetectionSettingsDialog dlg(&ctrl_, this);
     dlg.setDetectionAlgorithm(cfg.detectionAlgorithm());
@@ -1299,8 +1315,10 @@ void MainWindow::on_detSettings() {
         model_loaded_ = ctrl_.isModelLoaded();
     } else {
         // 回退实时测试可能造成的算法/参数改动
-        ctrl_.setDustParams(prevDust);
         ctrl_.setDetectorAlgorithm(prevAlgo);
+        ctrl_.setDustParams(prevDust);
+        ctrl_.detector().setConfidenceThreshold(prevConf);
+        ctrl_.detector().setNmsThreshold(prevNms);
         model_loaded_ = ctrl_.isModelLoaded();
     }
 }
@@ -1400,6 +1418,8 @@ void MainWindow::on_stitchRun() {
             ctrl_.stitcher().setCenterCropSize(ConfigManager::instance().centerCropSize());
             ctrl_.stitcher().setAlgorithm(ConfigManager::instance().stitchAlgorithm());
             ctrl_.stitcher().setFeatherWidth(ConfigManager::instance().featherWidth());
+            ctrl_.stitcher().setScaleMode(ConfigManager::instance().scaleMode());
+            ctrl_.stitcher().setScaleMapFile(ConfigManager::instance().scaleMapFile());
             auto sorted = ctrl_.stitcher().sortImagesInSCurveOrder(images, gs);
             return ctrl_.stitcher().stitchImages(sorted, gs);
         });
@@ -1429,6 +1449,8 @@ void MainWindow::on_stitchRun() {
     ctrl_.stitcher().setCenterCropSize(ConfigManager::instance().centerCropSize());
     ctrl_.stitcher().setAlgorithm(ConfigManager::instance().stitchAlgorithm());
     ctrl_.stitcher().setFeatherWidth(ConfigManager::instance().featherWidth());
+    ctrl_.stitcher().setScaleMode(ConfigManager::instance().scaleMode());
+    ctrl_.stitcher().setScaleMapFile(ConfigManager::instance().scaleMapFile());
 
     stitching_future_ = QtConcurrent::run([this, positioned, detectedGrid]() {
         return ctrl_.stitcher().stitchImagesWithPositions(positioned, detectedGrid);
@@ -1489,6 +1511,8 @@ void MainWindow::on_stitchSettings() {
     dlg.setCenterCropSize(cfg.centerCropSize());
     dlg.setStitchAlgorithm(cfg.stitchAlgorithm());
     dlg.setFeatherWidth(cfg.featherWidth());
+    dlg.setScaleMode(cfg.scaleMode());
+    dlg.setScaleMapFile(QString::fromStdString(cfg.scaleMapFile()));
     dlg.setInputDir(QString::fromStdString(cfg.imageSaveBasePath()));
     if (dlg.exec() == QDialog::Accepted) {
         cfg.setGridSizeX(dlg.gridSizeX());
@@ -1496,7 +1520,10 @@ void MainWindow::on_stitchSettings() {
         cfg.setCenterCropSize(dlg.centerCropSize());
         cfg.setStitchAlgorithm(dlg.stitchAlgorithm());
         cfg.setFeatherWidth(dlg.featherWidth());
+        cfg.setScaleMode(dlg.scaleMode());
+        cfg.setScaleMapFile(dlg.scaleMapFile().toStdString());
         cfg.setImageSaveBasePath(dlg.inputDir().toStdString());
+        cfg.saveToFile(QCoreApplication::applicationDirPath().toStdString() + "/config.json");
     }
 }
 
@@ -1924,6 +1951,8 @@ void MainWindow::startNegativeStitching(const std::string& directory, const cv::
         ctrl_.stitcher().setCenterCropSize(cfg.centerCropSize());
         ctrl_.stitcher().setAlgorithm(cfg.stitchAlgorithm());
         ctrl_.stitcher().setFeatherWidth(cfg.featherWidth());
+        ctrl_.stitcher().setScaleMode(cfg.scaleMode());
+        ctrl_.stitcher().setScaleMapFile(cfg.scaleMapFile());
         return ctrl_.stitcher().stitchImagesWithPositions(positioned, detectedGrid);
     });
     negative_stitching_watcher_.setFuture(negative_stitching_future_);

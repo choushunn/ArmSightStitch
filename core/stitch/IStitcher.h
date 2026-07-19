@@ -42,6 +42,10 @@ public:
     virtual void setCropMargin(int pixels) = 0;
     virtual void setCenterCropSize(int pixels) = 0;
     virtual void setFeatherWidth(int pixels) = 0;
+    /// Scale mode: 0 = Z-based auto-scaling, 1 = manual scale-map from file
+    virtual void setScaleMode(int mode) = 0;
+    /// Set path to scale-map JSON file (used when scaleMode == 1)
+    virtual void setScaleMapFile(const std::string& path) = 0;
 
     virtual std::vector<cv::Mat> loadImagesFromDirectory(const std::string& input_dir) = 0;
     /// Load images with grid positions parsed from filenames (row_col.ext).

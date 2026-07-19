@@ -1,161 +1,122 @@
 # ArmSightStitch
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Qt](https://img.shields.io/badge/Qt-6.10-green.svg)](https://www.qt.io/)
-[![OpenCV](https://img.shields.io/badge/OpenCV-4.12-red.svg)](https://opencv.org/)
+明场显微镜自动扫描与图像拼接系统。
 
-集成 YOLO 目标检测、Modbus TCP 五轴机械臂控制、ToupCam 相机采集与图像拼接。
+## 功能概览
 
+窗口左侧为硬件控制面板。相机区域（`cameraConnGroup`）内通过下拉框选择设备、点击"连接"即可启动实时预览，支持分辨率切换、曝光调节、自动曝光和图像旋转/翻转/负片效果，预览画面显示在侧边栏下方的缩略图中，缩放系数等参数通过菜单栏"设置→球冠参数"调节。机械臂区域（`armConnGroup`）内输入 IP 和端口后点击"连接"建立 Modbus TCP 通信，连接成功后可在 X/Y/Z 轴输入框中设定目标位置并执行移动或归零，当前位置实时显示在绿色标签中，紧急停止按钮常驻侧边栏和顶部工具栏。
 
-## 功能特性
+右侧为主工作区。顶部工具栏（`quickToolbar`）提供拍照、扫描、拼接、检测等常用操作的快捷按钮，其中"实时检测"复选框控制扫描过程中是否自动执行缺陷检测，"负片显示"切换网格缩略图的显示模式。工具栏下方是一个水平分割器，左侧为扫描网格缩略图表格（`topCellsTable`），扫描结束后每个网格点的图像以行列排列显示在表格中，点击缩略图可放大查看；右侧为垂直分割的两个预览窗口——上方为拼接结果显示区（`stitchImageLabel`），扫描完成后显示全幅拼接图，下方为检测结果显示区（`detectImageLabel`），在线或离线检测后显示标注结果。系统日志实时输出至侧边栏底部的日志面板（`statusLogEdit`），底部状态栏显示当前状态。
 
-| 模块 | 功能 |
+## 编译器要求
+
+**必须使用** Qt 自带的 MinGW 13.1.0 编译器，禁止使用 MSYS2 或其他 MinGW 发行版，否则会出现 ABI 不兼容和链接错误。
+
+| 配置项 | 路径 |
+|--------|------|
+| C 编译器 | `C:/Programs/Qt/Tools/mingw1310_64/bin/gcc.exe` |
+| C++ 编译器 | `C:/Programs/Qt/Tools/mingw1310_64/bin/g++.exe` |
+| Ninja | `C:/Programs/Qt/Tools/Ninja/ninja.exe` |
+| Qt 6.10.1 | `C:/Programs/Qt/6.10.1/mingw_64/` |
+
+## 完整编译命令
+
+### PowerShell
+
+```powershell
+# 0. 前置条件
+#   - 安装 Qt 6.10.1 minw_64 组件
+#   - 设置环境变量 VCPKG_ROOT 指向 vcpkg 安装目录
+#   - 确认前置目录存在: C:/Programs/Qt/Tools/mingw1310_64/bin
+$env:PATH = "C:/Programs/Qt/Tools/mingw1310_64/bin;C:/Programs/Qt/Tools/Ninja;$env:PATH"
+
+# 1. 配置（仅首次，或 CMakeLists.txt/vcpkg.json 变更后）
+cmake --preset default -DCMAKE_BUILD_TYPE=Release
+
+# 2. 编译
+cmake --build build/vcpkg-mingw --config Release --parallel
+
+# 3. 部署 Qt 运行时 DLL（windeployqt + MinGW 运行时）
+cmake --build build/vcpkg-mingw --config Release --target deploy
+
+# 4. 打包 NSIS 安装器（需安装 NSIS）
+cd build/vcpkg-mingw
+cpack -G NSIS
+```
+
+### Git Bash (MinGW64)
+
+```bash
+# 0. 确保 Qt MinGW 在 PATH 最前面
+export PATH="C:/Programs/Qt/Tools/mingw1310_64/bin:C:/Programs/Qt/Tools/Ninja:$PATH"
+
+# 1. 配置（仅首次）
+cmake --preset default -DCMAKE_BUILD_TYPE=Release
+
+# 2. 编译
+cmake --build build/vcpkg-mingw --config Release --parallel
+
+# 3. 部署
+cmake --build build/vcpkg-mingw --config Release --target deploy
+```
+
+### 编译产物
+
+| 产物 | 路径 |
 |------|------|
-| **YOLO 目标检测** | 基于 NCNN 推理框架，支持实时检测与单帧检测，可调置信度/NMS 阈值 |
-| **五轴机械臂控制** | Modbus TCP 协议，绝对定位、连续运动、速度设置、紧急停止 |
-| **S 型路径规划** | 自定义网格大小与步进，蛇形扫描自动采集 |
-| **相机采集** | ToupCam SDK，实时预览、曝光/增益/旋转/翻转调节、分辨率切换 |
-| **双算法拼接** | 算法1：网格位置拼接；算法2：OpenCV 特征匹配拼接 |
-| **实时预览** | 相机/检测/拼接三区预览，双击全屏，全屏持续更新 |
-| **打包分发** | CPack + NSIS 生成 Windows 安装包 |
+| 可执行文件 | `bin/ArmSightStitch.exe` |
+| 部署后完整目录 | `bin/`（含 Qt/MinGW DLL、模型、样式表、配置） |
+| NSIS 安装包 | `build/vcpkg-mingw/ArmSightStitch-2.0.0-win64.exe` |
 
-## 架构
+### 编译选项
+
+| CMake Preset | 编译器 | triplet | 说明 |
+|-------------|--------|---------|------|
+| `default` | MinGW 13.1.0 (Ninja) | `x64-mingw-static` | **主要构建配置** |
+| `msvc` | Visual Studio 2022 | `x64-windows` | MSVC 备选 |
+
+### 注意事项
+
+- **不要用 `cmake --preset` 重复配置**：修改代码后直接用 `ninja` 增量编译即可。若 CMakeLists.txt 被修改导致自动重配置，而当前 shell 未设置 MinGW PATH，会触发 vcpkg 编译器检测挂死。可用 `touch build/vcpkg-mingw/build.ninja` 阻止自动重配。
+- **NSIS 打包**：CPack 生成的 NSIS 脚本中 MUI 资源（图标、位图、许可证）路径为绝对路径格式，NSIS 3.12 无法解析。需将 `resources/{R.bmp,logo.ico,License.txt}` 复制到 `build/vcpkg-mingw/_CPack_Packages/win64/NSIS/`，编辑 `project.nsi` 改为裸文件名，再运行 `makensis.exe project.nsi`。
+- **打包前清理**：删除 `bin/logs/`（spdlog 可能锁文件）和 `build/vcpkg-mingw/_CPack_Packages/`（残留状态）。
+
+### 增量编译（日常开发）
+
+```bash
+# 仅编译修改过的文件（在 build 目录直接运行 ninja）
+cd build/vcpkg-mingw
+ninja
+```
+
+## 依赖
+
+| 组件 | 版本/说明 |
+|------|-----------|
+| Qt6 | 6.10.1 — Widgets, Core, Gui, Network, Concurrent |
+| OpenCV | 4.x — core, imgproc, imgcodecs, stitching |
+| ncnn | 2023+ — YOLO 模型推理 |
+| libmodbus | 3.1.12（FetchContent 自动下载） |
+| ToupCam SDK | `third_party/toupcam/` — 相机厂商 SDK |
+| spdlog | 日志 |
+| vcpkg | 包管理，triplet: `x64-mingw-static` |
+
+## 目录结构
 
 ```
 ArmSightStitch/
-├── app/                   # 应用入口
-├── ui/                    # Qt 界面层 (MainWindow, AppController, dialogs)
+├── app/              # main.cpp 入口
 ├── core/
-│   ├── arm/               # 机械臂控制 (ModbusArmController, SMovementController)
-│   ├── camera/            # 相机采集 (CameraHandler)
-│   ├── detector/          # YOLO 检测 (YoloDetector)
-│   └── stitch/            # 图像拼接 (GridStitchAlgorithm, FeatureStitchAlgorithm)
+│   ├── arm/          # 机械臂 Modbus TCP 控制器 + S 运动控制
+│   ├── camera/       # ToupCam SDK 封装
+│   ├── detector/     # YOLO (NCNN) + Dust 灰尘传统 CV 检测
+│   └── stitch/       # 4 种图像拼接算法 (Grid/Feature/ZScale/SeamFeather)
 ├── infra/
-│   ├── config/            # 配置管理 (ConfigManager, PathUtils)
-│   └── log/               # 日志 (LogManager)
-├── resources/             # 打包资源 (icon, license, installer images)
-├── res/models/            # NCNN 模型文件
-└── third_party/toupcam/   # ToupCam SDK
+│   ├── config/       # 配置管理器（JSON + 环境变量覆盖）
+│   └── log/          # spdlog 日志管理器
+├── ui/               # Qt 界面（MainWindow + 对话框 + WorkflowManager）
+├── res/              # 资源文件（模型、图标、样式表）
+├── third_party/      # 第三方 SDK（ToupCam）
+├── docs/             # 设计文档 + Python 算法原型
+└── resources/        # 安装包资源（图标、位图、许可证）
 ```
-
-### 设计原则
-
-- **策略模式** — 拼接算法可插拔 (`IStitchAlgorithm` → `GridStitchAlgorithm` / `FeatureStitchAlgorithm`)
-- **依赖注入** — `IArmController` / `ICameraHandler` / `IStitcher` 接口隔离实现
-- **pimpl 模式** — `AppController` 隐藏 5 个具体实现类，头文件不含第三方 SDK 类型
-
-## 环境要求
-
-| 组件 | 版本 | 说明 |
-|------|------|------|
-| Windows | 10/11 | |
-| CMake | ≥ 3.16 | |
-| Qt | 6.10.1 (mingw_64) | [下载](https://download.qt.io) |
-| vcpkg | 2025.04+ | [下载](https://github.com/microsoft/vcpkg) |
-| NSIS | 3.x | 仅打包需要 ([下载](https://nsis.sourceforge.io)) |
-
-### vcpkg 依赖
-
-| 库 | 用途 |
-|----|------|
-| opencv4[core,imgproc,imgcodecs,stitching] | 图像处理与拼接 |
-| ncnn | YOLO 推理 |
-| spdlog | 日志 |
-
-## 快速开始
-
-```powershell
-# 1. 设置环境变量
-$env:VCPKG_ROOT = "C:/Programs/vcpkg"
-
-# 2. CMake 配置 (Release)
-cmake --preset default -DCMAKE_BUILD_TYPE=Release
-
-# 3. 编译
-cmake --build build/vcpkg-mingw --config Release --parallel
-
-# 4. 启动
-.\bin\ArmSightStitch.exe
-```
-
-### 一键打包为安装程序 (NSIS)
-
-需要先安装 [NSIS](https://nsis.sourceforge.io/Download)。
-
-```powershell
-# 1. 编译 + 部署 Qt 运行时到 bin/
-cmake --preset default -DCMAKE_BUILD_TYPE=Release
-cmake --build build/vcpkg-mingw --config Release --parallel
-cmake --build build/vcpkg-mingw --target deploy
-
-# 2. 生成 NSIS 安装包 (需将 NSIS 加入 PATH)
-cd build/vcpkg-mingw
-$env:PATH = "C:\Program Files (x86)\NSIS\Bin;$env:PATH"
-cpack -G NSIS
-
-# 输出: ArmSightStitch-2.0.0-win64.exe (~43 MB)
-```
-
-安装包功能：
-- 默认安装到 `C:\Program Files\ArmSightStitch\`
-- 自动创建桌面快捷方式和开始菜单项
-- 附带卸载程序
-
-## 使用说明
-
-### 工作流程
-
-1. **连接相机** → 左侧面板枚举并连接
-2. **连接机械臂** → 输入 IP:端口，点击连接
-3. **扫描采集** → 设置网格参数，点击"开始扫描"
-4. **图像拼接** → 切换到拼接页，选择算法，点击"拼接"
-5. **目标检测** → 加载模型，开启实时检测或点击单帧检测
-
-### 快捷键
-
-| 快捷键 | 功能 |
-|--------|------|
-| `F5` | 开始/停止扫描 |
-| `F6` | 暂停/继续扫描 |
-| `Ctrl+O` | 打开图像 |
-| `Ctrl+S` | 保存拼接结果 |
-
-### 鼠标操作
-
-| 操作 | 功能 |
-|------|------|
-| 双击预览区 | 全屏显示 |
-| ESC / 单击 | 退出全屏 |
-| 点击网格单元格 | 预览该位置图像（勾选"允许位移"时同时移动机械臂） |
-
-## 配置文件
-
-程序启动时自动加载 `config.json`，默认路径为 `Documents/ArmSightStitch/`。
-
-```json
-{
-    "arm_ip": "192.168.0.1",
-    "arm_port": 502,
-    "default_speed": 70000,
-    "grid_size_x": 10,
-    "grid_size_y": 10,
-    "step_size": 43000,
-    "z_height": 50000
-}
-```
-
-环境变量覆盖：
-
-| 变量 | 配置项 |
-|------|--------|
-| `ARM_SIGHT_STITCH_ARM_IP` | 机械臂 IP |
-| `ARM_SIGHT_STITCH_DEFAULT_SPEED` | 默认速度 |
-| `ARM_SIGHT_STITCH_GRID_X` / `_Y` | 网格大小 |
-
-## 机械臂协议
-
-详见 [docs/机械臂连接协议.md](docs/机械臂连接协议.md) — Modbus TCP 寄存器映射、线圈地址、数据编码规范。
-
-## 许可证
-
-MIT License

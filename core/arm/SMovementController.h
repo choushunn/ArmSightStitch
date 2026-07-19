@@ -109,13 +109,25 @@ public:
      * @param heightOffset Constant offset from cap surface (pulses)
      * @param zBase Ground plane Z height (pulses)
      */
-    void setSphereParams(int radius, int capHeight, int heightOffset, int zBase);
+    void setSphereParams(int radius, int capHeight, int heightOffset, int zBase) override;
 
     /**
      * @brief Set dwell time at each scan position
      * @param ms Dwell time in milliseconds (0–5000)
      */
-    void setDwellTimeMs(int ms);
+    void setDwellTimeMs(int ms) override;
+
+    /**
+     * @brief Set Z-axis mode
+     * @param mode 0 = spherical cap compensation, 1 = manual per-position Z-map
+     */
+    void setZMode(int mode) override;
+
+    /**
+     * @brief Set path to per-position Z-map JSON file used when zMode == 1
+     * @param path File path (JSON: {"z_values": [[z00,z01,...], [z10,...], ...]})
+     */
+    void setZMapFile(const std::string& path) override;
 
     /**
      * @brief Get saved images count
@@ -195,6 +207,11 @@ private:
 
     // Scan timing
     int dwell_time_ms_ = 20;
+
+    // Z-axis mode: 0 = spherical cap, 1 = manual per-position Z-map
+    int z_mode_ = 0;
+    std::string z_map_file_;              // path to Z-map JSON file
+    std::vector<std::vector<int>> z_map_;  // loaded Z-map [row][col]
     
     // Callbacks
     std::function<bool(cv::Mat&)> image_capture_callback_;

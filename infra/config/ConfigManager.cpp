@@ -37,9 +37,19 @@ void ConfigManager::loadDefaults() {
     grid_size_y_ = 10;
     step_size_ = 43000;
     z_height_ = 80000;
+    z_mode_ = 0;
+    {
+        QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+        z_map_file_ = (docs + "/ScannerData/z_map.json").toStdString();
+    }
     dwell_time_ms_ = 300;
     center_crop_size_ = 1775;
     stitch_algorithm_ = 0;
+    scale_mode_ = 0;
+    {
+        QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+        scale_map_file_ = (docs + "/ScannerData/scale_map.json").toStdString();
+    }
     feather_width_ = 120;
 
     detection_algorithm_ = 1;
@@ -168,6 +178,8 @@ bool ConfigManager::loadFromJson(const QJsonObject& json) {
     readInt("center_crop_size", center_crop_size_);
     readInt("stitch_algorithm", stitch_algorithm_);
     readInt("feather_width", feather_width_);
+    readInt("scale_mode", scale_mode_);
+    readStr("scale_map_file", scale_map_file_);
 
     readInt("detection_algorithm", detection_algorithm_);
     readDouble("dust_clahe_clip", dust_clahe_clip_);
@@ -182,6 +194,8 @@ bool ConfigManager::loadFromJson(const QJsonObject& json) {
     readInt("sphere_cap_height", sphere_cap_height_);
     readInt("sphere_height_offset", sphere_height_offset_);
     readInt("z_base_height", z_base_height_);
+    readInt("z_mode", z_mode_);
+    readStr("z_map_file", z_map_file_);
 
     readStr("image_save_base_path", image_save_base_path_);
     readStr("log_path", log_path_);
@@ -253,6 +267,8 @@ QJsonObject ConfigManager::toJson() const {
     json["center_crop_size"] = center_crop_size_;
     json["stitch_algorithm"] = stitch_algorithm_;
     json["feather_width"] = feather_width_;
+    json["scale_mode"] = scale_mode_;
+    json["scale_map_file"] = QString::fromStdString(scale_map_file_);
     json["detection_algorithm"] = detection_algorithm_;
     json["dust_clahe_clip"] = dust_clahe_clip_;
     json["dust_bg_blur"] = dust_bg_blur_;
@@ -265,6 +281,8 @@ QJsonObject ConfigManager::toJson() const {
     json["sphere_cap_height"] = sphere_cap_height_;
     json["sphere_height_offset"] = sphere_height_offset_;
     json["z_base_height"] = z_base_height_;
+    json["z_mode"] = z_mode_;
+    json["z_map_file"] = QString::fromStdString(z_map_file_);
     json["image_save_base_path"] = QString::fromStdString(image_save_base_path_);
     json["log_path"] = QString::fromStdString(log_path_);
 
@@ -402,6 +420,14 @@ void ConfigManager::setFeatherWidth(int width) {
     if (width >= 0) feather_width_ = width;
 }
 
+void ConfigManager::setScaleMode(int mode) {
+    scale_mode_ = (mode == 1) ? 1 : 0;
+}
+
+void ConfigManager::setScaleMapFile(const std::string& path) {
+    scale_map_file_ = path;
+}
+
 void ConfigManager::setDetectionAlgorithm(int algo) {
     if (algo >= 0 && algo <= 1) detection_algorithm_ = algo;
 }
@@ -442,6 +468,14 @@ void ConfigManager::setSphereHeightOffset(int d) {
 
 void ConfigManager::setZBaseHeight(int z) {
     z_base_height_ = z;
+}
+
+void ConfigManager::setZMode(int mode) {
+    z_mode_ = (mode == 1) ? 1 : 0;
+}
+
+void ConfigManager::setZMapFile(const std::string& path) {
+    z_map_file_ = path;
 }
 
 void ConfigManager::setImageSaveBasePath(const std::string& path) {

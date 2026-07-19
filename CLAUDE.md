@@ -6,10 +6,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ArmSightStitch is a Windows desktop application for bright-field microscope validation. It integrates a 5-axis robotic arm (Modbus TCP), ToupCam camera, YOLO object detection (NCNN inference), and dual-algorithm image stitching (grid-position + OpenCV feature matching). The primary build target is MinGW 13.1.0 with Qt 6.10.1.
 
+## Compiler Requirement (CRITICAL)
+
+**必须使用** Qt 自带的 MinGW 13.1.0 编译器，禁止使用 MSYS2 或其他 MinGW 发行版。
+
+| 配置项 | 路径 |
+|--------|------|
+| C 编译器 | `C:/Programs/Qt/Tools/mingw1310_64/bin/gcc.exe` |
+| C++ 编译器 | `C:/Programs/Qt/Tools/mingw1310_64/bin/g++.exe` |
+| Ninja | `C:/Programs/Qt/Tools/Ninja/ninja.exe` |
+
+**PATH 必须**将 `C:/Programs/Qt/Tools/mingw1310_64/bin` 放在最前面，防止 MSYS2 UCRT64 等其他 MinGW 被误检测。配置 cmake 前确保：
+```bash
+export PATH="C:/Programs/Qt/Tools/mingw1310_64/bin:C:/Programs/Qt/Tools/Ninja:$PATH"
+```
+
 ## Build Commands
 
 ```powershell
-# Configure (from repo root)
+# Configure (from repo root) — 确保 PATH 优先使用 mingw1310_64
 cmake --preset default -DCMAKE_BUILD_TYPE=Release
 
 # Build

@@ -3,7 +3,7 @@ import re
 from PIL import Image
 
 # 图片目录
-img_dir = r".\\2026-07-07_15-34-30"
+img_dir = r"H:\\negative"
 
 # 解析文件名中的行列号
 def parse_row_col(filename):
@@ -27,10 +27,14 @@ if not tiles:
     print("未找到任何图片文件")
     exit(1)
 
-# 确定网格尺寸
-max_row = max(r for r, c in tiles)
-max_col = max(c for r, c in tiles)
-print(f"检测到网格: {max_row+1} 行 x {max_col+1} 列, 共 {len(tiles)} 张图片")
+# 确定网格尺寸（支持任意起始索引）
+rows = sorted(set(r for r, c in tiles))
+cols = sorted(set(c for r, c in tiles))
+min_row, max_row = rows[0], rows[-1]
+min_col, max_col = cols[0], cols[-1]
+num_rows = max_row - min_row + 1
+num_cols = max_col - min_col + 1
+print(f"检测到网格: {num_rows} 行 x {num_cols} 列, 索引范围 [{min_row},{max_row}] x [{min_col},{max_col}], 共 {len(tiles)} 张图片")
 
 # 读取图片统一尺寸（取任意一张为参考）
 sample = Image.open(next(iter(tiles.values())))
@@ -46,13 +50,15 @@ bottom = top + crop_size
 print(f"裁剪区域: ({left}, {top}) -> ({right}, {bottom}), 尺寸: {crop_size}x{crop_size}")
 
 # 创建画布
-canvas = Image.new("RGB", (crop_size * (max_col + 1), crop_size * (max_row + 1)))
+canvas = Image.new("RGB", (crop_size * num_cols, crop_size * num_rows))
 
-# 逐张裁剪并粘贴
+# 逐张裁剪并粘贴（减去偏移量）
 for (r, c), path in sorted(tiles.items()):
     img = Image.open(path).crop((left, top, right, bottom))
-    canvas.paste(img, (c * crop_size, r * crop_size))
-    print(f"  粘贴 [{r},{c}] -> ({c*crop_size}, {r*crop_size})")
+    x = (c - min_col) * crop_size
+    y = (r - min_row) * crop_size
+    canvas.paste(img, (x, y))
+    print(f"  粘贴 [{r},{c}] -> ({x}, {y})")
 
 # 保存结果
 output_path = os.path.join(img_dir, "..", "stitched_result.jpg")
