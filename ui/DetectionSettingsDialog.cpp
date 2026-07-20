@@ -16,6 +16,7 @@
 #include <QProgressDialog>
 
 #include "ui/AppController.h"
+#include "infra/config/ConfigManager.h"
 #include "core/detector/IDetector.h"
 
 // ── PDF Report: render to QImage at 300 DPI, then wrap in PDF ─────────
@@ -285,7 +286,7 @@ bool generateBatchPdfReport(const QString& pdfPath,
     // ── Header ──
     p.setFont(titleF);
     p.drawText(M, y, W, 80, Qt::AlignHCenter | Qt::AlignVCenter,
-               "明场显微成像组件缺陷检测报告（批量）");
+               "明场显微成像组件缺陷检测报告");
     y += 90;
     drawHr(y, 3); y += 10;
 
@@ -293,7 +294,7 @@ bool generateBatchPdfReport(const QString& pdfPath,
         QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss")), bodyF);
     drawLine(y, QString("检测算法: %1").arg(
         algo == 0 ? "YOLO 目标检测" : "灰尘颗粒检测 (传统CV)"), bodyF);
-    drawLine(y, QString("批量检测: 共 %1 张图片，检出 %2 个目标缺陷")
+    drawLine(y, QString("共检测 %1 张图片，检出 %2 个目标缺陷")
         .arg(entries.size()).arg(totalDets), bodyF);
 
     if (algo == 0) {
@@ -364,7 +365,7 @@ bool generateBatchPdfReport(const QString& pdfPath,
         }
         y += 8;
 
-        // Annotated image
+        // Annotated image (avoid page break through image)
         if (!e.annotated.empty()) {
             cv::Mat rgb;
             cv::cvtColor(e.annotated, rgb, cv::COLOR_BGR2RGB);
@@ -373,6 +374,12 @@ bool generateBatchPdfReport(const QString& pdfPath,
             int maxW = W, maxH = REPORT_H / 3;
             double s = std::min(1.0, std::min((double)maxW/qic.width(), (double)maxH/qic.height()));
             int iw = static_cast<int>(qic.width()*s), ih = static_cast<int>(qic.height()*s);
+
+            // If image would cross a page boundary, pad to next page
+            int pageRemain = REPORT_H - (y % REPORT_H);
+            if (ih + 20 > pageRemain)
+                y = ((y / REPORT_H) + 1) * REPORT_H;
+
             p.drawImage(M + (W-iw)/2, y, qic.scaled(iw, ih, Qt::KeepAspectRatio, Qt::SmoothTransformation));
             y += ih + 12;
         }
@@ -486,6 +493,10 @@ void DetectionSettingsDialog::onAlgorithmChanged(int index) {
     ui.modelGroup->setVisible(!dust);
     ui.thresholdsGroup->setVisible(!dust);
     ui.dustGroup->setVisible(dust);
+    // Collapse/expand to exactly fit visible widgets
+    layout()->setSizeConstraint(QLayout::SetFixedSize);
+    adjustSize();
+    layout()->setSizeConstraint(QLayout::SetDefaultConstraint);
 }
 
 void DetectionSettingsDialog::onModeChanged(int index) {
@@ -501,7 +512,8 @@ void DetectionSettingsDialog::onModeChanged(int index) {
 
 void DetectionSettingsDialog::onBrowseParam() {
     QString cur = ui.paramPathEdit->text();
-    QString dir = cur.isEmpty() ? QDir::currentPath() : QFileInfo(cur).absolutePath();
+    QString dir = cur.isEmpty() ? QCoreApplication::applicationDirPath()
+                                : QFileInfo(cur).absolutePath();
     QString path = QFileDialog::getOpenFileName(this, "选择 Param 文件", dir,
         "NCNN Param (*.param);;所有文件 (*.*)");
     if (!path.isEmpty()) ui.paramPathEdit->setText(path);
@@ -509,7 +521,8 @@ void DetectionSettingsDialog::onBrowseParam() {
 
 void DetectionSettingsDialog::onBrowseBin() {
     QString cur = ui.binPathEdit->text();
-    QString dir = cur.isEmpty() ? QDir::currentPath() : QFileInfo(cur).absolutePath();
+    QString dir = cur.isEmpty() ? QCoreApplication::applicationDirPath()
+                                : QFileInfo(cur).absolutePath();
     QString path = QFileDialog::getOpenFileName(this, "选择 Bin 文件", dir,
         "NCNN Bin (*.bin);;所有文件 (*.*)");
     if (!path.isEmpty()) ui.binPathEdit->setText(path);
@@ -517,7 +530,15 @@ void DetectionSettingsDialog::onBrowseBin() {
 
 void DetectionSettingsDialog::onBrowseImage() {
     QString cur = ui.imagePathEdit->text();
-    QString dir = cur.isEmpty() ? QDir::currentPath() : QFileInfo(cur).absolutePath();
+    QString dir;
+    if (!cur.isEmpty()) {
+        dir = QFileInfo(cur).absolutePath();
+    } else {
+        // Default to the configured image save base path (work directory)
+        dir = QString::fromStdString(ConfigManager::instance().imageSaveBasePath());
+        if (dir.isEmpty() || !QFileInfo::exists(dir))
+            dir = QCoreApplication::applicationDirPath();
+    }
     if (modeCombo_ && modeCombo_->currentData().toInt() == 1) {
         // Batch folder mode
         QString folder = QFileDialog::getExistingDirectory(this, "选择检测文件夹", dir);
@@ -662,7 +683,7 @@ void DetectionSettingsDialog::runBatchDetection(
             ? "批量检测并保存" : "检测并保存");
         w->deleteLater();
 
-        QString msg = QString("批量检测完成\n\n共处理 %1 张图片，检出 %2 个目标\n结果目录: %3")
+        QString msg = QString("检测完成\n\n共处理 %1 张图片，检出 %2 个目标\n结果目录: %3")
             .arg(br->totalImgs).arg(br->totalDets).arg(br->outFolder);
         if (!br->errors.isEmpty()) {
             msg += "\n\n失败: \n" + br->errors.join("\n");

@@ -27,6 +27,11 @@
 #include <QProgressDialog>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QMenu>
+#include <QInputDialog>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 #include <QLabel>
 #include <QPushButton>
 #include <QScrollArea>
@@ -326,7 +331,9 @@ void MainWindow::onMenuButtonClicked(int) {
 void MainWindow::connectSignals() {
     // ---- 文件 ----
     connect(ui_->actionOpenImage, &QAction::triggered, this, [this]() {
-        QString path = QFileDialog::getOpenFileName(this, "打开图像", QDir::currentPath(), "图像 (*.jpg *.png *.bmp)");
+        QString wd = QString::fromStdString(ConfigManager::instance().imageSaveBasePath());
+        if (wd.isEmpty() || !QFileInfo::exists(wd)) wd = QCoreApplication::applicationDirPath();
+        QString path = QFileDialog::getOpenFileName(this, "打开图像", wd, "图像 (*.jpg *.png *.bmp)");
         if (!path.isEmpty()) {
             current_image_ = cv::imread(path.toStdString());
             if (!current_image_.empty()) {
@@ -437,7 +444,7 @@ void MainWindow::connectSignals() {
     });
 
     connect(ui_->actionImportConfig, &QAction::triggered, this, [this]() {
-        QString path = QFileDialog::getOpenFileName(this, "导入配置", QDir::currentPath(), "JSON (*.json)");
+        QString path = QFileDialog::getOpenFileName(this, "导入配置", QCoreApplication::applicationDirPath(), "JSON (*.json)");
         if (!path.isEmpty()) {
             ConfigManager::instance().loadFromFile(path.toStdString());
             ui_->statusLabel->setText("配置已导入: " + path);
@@ -1611,9 +1618,10 @@ void MainWindow::onDetectionFinished() {
 
 void MainWindow::onArmStatusChanged(const arm::ArmStatus& status) {
     if (status.current_positions.size() >= 5) {
-        ui_->xPosSpin->setValue(status.current_positions[0]);
-        ui_->yPosSpin->setValue(status.current_positions[1]);
-        ui_->zPosSpin->setValue(status.current_positions[2]);
+        // Only auto-update when user is NOT editing (avoids overwriting manual input)
+        if (!ui_->xPosSpin->hasFocus()) ui_->xPosSpin->setValue(status.current_positions[0]);
+        if (!ui_->yPosSpin->hasFocus()) ui_->yPosSpin->setValue(status.current_positions[1]);
+        if (!ui_->zPosSpin->hasFocus()) ui_->zPosSpin->setValue(status.current_positions[2]);
         // Update realtime position label
         ui_->posRealtimeLabel->setText(
             QString("当前位置: X=%1  Y=%2  Z=%3  A=%4  B=%5")
@@ -1803,6 +1811,107 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                     dlg->installEventFilter(this);
                     dlg->showFullScreen();
                     connect(dlg, &QObject::destroyed, this, [this]() { preview_dlg_ = nullptr; });
+                }
+            }
+            return true;
+        }
+
+        if (me->button() == Qt::RightButton) {
+            int row = item->row(), col = item->column();
+            auto& cfg = ConfigManager::instance();
+
+            QMenu menu;
+            QAction* setZ     = menu.addAction(
+                QString("设置 Z 值 [行%1,列%2]").arg(row+1).arg(col+1));
+            QAction* setScale = menu.addAction(
+                QString("设置缩放比例 [行%1,列%2]").arg(row+1).arg(col+1));
+
+            QAction* chosen = menu.exec(me->globalPos());
+            int gx = cfg.gridSizeX(), gy = cfg.gridSizeY();
+
+            // ── Helper: update a single cell in a JSON 2D array file ──
+            auto updateMapCell = [&](const QString& filePath,
+                                      const QString& key,
+                                      double defaultValue,
+                                      const QString& desc) -> bool {
+                // Read existing file if any
+                QJsonArray rows;
+                if (QFileInfo::exists(filePath)) {
+                    QFile f(filePath);
+                    if (f.open(QIODevice::ReadOnly)) {
+                        QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+                        f.close();
+                        if (doc.isObject() && doc[key].isArray())
+                            rows = doc[key].toArray();
+                    }
+                }
+                // Pad to grid size
+                while (rows.size() < gy) {
+                    QJsonArray r;
+                    for (int c = 0; c < gx; ++c) r.append(defaultValue);
+                    rows.append(r);
+                }
+                QJsonArray targetRow = rows[row].toArray();
+                while (targetRow.size() < gx) targetRow.append(defaultValue);
+                targetRow[col] = defaultValue;
+                rows[row] = targetRow;
+                // Write back
+                QJsonObject root;
+                root["description"] = desc;
+                root[key] = rows;
+                QDir().mkpath(QFileInfo(filePath).absolutePath());
+                QFile f(filePath);
+                if (!f.open(QIODevice::WriteOnly)) return false;
+                f.write(QJsonDocument(root).toJson());
+                f.close();
+                return true;
+            };
+
+            // ── Helper: read current cell value ──
+            auto readCellValue = [&](const QString& filePath, const QString& key,
+                                      double defaultVal) -> double {
+                if (!QFileInfo::exists(filePath)) return defaultVal;
+                QFile f(filePath);
+                if (!f.open(QIODevice::ReadOnly)) return defaultVal;
+                QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+                f.close();
+                if (!doc.isObject() || !doc[key].isArray()) return defaultVal;
+                QJsonArray rows = doc[key].toArray();
+                if (row >= rows.size() || !rows[row].isArray()) return defaultVal;
+                QJsonArray cols = rows[row].toArray();
+                if (col >= cols.size()) return defaultVal;
+                return cols[col].toDouble(defaultVal);
+            };
+
+            if (chosen == setZ) {
+                QString zPath = QString::fromStdString(cfg.zMapFile());
+                bool ok = false;
+                int curZ = static_cast<int>(readCellValue(zPath, "z_values", cfg.zHeight()));
+                int newZ = QInputDialog::getInt(this, "设置 Z 值",
+                    QString("输入 [行%1,列%2] 的 Z 轴高度 (脉冲数):").arg(row+1).arg(col+1),
+                    curZ, 0, 80000, 100, &ok);
+                if (ok && updateMapCell(zPath, "z_values", newZ,
+                        "Z-Map — 每个网格位置的 Z 轴高度（脉冲数）")) {
+                    appendLog(QString("Z-Map 已更新: [%1,%2] Z=%3")
+                        .arg(row+1).arg(col+1).arg(newZ), "INFO");
+                    QMessageBox::information(this, "完成",
+                        QString("已保存 Z 值: [行%1,列%2] Z=%3")
+                            .arg(row+1).arg(col+1).arg(newZ));
+                }
+            } else if (chosen == setScale) {
+                QString sPath = QString::fromStdString(cfg.scaleMapFile());
+                bool ok = false;
+                double curS = readCellValue(sPath, "scale_values", 1.0);
+                double newS = QInputDialog::getDouble(this, "设置缩放比例",
+                    QString("输入 [行%1,列%2] 的缩放因子:").arg(row+1).arg(col+1),
+                    curS, 0.5, 2.0, 3, &ok);
+                if (ok && updateMapCell(sPath, "scale_values", newS,
+                        "Scale-Map — 每个网格位置的缩放因子")) {
+                    appendLog(QString("Scale-Map 已更新: [%1,%2] scale=%3")
+                        .arg(row+1).arg(col+1).arg(newS, 0, 'f', 3), "INFO");
+                    QMessageBox::information(this, "完成",
+                        QString("已保存缩放: [行%1,列%2] scale=%3")
+                            .arg(row+1).arg(col+1).arg(newS, 0, 'f', 3));
                 }
             }
             return true;
