@@ -5,6 +5,7 @@
 #include <QString>
 #include <QStandardPaths>
 
+#include "version.h"  // auto-generated from git tags
 #include "ui/MainWindow.h"
 #include "ui/AppController.h"
 #include "infra/config/ConfigManager.h"
@@ -14,7 +15,7 @@ int main(int argc, char *argv[]) {
     QApplication a(argc, argv);
 
     a.setApplicationName("ScannerApp");
-    a.setApplicationVersion("2.0.1");
+    a.setApplicationVersion(APP_VERSION);
     a.setOrganizationName("");
 
     // Load configuration from JSON file if available

@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(ArmSightStitch VERSION 2.0.1 LANGUAGES CXX C)
+project(ArmSightStitch VERSION 2.0.0 LANGUAGES CXX C)
+
+# Auto-detect version from git tags (overrides project() fallback above)
+include(cmake/GetVersion.cmake)
+configure_file(cmake/version.h.in ${CMAKE_CURRENT_BINARY_DIR}/version.h @ONLY)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -161,6 +165,7 @@ add_executable(${PROJECT_NAME} WIN32
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}        # for generated version.h
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/app
     ${CMAKE_CURRENT_SOURCE_DIR}/ui
