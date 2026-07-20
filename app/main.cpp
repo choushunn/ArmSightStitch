@@ -14,7 +14,7 @@ int main(int argc, char *argv[]) {
     QApplication a(argc, argv);
 
     a.setApplicationName("ScannerApp");
-    a.setApplicationVersion("2.0.0");
+    a.setApplicationVersion("2.0.1");
     a.setOrganizationName("");
 
     // Load configuration from JSON file if available
@@ -38,24 +38,55 @@ int main(int argc, char *argv[]) {
         SPDLOG_INFO("No config file found, using defaults");
     }
 
-    // ── Ensure Z-map template exists in Documents ──
-    auto ensureTemplate = [&](const std::string& cfgPath, const std::string& templateFileName,
-                               const std::string& label) {
-        QString targetPath = QString::fromStdString(cfgPath);
+    // ── Ensure Z-map / Scale-map templates exist in Documents ──
+    // Generate inline if missing — no dependency on external template files.
+    auto ensureJsonFile = [](const std::string& filePath, const QString& jsonContent,
+                              const std::string& label) {
+        QString targetPath = QString::fromStdString(filePath);
         if (!targetPath.isEmpty() && !QFileInfo::exists(targetPath)) {
-            QString templatePath = QApplication::applicationDirPath() + "/" + QString::fromStdString(templateFileName);
-            if (QFileInfo::exists(templatePath)) {
-                QDir().mkpath(QFileInfo(targetPath).absolutePath());
-                if (QFile::copy(templatePath, targetPath)) {
-                    SPDLOG_INFO("{} template copied to {}", label, targetPath.toStdString());
-                } else {
-                    SPDLOG_WARN("Failed to copy {} template to {}", label, targetPath.toStdString());
-                }
+            QDir().mkpath(QFileInfo(targetPath).absolutePath());
+            QFile f(targetPath);
+            if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                f.write(jsonContent.toUtf8());
+                f.close();
+                SPDLOG_INFO("{} template created at {}", label, filePath);
+            } else {
+                SPDLOG_WARN("Failed to create {} template at {}", label, filePath);
             }
         }
     };
-    ensureTemplate(cfg.zMapFile(), "z_map_template.json", "Z-map");
-    ensureTemplate(cfg.scaleMapFile(), "scale_map_template.json", "Scale-map");
+    ensureJsonFile(cfg.zMapFile(), QStringLiteral(
+        "{\n"
+        "  \"description\": \"Z-Map — 每个网格位置的 Z 轴高度（脉冲数）\",\n"
+        "  \"z_values\": [\n"
+        "    [80000,80000,80000,80000,80000,80000,80000,80000,80000,80000],\n"
+        "    [80000,79000,78500,78200,78000,78000,78200,78500,79000,80000],\n"
+        "    [80000,78500,77500,76500,76000,76000,76500,77500,78500,80000],\n"
+        "    [80000,78200,76500,75000,74000,74000,75000,76500,78200,80000],\n"
+        "    [80000,78000,76000,74000,72000,72000,74000,76000,78000,80000],\n"
+        "    [80000,78000,76000,74000,72000,72000,74000,76000,78000,80000],\n"
+        "    [80000,78200,76500,75000,74000,74000,75000,76500,78200,80000],\n"
+        "    [80000,78500,77500,76500,76000,76000,76500,77500,78500,80000],\n"
+        "    [80000,79000,78500,78200,78000,78000,78200,78500,79000,80000],\n"
+        "    [80000,80000,80000,80000,80000,80000,80000,80000,80000,80000]\n"
+        "  ]\n"
+        "}\n"), "Z-map");
+    ensureJsonFile(cfg.scaleMapFile(), QStringLiteral(
+        "{\n"
+        "  \"description\": \"Scale-Map — 每个网格位置的缩放因子\",\n"
+        "  \"scale_values\": [\n"
+        "    [1.00,1.00,1.00,1.00,1.00,1.00,1.00,1.00,1.00,1.00],\n"
+        "    [1.00,0.99,0.99,0.98,0.98,0.98,0.98,0.99,0.99,1.00],\n"
+        "    [1.00,0.99,0.98,0.97,0.96,0.96,0.97,0.98,0.99,1.00],\n"
+        "    [1.00,0.98,0.97,0.95,0.94,0.94,0.95,0.97,0.98,1.00],\n"
+        "    [1.00,0.98,0.96,0.94,0.93,0.93,0.94,0.96,0.98,1.00],\n"
+        "    [1.00,0.98,0.96,0.94,0.93,0.93,0.94,0.96,0.98,1.00],\n"
+        "    [1.00,0.98,0.97,0.95,0.94,0.94,0.95,0.97,0.98,1.00],\n"
+        "    [1.00,0.99,0.98,0.97,0.96,0.96,0.97,0.98,0.99,1.00],\n"
+        "    [1.00,0.99,0.99,0.98,0.98,0.98,0.98,0.99,0.99,1.00],\n"
+        "    [1.00,1.00,1.00,1.00,1.00,1.00,1.00,1.00,1.00,1.00]\n"
+        "  ]\n"
+        "}\n"), "Scale-map");
 
     // Create application controller and main window (MVP)
     AppController ctrl;
