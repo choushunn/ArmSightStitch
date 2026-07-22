@@ -114,6 +114,9 @@
         <property name="suffix">
          <string> px</string>
         </property>
+        <property name="toolTip">
+         <string>中心裁剪尺寸 (0=不裁剪)，类似 stitch.py 的 crop_size=1775</string>
+        </property>
        </widget>
       </item>
       <item row="3" column="0">
@@ -154,6 +157,9 @@
         <property name="suffix">
          <string> px</string>
         </property>
+        <property name="toolTip">
+         <string>羽化宽度 (0=禁用)，邻接边余弦渐变融合消除接缝，越大过渡越柔和</string>
+        </property>
        </widget>
       </item>
       <item row="5" column="0">
@@ -165,6 +171,9 @@
       </item>
       <item row="5" column="1">
        <widget class="QComboBox" name="algorithmCombo">
+        <property name="toolTip">
+         <string>0=网格 1=特征匹配 2=Z轴缩放 3=接缝羽化(支持Z校正/裁剪偏移/羽化融合)</string>
+        </property>
         <item>
          <property name="text">
           <string>0 - 网格拼接 (Grid)</string>

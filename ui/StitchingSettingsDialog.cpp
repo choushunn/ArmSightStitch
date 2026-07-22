@@ -50,7 +50,7 @@ StitchingSettingsDialog::StitchingSettingsDialog(QWidget* parent)
             zCorrectionCoefSpin_->setDecimals(2);
             zCorrectionCoefSpin_->setSingleStep(0.01);
             zCorrectionCoefSpin_->setValue(1.00);
-            zCorrectionCoefSpin_->setToolTip("Z 轴缩放系数全局乘数");
+            zCorrectionCoefSpin_->setToolTip("Z 轴缩放系数全局乘数，1.00=不校正");
             hb->addWidget(zCorrectionCoefSpin_);
             form->addRow("Z 校正系数:", z_correction_coef_row_);
         }

@@ -865,7 +865,6 @@ void MainWindow::connectSignals() {
 
     // Camera preview (event-driven, replaces QTimer polling)
     connect(&ctrl_, &AppController::cameraFrameReady, this, &MainWindow::onCameraFrameReady);
-    connect(&ctrl_, &AppController::cameraFullFrameReady, this, &MainWindow::onFullFrameReady);
 
     connect(&ctrl_, &AppController::cameraExposureChanged, this, [this]() {
         if (!ctrl_.cameraHandler().getAutoExposure()) return;
@@ -1523,9 +1522,8 @@ void MainWindow::on_manualDetect() {
         return;
     }
 
-    // Single-frame detection: prefer full-res frame in live mode, use current_image_ otherwise
-    cv::Mat img = (current_image_source_.empty() && !current_full_frame_.empty())
-                  ? current_full_frame_.clone() : current_image_.clone();
+    // Single-frame detection: clone current frame, run async, show result once
+    cv::Mat img = current_image_.clone();
     auto* ctrl = &ctrl_;
     manual_detect_future_ = QtConcurrent::run([ctrl, img]() -> DetectionResult {
         DetectionResult result;
@@ -1742,10 +1740,6 @@ void MainWindow::on_saveStitch() {
 
 // ==================== Camera Preview (event-driven, via signal) ====================
 
-void MainWindow::onFullFrameReady(const cv::Mat& frame) {
-    current_full_frame_ = frame;  // store full-res frame for detection
-}
-
 void MainWindow::onCameraFrameReady(const cv::Mat& frame) {
     if (frame.empty()) return;
 
@@ -1771,16 +1765,14 @@ void MainWindow::onCameraFrameReady(const cv::Mat& frame) {
     QImage img(frame.data, frame.cols, frame.rows, frame.step, QImage::Format_RGB888);
     ui_->cameraImageLabel->setPixmap(QPixmap::fromImage(img));
 
-    // Real-time detection (if enabled) — use full-resolution frame when available
+    // Real-time detection (if enabled)
     if (image_detection_enabled_ && model_loaded_ && !detection_busy_) {
         detection_busy_ = true;
         auto* ctrl = &ctrl_;
-        // Prefer full-res frame for detection; fall back to preview if not yet received
-        cv::Mat detectFrame = current_full_frame_.empty() ? frame.clone() : current_full_frame_.clone();
-        detection_future_ = QtConcurrent::run([ctrl, detectFrame]() -> DetectionResult {
+        detection_future_ = QtConcurrent::run([ctrl, frame]() -> DetectionResult {
             DetectionResult result;
-            result.frame = detectFrame;
-            result.detections = ctrl->detect(detectFrame);
+            result.frame = frame;
+            result.detections = ctrl->detect(frame);
             return result;
         });
         detection_watcher_.setFuture(detection_future_);

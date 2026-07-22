@@ -34,16 +34,14 @@ else()
 endif()
 
 # OpenCV — only link modules we actually use
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    # MinGW: Force TIFF to use FindTIFF.cmake (MODULE mode) with vcpkg's static libtiff.a,
-    # instead of finding miniforge3's TiffConfig.cmake (CONFIG mode) which brings MSVC tiff.dll dependency.
-    set(CMAKE_FIND_PACKAGE_PREFER_CONFIG OFF)
-    set(Tiff_DIR "Tiff_DIR-NOTFOUND" CACHE PATH "" FORCE)
-    set(TIFF_INCLUDE_DIR "${CMAKE_PREFIX_PATH}/include" CACHE PATH "" FORCE)
-    set(TIFF_LIBRARY "${CMAKE_PREFIX_PATH}/lib/libtiff.a" CACHE FILEPATH "" FORCE)
-    set(TIFF_LIBRARY_RELEASE "${CMAKE_PREFIX_PATH}/lib/libtiff.a" CACHE FILEPATH "" FORCE)
-    set(TIFF_LIBRARY_DEBUG "${CMAKE_PREFIX_PATH}/debug/lib/libtiffd.a" CACHE FILEPATH "" FORCE)
-endif()
+# Force TIFF to use FindTIFF.cmake (MODULE mode) with vcpkg's static libtiff.a,
+# instead of finding miniforge3's TiffConfig.cmake (CONFIG mode) which brings MSVC tiff.dll dependency.
+set(CMAKE_FIND_PACKAGE_PREFER_CONFIG OFF)
+set(Tiff_DIR "Tiff_DIR-NOTFOUND" CACHE PATH "" FORCE)
+set(TIFF_INCLUDE_DIR "${CMAKE_PREFIX_PATH}/include" CACHE PATH "" FORCE)
+set(TIFF_LIBRARY "${CMAKE_PREFIX_PATH}/lib/libtiff.a" CACHE FILEPATH "" FORCE)
+set(TIFF_LIBRARY_RELEASE "${CMAKE_PREFIX_PATH}/lib/libtiff.a" CACHE FILEPATH "" FORCE)
+set(TIFF_LIBRARY_DEBUG "${CMAKE_PREFIX_PATH}/debug/lib/libtiffd.a" CACHE FILEPATH "" FORCE)
 # Required: core OpenCV modules (CPU build)
 # CUDA modules are optional — guarded by HAS_OPENCV_CUDA at compile time
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs stitching
@@ -55,10 +53,7 @@ foreach(comp cudaarithm cudawarping cudafilters cudaimgproc)
         break()
     endif()
 endforeach()
-if(HAS_OPENCV_CUDA)
-    find_package(CUDAToolkit REQUIRED)
-    message(STATUS "Found CUDA Toolkit: ${CUDAToolkit_VERSION} at ${CUDAToolkit_BIN_DIR}")
-else()
+if(NOT HAS_OPENCV_CUDA)
     message(WARNING "OpenCV CUDA modules not available — GPU-accelerated features disabled")
 endif()
 message(STATUS "Found OpenCV: ${OpenCV_VERSION} at ${OpenCV_DIR}")
@@ -239,14 +234,9 @@ if(HAS_TOUPCAM)
     target_link_libraries(${PROJECT_NAME} PRIVATE toupcam)
 endif()
 
-# Output directory — separate for MinGW vs MSVC+CUDA to avoid conflicts
-if(HAS_OPENCV_CUDA)
-    set(OUTPUT_BIN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/bin-msvc)
-else()
-    set(OUTPUT_BIN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/bin)
-endif()
+# Output directory
 set_target_properties(${PROJECT_NAME} PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${OUTPUT_BIN_DIR}
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin
 )
 
 # ============================================================
@@ -284,208 +274,77 @@ if(HAS_TOUPCAM)
 endif()
 
 # ============================================================
-# Deploy targets: windeployqt + runtime DLLs
+# Deploy target: windeployqt + MinGW runtime DLLs
 # ============================================================
 
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    # --- MinGW deploy ---
-    find_program(WINDEPLOYQT_EXECUTABLE
-        NAMES windeployqt windeployqt.exe
-        PATHS "C:/Programs/Qt/6.10.1/mingw_64/bin"
-        NO_DEFAULT_PATH
+find_program(WINDEPLOYQT_EXECUTABLE
+    NAMES windeployqt windeployqt.exe
+    PATHS "C:/Programs/Qt/6.10.1/mingw_64/bin"
+    NO_DEFAULT_PATH
+)
+if(WINDEPLOYQT_EXECUTABLE)
+    get_filename_component(MINGW_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+
+    add_custom_target(deploy
+        COMMAND ${CMAKE_COMMAND} -E echo "=== Step 0: Clean nested bin dirs + logs ==="
+        COMMAND ${CMAKE_COMMAND} -E rm -rf
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/bin
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/logs
+        COMMAND ${CMAKE_COMMAND} -E echo "=== Step 1: Deploying Qt runtime ==="
+        COMMAND ${WINDEPLOYQT_EXECUTABLE}
+            --dir $<TARGET_FILE_DIR:${PROJECT_NAME}>
+            $<TARGET_FILE:${PROJECT_NAME}>
+        COMMAND ${CMAKE_COMMAND} -E echo "=== Step 2: Copying MinGW runtime DLLs ==="
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${MINGW_BIN_DIR}/libgcc_s_seh-1.dll"    $<TARGET_FILE_DIR:${PROJECT_NAME}>
+            "${MINGW_BIN_DIR}/libstdc++-6.dll"       $<TARGET_FILE_DIR:${PROJECT_NAME}>
+            "${MINGW_BIN_DIR}/libwinpthread-1.dll"   $<TARGET_FILE_DIR:${PROJECT_NAME}>
+            "${MINGW_BIN_DIR}/libgomp-1.dll"         $<TARGET_FILE_DIR:${PROJECT_NAME}>
+        COMMAND ${CMAKE_COMMAND} -E echo "=== Step 3: Clean up unnecessary files ==="
+        COMMAND ${CMAKE_COMMAND} -E rm -f
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/opengl32sw.dll
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/D3Dcompiler_47.dll
+        COMMAND ${CMAKE_COMMAND} -E echo "=== Step 4: Remove unused translations ==="
+        COMMAND ${CMAKE_COMMAND} -E rm -f
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ar.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_bg.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ca.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_cs.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_da.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_de.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_en.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_es.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_fa.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_fi.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_fr.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_gd.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_he.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_hr.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_hu.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_it.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ja.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ka.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ko.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_lg.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_lv.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_nl.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_nn.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_pl.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_pt_BR.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ru.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_sk.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_sv.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_tr.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_uk.qm
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_zh_TW.qm
+        COMMAND ${CMAKE_COMMAND} -E echo "=== Deploy complete ==="
+        COMMENT "Deploy: Qt + MinGW runtime DLLs"
+        DEPENDS ${PROJECT_NAME}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
-    if(WINDEPLOYQT_EXECUTABLE)
-        get_filename_component(MINGW_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
-
-        add_custom_target(deploy
-            COMMAND ${CMAKE_COMMAND} -E echo "=== Step 0: Clean nested bin dirs + logs ==="
-            COMMAND ${CMAKE_COMMAND} -E rm -rf
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/bin
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/logs
-            COMMAND ${CMAKE_COMMAND} -E echo "=== Step 1: Deploying Qt runtime ==="
-            COMMAND ${WINDEPLOYQT_EXECUTABLE}
-                --dir $<TARGET_FILE_DIR:${PROJECT_NAME}>
-                $<TARGET_FILE:${PROJECT_NAME}>
-            COMMAND ${CMAKE_COMMAND} -E echo "=== Step 2: Copying MinGW runtime DLLs ==="
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${MINGW_BIN_DIR}/libgcc_s_seh-1.dll"    $<TARGET_FILE_DIR:${PROJECT_NAME}>
-                "${MINGW_BIN_DIR}/libstdc++-6.dll"       $<TARGET_FILE_DIR:${PROJECT_NAME}>
-                "${MINGW_BIN_DIR}/libwinpthread-1.dll"   $<TARGET_FILE_DIR:${PROJECT_NAME}>
-                "${MINGW_BIN_DIR}/libgomp-1.dll"         $<TARGET_FILE_DIR:${PROJECT_NAME}>
-            COMMAND ${CMAKE_COMMAND} -E echo "=== Step 3: Clean up unnecessary files ==="
-            COMMAND ${CMAKE_COMMAND} -E rm -f
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/opengl32sw.dll
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/D3Dcompiler_47.dll
-            COMMAND ${CMAKE_COMMAND} -E echo "=== Step 4: Remove unused translations ==="
-            COMMAND ${CMAKE_COMMAND} -E rm -f
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ar.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_bg.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ca.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_cs.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_da.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_de.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_en.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_es.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_fa.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_fi.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_fr.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_gd.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_he.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_hr.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_hu.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_it.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ja.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ka.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ko.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_lg.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_lv.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_nl.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_nn.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_pl.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_pt_BR.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ru.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_sk.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_sv.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_tr.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_uk.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_zh_TW.qm
-            COMMAND ${CMAKE_COMMAND} -E echo "=== Deploy complete ==="
-            COMMENT "Deploy: Qt + MinGW runtime DLLs"
-            DEPENDS ${PROJECT_NAME}
-            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        )
-        message(STATUS "Found windeployqt (MinGW): ${WINDEPLOYQT_EXECUTABLE}")
-    else()
-        message(WARNING "windeployqt (MinGW) not found. Deploy target will not be available.")
-    endif()
-
-elseif(MSVC)
-    # --- MSVC deploy ---
-    find_program(WINDEPLOYQT_MSVC_EXECUTABLE
-        NAMES windeployqt windeployqt.exe
-        PATHS "C:/Programs/Qt/6.10.1/msvc2022_64/bin"
-        NO_DEFAULT_PATH
-    )
-    if(WINDEPLOYQT_MSVC_EXECUTABLE)
-        # Derive VCINSTALLDIR from the compiler path.
-        # cl.exe is at .../VC/Tools/MSVC/<ver>/bin/Hostx64/x64/cl.exe → VCINSTALLDIR = .../VC/
-        get_filename_component(_cl_d1 "${CMAKE_CXX_COMPILER}" DIRECTORY)   # Hostx64/x64
-        get_filename_component(_cl_d2 "${_cl_d1}" DIRECTORY)               # Hostx64
-        get_filename_component(_cl_d3 "${_cl_d2}" DIRECTORY)               # bin
-        get_filename_component(_cl_ver "${_cl_d3}" DIRECTORY)              # <ver> (e.g. 14.50.35717)
-        get_filename_component(_cl_d5  "${_cl_ver}" DIRECTORY)             # MSVC
-        get_filename_component(_cl_d6  "${_cl_d5}" DIRECTORY)              # Tools
-        get_filename_component(_vc_dir "${_cl_d6}" DIRECTORY)              # VC
-        # Redist version may differ from Tools version — glob for vcruntime140.dll
-        file(GLOB_RECURSE _vcruntime_dlls "${_vc_dir}/Redist/MSVC/*/x64/Microsoft.VC*/vcruntime140.dll")
-        if(_vcruntime_dlls)
-            list(GET _vcruntime_dlls 0 _first_vcruntime)
-            get_filename_component(_vcredist_dir "${_first_vcruntime}" DIRECTORY)
-        else()
-            set(_vcredist_dir "")
-        endif()
-        # Find cuDNN (installed separately from CUDA Toolkit)
-        file(GLOB_RECURSE _cudnn_candidates
-            "C:/Program Files/NVIDIA/CUDNN/*/cudnn64_*.dll"
-            "$ENV{ProgramFiles}/NVIDIA/CUDNN/*/cudnn64_*.dll")
-        if(_cudnn_candidates)
-            list(GET _cudnn_candidates 0 CUDNN_DLL)
-            message(STATUS "Found cuDNN: ${CUDNN_DLL}")
-            set(_cudnn_copy
-                COMMAND ${CMAKE_COMMAND} -E echo "=== Step 2.5: Copying cuDNN ==="
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CUDNN_DLL}" $<TARGET_FILE_DIR:${PROJECT_NAME}>)
-        else()
-            set(CUDNN_DLL "")
-            set(_cudnn_copy)
-            message(WARNING "cuDNN not found — opencv_dnn4.dll may fail to load")
-        endif()
-
-        add_custom_target(deploy-msvc
-            COMMAND ${CMAKE_COMMAND} -E echo "=== Step 0: Clean nested bin dirs + logs ==="
-            COMMAND ${CMAKE_COMMAND} -E rm -rf
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/bin
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/logs
-            COMMAND ${CMAKE_COMMAND} -E echo "=== Step 1: Deploying Qt runtime (MSVC) ==="
-            COMMAND ${CMAKE_COMMAND} -E env "VCINSTALLDIR=${_vc_dir}"
-                ${WINDEPLOYQT_MSVC_EXECUTABLE}
-                --dir $<TARGET_FILE_DIR:${PROJECT_NAME}>
-                $<TARGET_FILE:${PROJECT_NAME}>
-            COMMAND ${CMAKE_COMMAND} -E echo "=== Step 2: Copying CUDA runtime DLLs (NPPI + cuBLAS + cuFFT) ==="
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${CUDAToolkit_BIN_DIR}/x64/nppc64_13.dll"
-                "${CUDAToolkit_BIN_DIR}/x64/nppial64_13.dll"
-                "${CUDAToolkit_BIN_DIR}/x64/nppicc64_13.dll"
-                "${CUDAToolkit_BIN_DIR}/x64/nppidei64_13.dll"
-                "${CUDAToolkit_BIN_DIR}/x64/nppif64_13.dll"
-                "${CUDAToolkit_BIN_DIR}/x64/nppig64_13.dll"
-                "${CUDAToolkit_BIN_DIR}/x64/nppim64_13.dll"
-                "${CUDAToolkit_BIN_DIR}/x64/nppist64_13.dll"
-                "${CUDAToolkit_BIN_DIR}/x64/nppisu64_13.dll"
-                "${CUDAToolkit_BIN_DIR}/x64/nppitc64_13.dll"
-                "${CUDAToolkit_BIN_DIR}/x64/npps64_13.dll"
-                "${CUDAToolkit_BIN_DIR}/x64/cublas64_13.dll"
-                "${CUDAToolkit_BIN_DIR}/x64/cublasLt64_13.dll"
-                "${CUDAToolkit_BIN_DIR}/x64/cufft64_12.dll"
-                "${CUDAToolkit_BIN_DIR}/x64/cudart64_13.dll"
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>
-            ${_cudnn_copy}
-            COMMAND ${CMAKE_COMMAND} -E echo "=== Step 3: Copying MSVC redist DLLs ==="
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${_vcredist_dir}/vcruntime140.dll"
-                "${_vcredist_dir}/vcruntime140_1.dll"
-                "${_vcredist_dir}/msvcp140.dll"
-                "${_vcredist_dir}/msvcp140_1.dll"
-                "${_vcredist_dir}/msvcp140_2.dll"
-                "${_vcredist_dir}/concrt140.dll"
-                "${_vcredist_dir}/msvcp140_atomic_wait.dll"
-                "${_vcredist_dir}/msvcp140_codecvt_ids.dll"
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>
-            COMMAND ${CMAKE_COMMAND} -E echo "=== Step 4: Clean up unnecessary files ==="
-            COMMAND ${CMAKE_COMMAND} -E rm -f
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/opengl32sw.dll
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/D3Dcompiler_47.dll
-            COMMAND ${CMAKE_COMMAND} -E echo "=== Step 5: Remove unused translations ==="
-            COMMAND ${CMAKE_COMMAND} -E rm -f
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ar.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_bg.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ca.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_cs.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_da.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_de.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_en.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_es.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_fa.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_fi.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_fr.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_gd.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_he.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_hr.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_hu.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_it.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ja.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ka.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ko.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_lg.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_lv.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_nl.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_nn.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_pl.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_pt_BR.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ru.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_sk.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_sv.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_tr.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_uk.qm
-                $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_zh_TW.qm
-            COMMAND ${CMAKE_COMMAND} -E echo "=== Step 6: Deploy (MSVC) complete ==="
-            COMMENT "Deploy: Qt MSVC runtime"
-            DEPENDS ${PROJECT_NAME}
-            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        )
-        message(STATUS "Found windeployqt (MSVC): ${WINDEPLOYQT_MSVC_EXECUTABLE}")
-    else()
-        message(WARNING "windeployqt (MSVC) not found. deploy-msvc target will not be available.")
-    endif()
+    message(STATUS "Found windeployqt: ${WINDEPLOYQT_EXECUTABLE}")
+else()
+    message(WARNING "windeployqt not found. Deploy target will not be available.")
 endif()
 
 # ============================================================
@@ -530,7 +389,7 @@ set(CPACK_NSIS_MUI_UNWELCOMEFINISHPAGE_BITMAP
 set(CPACK_RESOURCE_FILE_LICENSE    "${CMAKE_CURRENT_SOURCE_DIR}/resources/License.txt")
 
 # Include entire deploy output (exclude transient logs to avoid locked-file errors)
-install(DIRECTORY ${OUTPUT_BIN_DIR}/
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin/
         DESTINATION bin
         USE_SOURCE_PERMISSIONS
         PATTERN "logs" EXCLUDE

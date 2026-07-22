@@ -7,7 +7,6 @@
 #include "core/camera/CameraHandler.h"
 #include "core/detector/YoloDetector.h"
 #include "core/detector/DustDetector.h"
-#include "core/detector/EdgeDetector.h"
 #include "core/stitch/ImageStitcher.h"
 #include "ui/WorkflowManager.h"
 
@@ -30,7 +29,6 @@ struct AppController::Impl {
     camera::CameraHandler camera_handler_;
     detector::YoloDetector yolo_detector_;
     detector::DustDetector dust_detector_;
-    detector::EdgeDetector edge_detector_;
     detector::IDetector* current_detector_ = &yolo_detector_;  // active algorithm
     stitch::ImageStitcher image_stitcher_;
     WorkflowManager* workflow_mgr_ = nullptr;
@@ -80,8 +78,6 @@ AppController::AppController(QObject* parent)
     // Camera preview relay
     connect(&pimpl_->camera_handler_, &camera::CameraHandler::frameReady,
             this, &AppController::cameraFrameReady);
-    connect(&pimpl_->camera_handler_, &camera::CameraHandler::fullFrameReady,
-            this, &AppController::cameraFullFrameReady);
     connect(&pimpl_->camera_handler_, &camera::CameraHandler::exposureChanged,
             this, &AppController::cameraExposureChanged);
     connect(&pimpl_->camera_handler_, &camera::CameraHandler::cameraDisconnected,
@@ -117,19 +113,6 @@ AppController::AppController(QObject* parent)
     dp.maxIter    = cfg.dustMaxIter();
     dp.nmsIou     = cfg.dustNmsIou();
     pimpl_->dust_detector_.setParams(dp);
-
-    // Initialize edge detector params from config
-    detector::EdgeDetectionParams ep;
-    ep.claheClip         = cfg.edgeClaheClip();
-    ep.claheTileGrid     = cfg.edgeClaheTileGrid();
-    ep.edgeThreshold     = cfg.edgeThreshold();
-    ep.sobelKSize        = cfg.edgeSobelKSize();
-    ep.dilateIter        = cfg.edgeDilateIter();
-    ep.minBboxArea       = cfg.edgeMinBboxArea();
-    ep.nmsIouThresh      = cfg.edgeNmsIouThresh();
-    ep.nmsContainThresh  = cfg.edgeNmsContainThresh();
-    pimpl_->edge_detector_.setParams(ep);
-
     setDetectorAlgorithm(cfg.detectionAlgorithm());
 
     SPDLOG_INFO("AppController initialized");
@@ -310,18 +293,13 @@ cv::Mat AppController::drawDetections(const cv::Mat& image, const std::vector<de
 }
 
 void AppController::setDetectorAlgorithm(int algo) {
-    if (algo == 2)
-        pimpl_->current_detector_ = static_cast<detector::IDetector*>(&pimpl_->edge_detector_);
-    else if (algo == 1)
-        pimpl_->current_detector_ = static_cast<detector::IDetector*>(&pimpl_->dust_detector_);
-    else
-        pimpl_->current_detector_ = static_cast<detector::IDetector*>(&pimpl_->yolo_detector_);
-    const char* name = (algo == 2) ? "Edge" : (algo == 1) ? "Dust" : "YOLO";
-    SPDLOG_INFO("Detector algorithm set to {}", name);
+    pimpl_->current_detector_ = (algo == 1)
+                                    ? static_cast<detector::IDetector*>(&pimpl_->dust_detector_)
+                                    : static_cast<detector::IDetector*>(&pimpl_->yolo_detector_);
+    SPDLOG_INFO("Detector algorithm set to {}", algo == 1 ? "Dust" : "YOLO");
 }
 
 int AppController::detectorAlgorithm() const {
-    if (pimpl_->current_detector_ == &pimpl_->edge_detector_) return 2;
     return (pimpl_->current_detector_ == &pimpl_->dust_detector_) ? 1 : 0;
 }
 
@@ -331,14 +309,6 @@ void AppController::setDustParams(const detector::DustDetectionParams& params) {
 
 detector::DustDetectionParams AppController::dustParams() const {
     return pimpl_->dust_detector_.params();
-}
-
-void AppController::setEdgeParams(const detector::EdgeDetectionParams& params) {
-    pimpl_->edge_detector_.setParams(params);
-}
-
-detector::EdgeDetectionParams AppController::edgeParams() const {
-    return pimpl_->edge_detector_.params();
 }
 
 void AppController::setScanDir(const std::string& dir) {
@@ -394,9 +364,7 @@ std::string AppController::saveDetectionsJson(const std::vector<detector::Detect
 
     QJsonObject root;
     root["source"] = QString::fromStdString(sourceName);
-    root["algorithm"] = (detectorAlgorithm() == 2) ? "edge"
-                      : (detectorAlgorithm() == 1) ? "dust"
-                      : "yolo";
+    root["algorithm"] = (detectorAlgorithm() == 1) ? "dust" : "yolo";
     root["timestamp"] = QDateTime::currentDateTime().toString(Qt::ISODate);
     QJsonObject size;
     size["width"] = image.cols;

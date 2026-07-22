@@ -162,22 +162,10 @@ void __stdcall CameraHandler::pushDataCallback(const void* pData, const ToupcamF
         cv::bitwise_not(preview, preview);
     }
 
-    // Emit full-resolution frame FIRST (before preview) so onFullFrameReady
-    // sets current_full_frame_ before onCameraFrameReady consumes it.
-    // Post to UI thread — both frames are deep-copied and rotated.
+    // Post to UI thread — preview is already deep-copied and rotated.
     // Use QPointer to guard against CameraHandler destruction before the
     // queued lambda executes (prevents use-after-free).
     QPointer<CameraHandler> guard(handler);
-    {
-        cv::Mat full = frame.clone();  // clone raw SDK buffer while still valid
-        if (rot == 90)       cv::rotate(full, full, cv::ROTATE_90_CLOCKWISE);
-        else if (rot == 180) cv::rotate(full, full, cv::ROTATE_180);
-        else if (rot == 270) cv::rotate(full, full, cv::ROTATE_90_COUNTERCLOCKWISE);
-        // Note: negative is NOT applied to full frame — it's preview-only
-        QMetaObject::invokeMethod(handler, [guard, full]() {
-            if (guard) emit guard->fullFrameReady(full);
-        }, Qt::QueuedConnection);
-    }
     QMetaObject::invokeMethod(handler, [guard, preview]() {
         if (guard) emit guard->frameReady(preview);
     }, Qt::QueuedConnection);
