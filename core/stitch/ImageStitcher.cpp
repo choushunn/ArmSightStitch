@@ -3,6 +3,7 @@
 #include "FeatureStitchAlgorithm.h"
 #include "ZScaleGridStitchAlgorithm.h"
 #include "SeamFeatherStitchAlgorithm.h"
+#include "AdvancedGridStitchAlgorithm.h"
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
@@ -40,6 +41,7 @@ ImageStitcher::ImageStitcher()
     , algo2_(std::make_unique<FeatureStitchAlgorithm>())
     , algo3_(std::make_unique<ZScaleGridStitchAlgorithm>())
     , algo4_(std::make_unique<SeamFeatherStitchAlgorithm>())
+    , algo5_(std::make_unique<AdvancedGridStitchAlgorithm>())
 {
     result_image_ = cv::Mat();
     // Default to algorithm 0, forwarding callbacks
@@ -54,8 +56,9 @@ void ImageStitcher::setAlgorithm(int algo) {
     auto* next = (algo == 1) ? algo2_.get()
                : (algo == 2) ? algo3_.get()
                : (algo == 3) ? algo4_.get()
+               : (algo == 4) ? algo5_.get()
                : algo1_.get();
-    if (algo < 0 || algo > 3) {
+    if (algo < 0 || algo > 4) {
         SPDLOG_WARN("Unknown stitch algorithm {}, defaulting to 0", algo);
         next = algo1_.get();
     }
@@ -84,11 +87,15 @@ void ImageStitcher::setCenterCropSize(int pixels) {
     if (zgrid) zgrid->setCenterCropSize(pixels);
     auto* seam = dynamic_cast<SeamFeatherStitchAlgorithm*>(algo4_.get());
     if (seam) seam->setCenterCropSize(pixels);
+    auto* adv = dynamic_cast<AdvancedGridStitchAlgorithm*>(algo5_.get());
+    if (adv) adv->setCenterCropSize(pixels);
 }
 
 void ImageStitcher::setFeatherWidth(int pixels) {
     auto* seam = dynamic_cast<SeamFeatherStitchAlgorithm*>(algo4_.get());
     if (seam) seam->setFeatherWidth(pixels);
+    auto* adv = dynamic_cast<AdvancedGridStitchAlgorithm*>(algo5_.get());
+    if (adv) adv->setFeatherWidth(pixels);
 }
 
 void ImageStitcher::setScaleMode(int mode) {
@@ -97,6 +104,8 @@ void ImageStitcher::setScaleMode(int mode) {
     if (seam) seam->setScaleMode(mode);
     auto* zgrid = dynamic_cast<ZScaleGridStitchAlgorithm*>(algo3_.get());
     if (zgrid) zgrid->setScaleMode(mode);
+    auto* adv = dynamic_cast<AdvancedGridStitchAlgorithm*>(algo5_.get());
+    if (adv) adv->setScaleMode(mode);
 }
 
 void ImageStitcher::setScaleMapFile(const std::string& path) {
@@ -105,6 +114,20 @@ void ImageStitcher::setScaleMapFile(const std::string& path) {
     if (seam) seam->setScaleMapFile(path);
     auto* zgrid = dynamic_cast<ZScaleGridStitchAlgorithm*>(algo3_.get());
     if (zgrid) zgrid->setScaleMapFile(path);
+    auto* adv = dynamic_cast<AdvancedGridStitchAlgorithm*>(algo5_.get());
+    if (adv) adv->setScaleMapFile(path);
+}
+
+void ImageStitcher::setZCorrectionCoef(double coef) {
+    z_correction_coef_ = coef;
+    auto* adv = dynamic_cast<AdvancedGridStitchAlgorithm*>(algo5_.get());
+    if (adv) adv->setZCorrectionCoef(coef);
+}
+
+void ImageStitcher::setCropOffsetFile(const std::string& path) {
+    crop_offset_file_ = path;
+    auto* adv = dynamic_cast<AdvancedGridStitchAlgorithm*>(algo5_.get());
+    if (adv) adv->setCropOffsetFile(path);
 }
 
 bool ImageStitcher::stitchImagesFromDirectory(const std::string& input_dir,
@@ -185,6 +208,8 @@ cv::Mat ImageStitcher::stitchImagesWithPositions(const std::vector<PositionedIma
     cv::Mat result;
     if (auto* zgrid = dynamic_cast<ZScaleGridStitchAlgorithm*>(current_algo_)) {
         result = zgrid->stitchWithPositions(images, positions, zValues, grid_size);
+    } else if (auto* adv = dynamic_cast<AdvancedGridStitchAlgorithm*>(current_algo_)) {
+        result = adv->stitchWithPositions(images, positions, zValues, grid_size);
     } else if (auto* seam = dynamic_cast<SeamFeatherStitchAlgorithm*>(current_algo_)) {
         result = seam->stitchWithPositions(images, positions, zValues, grid_size);
     } else if (auto* grid = dynamic_cast<GridStitchAlgorithm*>(current_algo_)) {

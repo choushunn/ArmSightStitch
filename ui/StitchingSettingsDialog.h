@@ -2,6 +2,7 @@
 
 #include <QDialog>
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QFormLayout>
@@ -23,6 +24,8 @@ public:
     QString inputDir() const;
     int scaleMode() const;
     QString scaleMapFile() const;
+    double zCorrectionCoef() const;
+    QString cropOffsetFile() const;
 
     void setGridSizeX(int val);
     void setGridSizeY(int val);
@@ -32,10 +35,16 @@ public:
     void setInputDir(const QString& dir);
     void setScaleMode(int mode);
     void setScaleMapFile(const QString& path);
+    void setZCorrectionCoef(double val);
+    void setCropOffsetFile(const QString& path);
 
 private:
     Ui::StitchingSettingsDialog ui;
     QComboBox* scaleModeCombo_ = nullptr;
     QWidget* scaleMapRow_ = nullptr;
     QLineEdit* scaleMapEdit_ = nullptr;
+    QWidget* z_correction_coef_row_ = nullptr;
+    QDoubleSpinBox* zCorrectionCoefSpin_ = nullptr;
+    QWidget* crop_offset_file_row_ = nullptr;
+    QLineEdit* cropOffsetEdit_ = nullptr;
 };

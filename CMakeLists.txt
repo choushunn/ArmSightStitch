@@ -152,6 +152,8 @@ set(SOURCES
     core/stitch/GridStitchAlgorithm.h
     core/stitch/FeatureStitchAlgorithm.h
     core/stitch/ZScaleGridStitchAlgorithm.h
+    core/stitch/SeamFeatherStitchAlgorithm.h
+    core/stitch/AdvancedGridStitchAlgorithm.h
     core/stitch/IStitchAlgorithm.h
     infra/config/ConfigManager.cpp
     ui/WorkflowManager.cpp

@@ -46,6 +46,10 @@ public:
     virtual void setScaleMode(int mode) = 0;
     /// Set path to scale-map JSON file (used when scaleMode == 1)
     virtual void setScaleMapFile(const std::string& path) = 0;
+    /// Z correction coefficient: global multiplier on Z-based scale factor (for AdvancedGridStitchAlgorithm)
+    virtual void setZCorrectionCoef(double coef) = 0;
+    /// Set path to crop-offset JSON file (per-cell pixel offsets from image center)
+    virtual void setCropOffsetFile(const std::string& path) = 0;
 
     virtual std::vector<cv::Mat> loadImagesFromDirectory(const std::string& input_dir) = 0;
     /// Load images with grid positions parsed from filenames (row_col.ext).

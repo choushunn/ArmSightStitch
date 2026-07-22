@@ -1535,6 +1535,8 @@ void MainWindow::on_stitchRun() {
             ctrl_.stitcher().setFeatherWidth(ConfigManager::instance().featherWidth());
             ctrl_.stitcher().setScaleMode(ConfigManager::instance().scaleMode());
             ctrl_.stitcher().setScaleMapFile(ConfigManager::instance().scaleMapFile());
+            ctrl_.stitcher().setZCorrectionCoef(ConfigManager::instance().zCorrectionCoef());
+            ctrl_.stitcher().setCropOffsetFile(ConfigManager::instance().cropOffsetFile());
             auto sorted = ctrl_.stitcher().sortImagesInSCurveOrder(images, gs);
             return ctrl_.stitcher().stitchImages(sorted, gs);
         });
@@ -1566,6 +1568,8 @@ void MainWindow::on_stitchRun() {
     ctrl_.stitcher().setFeatherWidth(ConfigManager::instance().featherWidth());
     ctrl_.stitcher().setScaleMode(ConfigManager::instance().scaleMode());
     ctrl_.stitcher().setScaleMapFile(ConfigManager::instance().scaleMapFile());
+    ctrl_.stitcher().setZCorrectionCoef(ConfigManager::instance().zCorrectionCoef());
+    ctrl_.stitcher().setCropOffsetFile(ConfigManager::instance().cropOffsetFile());
 
     stitching_future_ = QtConcurrent::run([this, positioned, detectedGrid]() {
         return ctrl_.stitcher().stitchImagesWithPositions(positioned, detectedGrid);
@@ -1628,6 +1632,8 @@ void MainWindow::on_stitchSettings() {
     dlg.setFeatherWidth(cfg.featherWidth());
     dlg.setScaleMode(cfg.scaleMode());
     dlg.setScaleMapFile(QString::fromStdString(cfg.scaleMapFile()));
+    dlg.setZCorrectionCoef(cfg.zCorrectionCoef());
+    dlg.setCropOffsetFile(QString::fromStdString(cfg.cropOffsetFile()));
     dlg.setInputDir(QString::fromStdString(cfg.imageSaveBasePath()));
     if (dlg.exec() == QDialog::Accepted) {
         cfg.setGridSizeX(dlg.gridSizeX());
@@ -1637,6 +1643,8 @@ void MainWindow::on_stitchSettings() {
         cfg.setFeatherWidth(dlg.featherWidth());
         cfg.setScaleMode(dlg.scaleMode());
         cfg.setScaleMapFile(dlg.scaleMapFile().toStdString());
+        cfg.setZCorrectionCoef(dlg.zCorrectionCoef());
+        cfg.setCropOffsetFile(dlg.cropOffsetFile().toStdString());
         cfg.setImageSaveBasePath(dlg.inputDir().toStdString());
         cfg.saveToFile(QCoreApplication::applicationDirPath().toStdString() + "/config.json");
     }
@@ -2075,6 +2083,8 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                 QString("设置 Z 值 [行%1,列%2]").arg(row+1).arg(col+1));
             QAction* setScale = menu.addAction(
                 QString("设置缩放比例 [行%1,列%2]").arg(row+1).arg(col+1));
+            QAction* setCropOffset = menu.addAction(
+                QString("设置裁剪偏移 [行%1,列%2]").arg(row+1).arg(col+1));
             menu.addSeparator();
             QAction* replaceFrame = nullptr;
             if (ctrl_.cameraHandler().isConnected()) {
@@ -2116,8 +2126,16 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                 while (targetRow.size() < gx) targetRow.append(defaultValue);
                 targetRow[col] = defaultValue;
                 rows[row] = targetRow;
-                // Write back
+                // Write back — preserve existing keys for multi-key files
                 QJsonObject root;
+                if (QFileInfo::exists(filePath)) {
+                    QFile rf(filePath);
+                    if (rf.open(QIODevice::ReadOnly)) {
+                        QJsonDocument d = QJsonDocument::fromJson(rf.readAll());
+                        rf.close();
+                        if (d.isObject()) root = d.object();
+                    }
+                }
                 root["description"] = desc;
                 root[key] = rows;
                 QDir().mkpath(QFileInfo(filePath).absolutePath());
@@ -2173,6 +2191,45 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                     QMessageBox::information(this, "完成",
                         QString("已保存缩放: [行%1,列%2] scale=%3")
                             .arg(row+1).arg(col+1).arg(newS, 0, 'f', 3));
+                }
+            } else if (chosen == setCropOffset) {
+                QString coPath = QString::fromStdString(cfg.cropOffsetFile());
+                bool ok = false;
+                int curOx = static_cast<int>(readCellValue(coPath, "ox_values", 0));
+                int curOy = static_cast<int>(readCellValue(coPath, "oy_values", 0));
+
+                QDialog dlg(this);
+                dlg.setWindowTitle(QString("设置裁剪偏移 [行%1,列%2]").arg(row+1).arg(col+1));
+                auto* dlgLayout = new QFormLayout(&dlg);
+                auto* oxSpin = new QSpinBox(&dlg);
+                oxSpin->setRange(-500, 500);
+                oxSpin->setValue(curOx);
+                oxSpin->setSuffix(" px");
+                auto* oySpin = new QSpinBox(&dlg);
+                oySpin->setRange(-500, 500);
+                oySpin->setValue(curOy);
+                oySpin->setSuffix(" px");
+                dlgLayout->addRow("水平偏移 (ox):", oxSpin);
+                dlgLayout->addRow("垂直偏移 (oy):", oySpin);
+                auto* btnBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+                connect(btnBox, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+                connect(btnBox, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+                dlgLayout->addRow(btnBox);
+
+                if (dlg.exec() == QDialog::Accepted) {
+                    int newOx = oxSpin->value();
+                    int newOy = oySpin->value();
+                    bool oxOk = updateMapCell(coPath, "ox_values", row, col, newOx,
+                        "Crop Offset Map — 每个网格位置的裁剪偏移量(像素)");
+                    bool oyOk = updateMapCell(coPath, "oy_values", row, col, newOy,
+                        "Crop Offset Map — 每个网格位置的裁剪偏移量(像素)");
+                    if (oxOk && oyOk) {
+                        appendLog(QString("Crop Offset 已更新: [%1,%2] ox=%3 oy=%4")
+                            .arg(row+1).arg(col+1).arg(newOx).arg(newOy), "INFO");
+                        QMessageBox::information(this, "完成",
+                            QString("已保存裁剪偏移: [行%1,列%2] ox=%3 oy=%4")
+                                .arg(row+1).arg(col+1).arg(newOx).arg(newOy));
+                    }
                 }
             } else if (replaceFrame && chosen == replaceFrame) {
                 // Async: capture frame + overwrite files in worker thread
@@ -2683,6 +2740,8 @@ void MainWindow::startNegativeStitching(const std::string& directory, const cv::
         ctrl_.stitcher().setFeatherWidth(cfg.featherWidth());
         ctrl_.stitcher().setScaleMode(cfg.scaleMode());
         ctrl_.stitcher().setScaleMapFile(cfg.scaleMapFile());
+        ctrl_.stitcher().setZCorrectionCoef(cfg.zCorrectionCoef());
+        ctrl_.stitcher().setCropOffsetFile(cfg.cropOffsetFile());
         return ctrl_.stitcher().stitchImagesWithPositions(positioned, detectedGrid);
     });
     negative_stitching_watcher_.setFuture(negative_stitching_future_);

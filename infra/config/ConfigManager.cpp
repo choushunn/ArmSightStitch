@@ -50,6 +50,7 @@ void ConfigManager::loadDefaults() {
     {
         QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
         scale_map_file_ = (docs + "/ScannerData/scale_map.json").toStdString();
+        crop_offset_file_ = (docs + "/ScannerData/crop_offset.json").toStdString();
     }
     feather_width_ = 120;
 
@@ -100,6 +101,15 @@ void ConfigManager::applyEnvironmentOverrides() {
     env_override_int("ARM_SIGHT_STITCH_CENTER_CROP_SIZE", center_crop_size_);
     env_override_int("ARM_SIGHT_STITCH_ALGORITHM", stitch_algorithm_);
     env_override_int("ARM_SIGHT_STITCH_FEATHER_WIDTH", feather_width_);
+    {
+        const char* val = std::getenv("ARM_SIGHT_STITCH_Z_CORRECTION_COEF");
+        if (val && val[0] != '\0') {
+            z_correction_coef_ = std::atof(val);
+            SPDLOG_INFO("Config overridden by env ARM_SIGHT_STITCH_Z_CORRECTION_COEF = {}",
+                        z_correction_coef_);
+        }
+    }
+    env_override("ARM_SIGHT_STITCH_CROP_OFFSET_FILE", crop_offset_file_);
 }
 
 bool ConfigManager::loadFromFile(const std::string& filepath) {
@@ -181,6 +191,8 @@ bool ConfigManager::loadFromJson(const QJsonObject& json) {
     readInt("feather_width", feather_width_);
     readInt("scale_mode", scale_mode_);
     readStr("scale_map_file", scale_map_file_);
+    readDouble("z_correction_coef", z_correction_coef_);
+    readStr("crop_offset_file", crop_offset_file_);
 
     readInt("detection_algorithm", detection_algorithm_);
     readDouble("dust_clahe_clip", dust_clahe_clip_);
@@ -271,6 +283,8 @@ QJsonObject ConfigManager::toJson() const {
     json["feather_width"] = feather_width_;
     json["scale_mode"] = scale_mode_;
     json["scale_map_file"] = QString::fromStdString(scale_map_file_);
+    json["z_correction_coef"] = z_correction_coef_;
+    json["crop_offset_file"] = QString::fromStdString(crop_offset_file_);
     json["detection_algorithm"] = detection_algorithm_;
     json["dust_clahe_clip"] = dust_clahe_clip_;
     json["dust_bg_blur"] = dust_bg_blur_;
@@ -416,7 +430,7 @@ void ConfigManager::setCenterCropSize(int size) {
 }
 
 void ConfigManager::setStitchAlgorithm(int algo) {
-    if (algo >= 0 && algo <= 3) stitch_algorithm_ = algo;
+    if (algo >= 0 && algo <= 4) stitch_algorithm_ = algo;
 }
 
 void ConfigManager::setFeatherWidth(int width) {
@@ -429,6 +443,14 @@ void ConfigManager::setScaleMode(int mode) {
 
 void ConfigManager::setScaleMapFile(const std::string& path) {
     scale_map_file_ = path;
+}
+
+void ConfigManager::setZCorrectionCoef(double coef) {
+    if (coef > 0.0) z_correction_coef_ = coef;
+}
+
+void ConfigManager::setCropOffsetFile(const std::string& path) {
+    crop_offset_file_ = path;
 }
 
 void ConfigManager::setDetectionAlgorithm(int algo) {

@@ -30,13 +30,15 @@ public:
 
     cv::Mat getResult() const;
 
-    /// Switch stitch strategy: 0=GridStitchAlgorithm, 1=FeatureStitchAlgorithm, 2=ZScaleGridStitchAlgorithm
+    /// Switch stitch strategy: 0=Grid, 1=Feature, 2=ZScale, 3=SeamFeather, 4=AdvancedGrid
     void setAlgorithm(int algo);
     void setCropMargin(int pixels) override;
     void setCenterCropSize(int pixels) override;
     void setFeatherWidth(int pixels) override;
     void setScaleMode(int mode) override;
     void setScaleMapFile(const std::string& path) override;
+    void setZCorrectionCoef(double coef) override;
+    void setCropOffsetFile(const std::string& path) override;
 
     /**
      * @brief Load images from directory
@@ -91,11 +93,14 @@ private:
     std::unique_ptr<IStitchAlgorithm> algo2_;  // FeatureStitchAlgorithm (1)
     std::unique_ptr<IStitchAlgorithm> algo3_;  // ZScaleGridStitchAlgorithm (2)
     std::unique_ptr<IStitchAlgorithm> algo4_;  // SeamFeatherStitchAlgorithm (3)
+    std::unique_ptr<IStitchAlgorithm> algo5_;  // AdvancedGridStitchAlgorithm (4)
     IStitchAlgorithm* current_algo_ = nullptr;
     std::function<void(int, int)> progress_callback_;
     std::function<void(const std::string&)> status_callback_;
     int scale_mode_ = 0;
     std::string scale_map_file_;
+    double z_correction_coef_ = 1.0;
+    std::string crop_offset_file_;
 };
 
 } // namespace stitch

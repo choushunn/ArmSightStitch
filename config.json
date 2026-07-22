@@ -20,6 +20,8 @@
     "center_crop_size": 1775,
     "stitch_algorithm": 0,
     "feather_width": 120,
+    "z_correction_coef": 1.0,
+    "crop_offset_file": "",
 
     "detection_algorithm": 1,
     "dust_clahe_clip": 2.0,

@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>400</width>
-    <height>320</height>
+    <height>380</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -172,7 +172,7 @@
       <item row="5" column="1">
        <widget class="QComboBox" name="algorithmCombo">
         <property name="toolTip">
-         <string>0=网格拼接(默认) 1=OpenCV特征匹配 2=Z轴缩放网格拼接 3=接缝羽化</string>
+         <string>0=网格 1=特征匹配 2=Z轴缩放 3=接缝羽化 4=高级网格(Z校正+裁剪偏移+羽化)</string>
         </property>
         <item>
          <property name="text">
@@ -192,6 +192,11 @@
         <item>
          <property name="text">
           <string>3 - 接缝羽化 (Seam Feather)</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>4 - 高级网格拼接 (Advanced Grid)</string>
          </property>
         </item>
        </widget>

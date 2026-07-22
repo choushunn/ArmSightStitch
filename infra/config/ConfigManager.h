@@ -80,6 +80,12 @@ public:
     std::string scaleMapFile() const { return scale_map_file_; }
     void setScaleMapFile(const std::string& path);
 
+    // Z correction coefficient: global multiplier on Z-based scale (for AdvancedGridStitchAlgorithm)
+    double zCorrectionCoef() const { return z_correction_coef_; }
+    void setZCorrectionCoef(double coef);
+    std::string cropOffsetFile() const { return crop_offset_file_; }
+    void setCropOffsetFile(const std::string& path);
+
     // Detection algorithm selection: 0=YOLO, 1=Dust(traditional CV)
     int detectionAlgorithm() const { return detection_algorithm_; }
     void setDetectionAlgorithm(int algo);
@@ -160,10 +166,12 @@ private:
     int step_size_ = 43000;
     int z_height_ = 80000;
     int center_crop_size_ = 1775;  // center crop like docs/stitch.py
-    int stitch_algorithm_ = 0;     // 0=Grid, 1=Feature, 2=ZScaleGrid, 3=SeamFeather
+    int stitch_algorithm_ = 0;     // 0=Grid,1=Feature,2=ZScale,3=SeamFeather,4=AdvancedGrid
     int feather_width_ = 120;      // seam feather width in pixels
     int scale_mode_ = 0;           // 0=Z-based auto, 1=manual scale-map from file
     std::string scale_map_file_;   // path to scale-map JSON file when scale_mode_ == 1
+    double z_correction_coef_ = 1.0;    // Z-scale correction multiplier (for AdvancedGridStitchAlgorithm)
+    std::string crop_offset_file_;       // path to crop-offset JSON (per-cell ox/oy values)
 
     int detection_algorithm_ = 1;  // 0=YOLO, 1=Dust(traditional CV); default dust
     double dust_clahe_clip_ = 2.0;
