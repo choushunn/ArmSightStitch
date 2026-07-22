@@ -30,7 +30,8 @@ public:
 
     cv::Mat getResult() const;
 
-    /// Switch stitch strategy: 0=Grid, 1=Feature, 2=ZScale, 3=SeamFeather, 4=AdvancedGrid
+    /// Switch stitch strategy: 0=Grid, 1=Feature, 2=ZScale, 3=SeamFeather
+    /// (algo=4 is accepted for backward compat, mapped to algo=3 with stacking mode)
     void setAlgorithm(int algo);
     void setCropMargin(int pixels) override;
     void setCenterCropSize(int pixels) override;
@@ -92,8 +93,7 @@ private:
     std::unique_ptr<IStitchAlgorithm> algo1_;  // GridStitchAlgorithm (0)
     std::unique_ptr<IStitchAlgorithm> algo2_;  // FeatureStitchAlgorithm (1)
     std::unique_ptr<IStitchAlgorithm> algo3_;  // ZScaleGridStitchAlgorithm (2)
-    std::unique_ptr<IStitchAlgorithm> algo4_;  // SeamFeatherStitchAlgorithm (3)
-    std::unique_ptr<IStitchAlgorithm> algo5_;  // AdvancedGridStitchAlgorithm (4)
+    std::unique_ptr<IStitchAlgorithm> algo4_;  // SeamFeatherStitchAlgorithm (3, also serves 4)
     IStitchAlgorithm* current_algo_ = nullptr;
     std::function<void(int, int)> progress_callback_;
     std::function<void(const std::string&)> status_callback_;

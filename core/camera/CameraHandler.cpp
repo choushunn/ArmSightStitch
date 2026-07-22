@@ -272,6 +272,28 @@ bool CameraHandler::getNegative() const { return negative_; }
 bool CameraHandler::setGain(float g) { return connected_ && SUCCEEDED(Toupcam_put_ExpoAGain(hcam_,static_cast<unsigned short>(g*100))); }
 float CameraHandler::getGain() const { if(!connected_)return 0; unsigned short g=0; return SUCCEEDED(Toupcam_get_ExpoAGain(hcam_,&g))?g/100.f:0; }
 
+void CameraHandler::getGainRange(unsigned short& min_pct, unsigned short& max_pct, unsigned short& def_pct) const {
+    if (!connected_) { min_pct = 100; max_pct = 500; def_pct = 100; return; }
+    if (FAILED(Toupcam_get_ExpoAGainRange(hcam_, &min_pct, &max_pct, &def_pct))) {
+        min_pct = 100; max_pct = 500; def_pct = 100;
+    }
+}
+
+bool CameraHandler::setSharpening(unsigned short strength) {
+    if (!connected_) return false;
+    // Pack: (threshold << 24) | (radius << 16) | strength
+    // Use defaults: radius=2, threshold=0 per SDK defines
+    int value = (0 << 24) | (2 << 16) | strength;
+    return SUCCEEDED(Toupcam_put_Option(hcam_, TOUPCAM_OPTION_SHARPENING, value));
+}
+
+unsigned short CameraHandler::getSharpening() const {
+    if (!connected_) return 0;
+    int value = 0;
+    if (FAILED(Toupcam_get_Option(hcam_, TOUPCAM_OPTION_SHARPENING, &value))) return 0;
+    return static_cast<unsigned short>(value & 0xFFFF);  // extract strength from low 16 bits
+}
+
 bool CameraHandler::setResolution(int w, int h) {
     if (!connected_ || FAILED(Toupcam_put_Size(hcam_, w, h))) return false;
     image_width_ = w; image_height_ = h;

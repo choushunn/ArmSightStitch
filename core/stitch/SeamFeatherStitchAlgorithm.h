@@ -18,6 +18,7 @@
 namespace stitch {
 
 /// Algorithm 3 — grid-based stitching with seam feathering (cosine-weighted blending)
+/// + optional Z correction coefficient, per-cell crop offset, and scale stacking.
 ///
 /// Like GridStitchAlgorithm, tiles are placed at fixed grid positions, but instead
 /// of hard-edge copyTo(), adjacent tiles overlap by featherWidth_ pixels and are
@@ -25,15 +26,33 @@ namespace stitch {
 ///
 /// When Z values are provided, each image is pre-scaled by zRef/z_i to compensate
 /// for magnification differences caused by varying Z-axis heights during scanning.
-/// This combines the benefits of ZScaleGridStitchAlgorithm (magnification matching)
-/// with seam feathering (smooth transitions).
+///
+/// Optional advanced features (from former AdvancedGridStitchAlgorithm):
+///   z_correction_coef_ : global multiplier on Z-based scale factor (default 1.0)
+///   ox_values_/oy_values_ : per-cell crop offset loaded from JSON (empty = no offset)
+///   scale_stack_ : when true, scale_mode=1 stacks manual scale-map on top of Z-based
+///                  scale instead of replacing it (default false = replacement)
 class SeamFeatherStitchAlgorithm : public IStitchAlgorithm {
 public:
-    void setFeatherWidth(int pixels) { featherWidth_ = pixels; }
-    void setCenterCropSize(int pixels) { centerCropSize_ = pixels; }
-    void setCropMargin(int pixels) { cropMargin_ = pixels; }
-    void setScaleMode(int mode) { scale_mode_ = (mode == 1) ? 1 : 0; }
+    void setFeatherWidth(int pixels)       { featherWidth_ = pixels; }
+    void setCenterCropSize(int pixels)     { centerCropSize_ = pixels; }
+    void setCropMargin(int pixels)         { cropMargin_ = pixels; }
+    void setScaleMode(int mode)            { scale_mode_ = (mode == 1) ? 1 : 0; }
     void setScaleMapFile(const std::string& path) { loadScaleMap(path); }
+
+    /// Z correction coefficient: global multiplier on Z-based scale factor.
+    /// Default 1.0 = no correction.  <1 reduces magnification, >1 increases it.
+    void setZCorrectionCoef(double coef)   { z_correction_coef_ = (coef > 0.0) ? coef : 1.0; }
+
+    /// Per-cell crop offset JSON file (format: {"ox_values":[[...],...], "oy_values":[[...],...]}).
+    /// Empty string = no per-cell offset.
+    void setCropOffsetFile(const std::string& path) { loadCropOffset(path); }
+
+    /// When true, scale_mode=1 stacks manual scale-map on top of Z-based scale
+    /// (scale = scale_map[row][col] × zRef/z_i × z_correction_coef_).
+    /// When false (default), scale_mode=1 replaces Z-based scale entirely
+    /// (scale = scale_map[row][col]).
+    void setScaleStackMode(bool stack)     { scale_stack_ = stack; }
 
     cv::Mat stitch(const std::vector<cv::Mat>& images,
                    const cv::Size& gridSize) override
@@ -55,7 +74,8 @@ public:
         return stitchWithPositions(images, positions, {}, gridSize);
     }
 
-    /// Position-based stitching with Z-scale compensation + seam feathering.
+    /// Position-based stitching with Z-scale compensation + seam feathering
+    /// + optional crop offset.
     /// Z values are per-image Z-axis heights in pulses; empty vector = no scaling.
     cv::Mat stitchWithPositions(const std::vector<cv::Mat>& images,
                                 const std::vector<std::pair<int, int>>& positions,
@@ -83,7 +103,8 @@ public:
             int zRef = 0;
             if (hasZ) {
                 zRef = computeMedianZ(zValues);
-                SPDLOG_INFO("SeamFeather: zRef={} (median of {} values)", zRef, zValues.size());
+                SPDLOG_INFO("SeamFeather: zRef={} (median of {} values), coef={}, stack={}",
+                            zRef, zValues.size(), z_correction_coef_, scale_stack_);
             }
 
             // Tile size is based on original image size.
@@ -106,7 +127,11 @@ private:
     int centerCropSize_ = 0;
     int cropMargin_ = 0;
     int scale_mode_ = 0;                          // 0=Z-based, 1=manual scale-map
+    double z_correction_coef_ = 1.0;              // global multiplier on Z-based scale
+    bool scale_stack_ = false;                    // true = scale_map stacks on Z-based; false = replaces
     std::vector<std::vector<double>> scale_map_;  // manual scale values [row][col]
+    std::vector<std::vector<int>> ox_values_;     // per-cell X crop offset (pixels)
+    std::vector<std::vector<int>> oy_values_;     // per-cell Y crop offset (pixels)
 
     /// Load manual scale-map from JSON file.
     void loadScaleMap(const std::string& path) {
@@ -143,11 +168,71 @@ private:
         }
     }
 
+    /// Load per-cell crop offset from JSON file.
+    /// Format: {"ox_values": [[0,0,...],...], "oy_values": [[0,0,...],...]}
+    void loadCropOffset(const std::string& path) {
+        ox_values_.clear();
+        oy_values_.clear();
+        if (path.empty()) return;
+        try {
+            QFile file(QString::fromStdString(path));
+            if (!file.open(QIODevice::ReadOnly)) {
+                SPDLOG_ERROR("SeamFeather: cannot open crop-offset file: {}", path);
+                return;
+            }
+            QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+            file.close();
+            if (!doc.isObject()) {
+                SPDLOG_ERROR("SeamFeather: crop-offset file is not a JSON object");
+                return;
+            }
+            QJsonObject root = doc.object();
+
+            if (root["ox_values"].isArray()) {
+                QJsonArray rows = root["ox_values"].toArray();
+                ox_values_.reserve(rows.size());
+                for (int r = 0; r < rows.size(); ++r) {
+                    if (!rows[r].isArray()) { ox_values_.clear(); return; }
+                    QJsonArray cols = rows[r].toArray();
+                    std::vector<int> rowVals;
+                    rowVals.reserve(cols.size());
+                    for (int c = 0; c < cols.size(); ++c)
+                        rowVals.push_back(cols[c].toInt());
+                    ox_values_.push_back(std::move(rowVals));
+                }
+            }
+
+            if (root["oy_values"].isArray()) {
+                QJsonArray rows = root["oy_values"].toArray();
+                oy_values_.reserve(rows.size());
+                for (int r = 0; r < rows.size(); ++r) {
+                    if (!rows[r].isArray()) { oy_values_.clear(); return; }
+                    QJsonArray cols = rows[r].toArray();
+                    std::vector<int> rowVals;
+                    rowVals.reserve(cols.size());
+                    for (int c = 0; c < cols.size(); ++c)
+                        rowVals.push_back(cols[c].toInt());
+                    oy_values_.push_back(std::move(rowVals));
+                }
+            }
+
+            SPDLOG_INFO("SeamFeather: crop-offset loaded {}x{}, {}x{}",
+                        ox_values_.size(), ox_values_.empty() ? 0 : ox_values_[0].size(),
+                        oy_values_.size(), oy_values_.empty() ? 0 : oy_values_[0].size());
+        } catch (const std::exception& e) {
+            SPDLOG_ERROR("SeamFeather: failed to parse crop-offset: {}", e.what());
+            ox_values_.clear();
+            oy_values_.clear();
+        }
+    }
+
     /// Get the scale factor for image at (row, col).
-    /// Returns from manual scale-map if available, otherwise computes Z-based scale.
+    /// Mode 0: zRef/z_i × z_correction_coef_
+    /// Mode 1 (non-stacking): scale_map[row][col]  (replacement, backward compat with algo3)
+    /// Mode 1 (stacking): scale_map[row][col] × zRef/z_i × z_correction_coef_  (algo4 behavior)
     double getScaleFactor(int row, int col, int z_i, int zRef) const {
-        if (scale_mode_ == 1) {
-            // Manual scale-map lookup
+        if (scale_mode_ == 1 && !scale_stack_) {
+            // Non-stacking mode 1: pure scale_map lookup (algo3 original behavior)
             if (row >= 0 && row < static_cast<int>(scale_map_.size()) &&
                 col >= 0 && col < static_cast<int>(scale_map_[row].size())) {
                 return scale_map_[row][col];
@@ -155,10 +240,30 @@ private:
             SPDLOG_WARN("SeamFeather: scale-map missing entry [{},{}]", row, col);
             return 1.0;
         }
-        // Z-based auto-scaling
+
+        // Compute Z-based base scale
+        double zScale = 1.0;
         if (zRef > 0 && z_i > 0)
-            return static_cast<double>(zRef) / static_cast<double>(z_i);
-        return 1.0;
+            zScale = static_cast<double>(zRef) / static_cast<double>(z_i);
+
+        double result = zScale * z_correction_coef_;
+
+        if (scale_mode_ == 1 && scale_stack_) {
+            // Stacking mode 1: scale_map × Z-ratio × correction (algo4 behavior)
+            double manual = 1.0;
+            if (row >= 0 && row < static_cast<int>(scale_map_.size()) &&
+                col >= 0 && col < static_cast<int>(scale_map_[row].size())) {
+                manual = scale_map_[row][col];
+            } else {
+                SPDLOG_WARN("SeamFeather: scale-map missing entry [{},{}]", row, col);
+            }
+            result = manual * zScale * z_correction_coef_;
+        }
+
+        // Clamp to prevent extreme values
+        if (result < 0.1) result = 0.1;
+        if (result > 10.0) result = 10.0;
+        return result;
     }
 
     /// Compute median Z from non-zero values.
@@ -231,18 +336,31 @@ private:
     }
 
     /// Compute the crop ROI for a source image based on current settings.
-    cv::Rect computeCropRoi(const cv::Size& imgSize, int tileW, int tileH) const {
+    /// Optional per-cell offset (ox, oy) shifts the center point.
+    cv::Rect computeCropRoi(const cv::Size& imgSize, int tileW, int tileH,
+                            int ox = 0, int oy = 0) const
+    {
         if (centerCropSize_ > 0 || cropMargin_ > 0) {
             if (centerCropSize_ > 0) {
-                int left = (imgSize.width - tileW) / 2;
-                int top  = (imgSize.height - tileH) / 2;
+                int left = (imgSize.width  - tileW) / 2 + ox;
+                int top  = (imgSize.height - tileH) / 2 + oy;
+                left = std::max(0, std::min(left, imgSize.width  - tileW));
+                top  = std::max(0, std::min(top,  imgSize.height - tileH));
                 return cv::Rect(left, top, tileW, tileH);
             } else {
                 int crop = cropMargin_;
-                return cv::Rect(crop, crop, tileW, tileH);
+                int left = crop + ox;
+                int top  = crop + oy;
+                left = std::max(0, std::min(left, imgSize.width  - tileW));
+                top  = std::max(0, std::min(top,  imgSize.height - tileH));
+                return cv::Rect(left, top, tileW, tileH);
             }
         }
-        return cv::Rect(0, 0, tileW, tileH);
+        int left = ox;
+        int top  = oy;
+        left = std::max(0, std::min(left, imgSize.width  - tileW));
+        top  = std::max(0, std::min(top,  imgSize.height - tileH));
+        return cv::Rect(left, top, tileW, tileH);
     }
 
     /// Build a cosine feather mask for a single tile.
@@ -318,8 +436,9 @@ private:
 
     /// Center-crop (or pad) a source tile to exact dimensions for placement.
     /// Used as the base crop before feather expansion.
-    cv::Mat cropTile(const cv::Mat& src, int tileW, int tileH) const {
-        cv::Rect roi = computeCropRoi(cv::Size(src.cols, src.rows), tileW, tileH);
+    /// Optional per-cell offset (ox, oy) shifts the crop center.
+    cv::Mat cropTile(const cv::Mat& src, int tileW, int tileH, int ox = 0, int oy = 0) const {
+        cv::Rect roi = computeCropRoi(cv::Size(src.cols, src.rows), tileW, tileH, ox, oy);
 
         // Clamp to source bounds
         roi.x = std::max(0, roi.x);
@@ -340,11 +459,14 @@ private:
         return cropped;
     }
 
-    /// Core implementation: Z-scale → interpolate to original size → grid placement + feather.
+    /// Core implementation: Z-scale → crop offset → feather blend → grid placement.
     ///
-    /// Each image is Z-scaled to match the reference magnification, then interpolated
-    /// back to its original pixel dimensions. This ensures all tiles have the same pixel
-    /// size and cover the same physical area — a prerequisite for uniform grid placement.
+    /// Processing order per image:
+    ///   1. Z-scale to uniform size (scaleToUniform)
+    ///   2. Apply per-cell crop offset (ox, oy) + center-crop to tileW×tileH
+    ///   3. Expand crop by featherWidth for overlapping regions
+    ///   4. Build cosine feather mask
+    ///   5. Accumulate on canvas with weighted blending
     cv::Mat stitchImpl(const std::vector<cv::Mat>& images,
                        const std::vector<std::pair<int, int>>& positions,
                        const std::vector<int>& zValues,
@@ -365,11 +487,22 @@ private:
         int canvasW = nCols * tileW;
         int canvasH = nRows * tileH;
 
-        SPDLOG_INFO("SeamFeather: grid={}x{} tile={}x{} canvas={}x{} fw={} hasZ={}",
-                    nCols, nRows, tileW, tileH, canvasW, canvasH, fw, hasZ);
+        SPDLOG_INFO("SeamFeather: grid={}x{} tile={}x{} canvas={}x{} fw={} hasZ={} coef={} stack={}",
+                    nCols, nRows, tileW, tileH, canvasW, canvasH, fw, hasZ,
+                    z_correction_coef_, scale_stack_);
 
-        // Base crop ROI on the uniform original size
-        cv::Rect baseCrop = computeCropRoi(refSize, tileW, tileH);
+        // ── Helper: get crop offset for a grid cell ──
+        auto getOffset = [&](int row, int col, int& ox, int& oy) {
+            ox = 0; oy = 0;
+            if (row >= 0 && row < static_cast<int>(ox_values_.size()) &&
+                col >= 0 && col < static_cast<int>(ox_values_[row].size())) {
+                ox = ox_values_[row][col];
+            }
+            if (row >= 0 && row < static_cast<int>(oy_values_.size()) &&
+                col >= 0 && col < static_cast<int>(oy_values_[row].size())) {
+                oy = oy_values_[row][col];
+            }
+        };
 
         // If feather width is 0, fall back to simple copyTo
         if (fw <= 0) {
@@ -383,9 +516,12 @@ private:
                 }
                 if (row < 0 || row >= nRows || col < 0 || col >= nCols) continue;
 
+                int ox, oy;
+                getOffset(row, col, ox, oy);
+
                 cv::Mat uniform = scaleToUniform(images[i], row, col,
                     hasZ ? zValues[i] : 0, zRef);
-                cv::Mat tile = cropTile(uniform, tileW, tileH);
+                cv::Mat tile = cropTile(uniform, tileW, tileH, ox, oy);
                 cv::Rect dest(col * tileW, row * tileH, tileW, tileH);
                 tile.copyTo(result(dest));
                 int pct = 20 + static_cast<int>((i * 80) / images.size());
@@ -416,17 +552,24 @@ private:
                 continue;
             }
 
-            // ── Scale → interpolate to original size (uniform dimensions) ──
+            int ox, oy;
+            getOffset(row, col, ox, oy);
+
+            // ── 1. Scale → interpolate to original size (uniform dimensions) ──
             cv::Mat uniform = scaleToUniform(images[i], row, col,
                 hasZ ? zValues[i] : 0, zRef);
 
-            // ── Adjacency ──
+            // ── 2. Compute base crop ROI with per-cell offset ──
+            cv::Rect baseCrop = computeCropRoi(cv::Size(uniform.cols, uniform.rows),
+                                               tileW, tileH, ox, oy);
+
+            // ── 3. Adjacency ──
             bool hasLeft   = (col > 0);
             bool hasRight  = (col < nCols - 1);
             bool hasTop    = (row > 0);
             bool hasBottom = (row < nRows - 1);
 
-            // ── Expanded crop in uniform-sized source image ──
+            // ── 4. Expanded crop (includes feather overlap zones) ──
             int cropLeft   = baseCrop.x - (hasLeft   ? fw : 0);
             int cropTop    = baseCrop.y - (hasTop    ? fw : 0);
             int cropRight  = baseCrop.x + baseCrop.width  + (hasRight  ? fw : 0);
@@ -444,10 +587,10 @@ private:
             int th = tile.rows;
             int tw = tile.cols;
 
-            // ── Build feather mask (CPU — small, per-tile) ──
+            // ── 5. Build feather mask ──
             cv::Mat mask = buildFeatherMask(th, tw, hasLeft, hasRight, hasTop, hasBottom, fw);
 
-            // ── Canvas placement (overlap into neighbor cells) ──
+            // ── 6. Canvas placement (overlap into neighbor cells) ──
             int x0 = col * tileW - (hasLeft   ? fw : 0);
             int y0 = row * tileH - (hasTop    ? fw : 0);
             int x1 = x0 + tw;
@@ -515,14 +658,24 @@ private:
                 continue;
             }
 
+            int ox, oy;
+            getOffset(row, col, ox, oy);
+
+            // ── 1. Z-scale → interpolate to original size ──
             cv::Mat uniform = scaleToUniform(images[i], row, col,
                 hasZ ? zValues[i] : 0, zRef);
 
+            // ── 2. Compute base crop ROI with per-cell offset ──
+            cv::Rect baseCrop = computeCropRoi(cv::Size(uniform.cols, uniform.rows),
+                                               tileW, tileH, ox, oy);
+
+            // ── 3. Adjacency ──
             bool hasLeft   = (col > 0);
             bool hasRight  = (col < nCols - 1);
             bool hasTop    = (row > 0);
             bool hasBottom = (row < nRows - 1);
 
+            // ── 4. Expanded crop ──
             int cropLeft   = baseCrop.x - (hasLeft   ? fw : 0);
             int cropTop    = baseCrop.y - (hasTop    ? fw : 0);
             int cropRight  = baseCrop.x + baseCrop.width  + (hasRight  ? fw : 0);
@@ -539,8 +692,10 @@ private:
             int th = tile.rows;
             int tw = tile.cols;
 
+            // ── 5. Build feather mask ──
             cv::Mat mask = buildFeatherMask(th, tw, hasLeft, hasRight, hasTop, hasBottom, fw);
 
+            // ── 6. Canvas placement ──
             int x0 = col * tileW - (hasLeft   ? fw : 0);
             int y0 = row * tileH - (hasTop    ? fw : 0);
             int x1 = x0 + tw;

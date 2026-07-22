@@ -66,6 +66,10 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     ui_->autoExposureCheck->setEnabled(false);
     ui_->exposureSlider->setEnabled(false);
     ui_->exposureValueLabel->setEnabled(false);
+    ui_->gainSlider->setEnabled(false);
+    ui_->gainValueLabel->setEnabled(false);
+    ui_->sharpeningSlider->setEnabled(false);
+    ui_->sharpeningValueLabel->setEnabled(false);
     ui_->rotationCombo->setEnabled(false);
     ui_->hflipCheck->setEnabled(false);
     ui_->vflipCheck->setEnabled(false);
@@ -652,6 +656,8 @@ void MainWindow::connectSignals() {
         ctrl_.cameraHandler().setAutoExposure(auto_on);
         ui_->exposureSlider->setEnabled(!auto_on);
         ui_->exposureValueLabel->setEnabled(!auto_on);
+        ui_->gainSlider->setEnabled(!auto_on);
+        ui_->gainValueLabel->setEnabled(!auto_on);
         if (auto_on) {
             // When switching to auto, immediately sync real exposure value from camera hardware
             float expo = ctrl_.cameraHandler().getRealExposure();
@@ -660,6 +666,13 @@ void MainWindow::connectSignals() {
                                     ui_->exposureSlider->maximum());
             ui_->exposureSlider->setValue(slider_val);
             ui_->exposureValueLabel->setText(QString::number(expo, 'f', 2) + " ms");
+            // Sync gain (also controlled by AE hardware)
+            float current_gain = ctrl_.cameraHandler().getGain();
+            int gain_val = qBound(ui_->gainSlider->minimum(),
+                                  static_cast<int>(current_gain * 100.0f),
+                                  ui_->gainSlider->maximum());
+            ui_->gainSlider->setValue(gain_val);
+            ui_->gainValueLabel->setText(QString::number(current_gain, 'f', 2) + "x");
         }
     });
     connect(ui_->exposureSlider, &QSlider::valueChanged, this, [this](int val) {
@@ -669,6 +682,24 @@ void MainWindow::connectSignals() {
         if (!ctrl_.cameraHandler().getAutoExposure()) {
             ctrl_.cameraHandler().setExposure(exposure);
         }
+    });
+
+    // ---- 相机增益控制 ----
+    connect(ui_->gainSlider, &QSlider::valueChanged, this, [this](int val) {
+        float gain = static_cast<float>(val) / 100.0f;
+        ui_->gainValueLabel->setText(QString::number(gain, 'f', 2) + "x");
+        if (!ctrl_.cameraHandler().getAutoExposure()) {
+            ctrl_.cameraHandler().setGain(gain);
+        }
+    });
+
+    // ---- 相机锐化控制 ----
+    connect(ui_->sharpeningSlider, &QSlider::valueChanged, this, [this](int val) {
+        if (val == 0)
+            ui_->sharpeningValueLabel->setText(QStringLiteral("关"));
+        else
+            ui_->sharpeningValueLabel->setText(QString::number(val));
+        ctrl_.cameraHandler().setSharpening(static_cast<unsigned short>(val));
     });
 
     // ---- 相机旋转控制 ----
@@ -843,6 +874,16 @@ void MainWindow::connectSignals() {
                          ui_->exposureSlider->maximum());
         ui_->exposureSlider->setValue(val);
         ui_->exposureValueLabel->setText(QString::number(expo, 'f', 2) + " ms");
+        // Sync gain — also controlled by AE hardware
+        float current_gain = ctrl_.cameraHandler().getGain();
+        {
+            QSignalBlocker gain_blocker(ui_->gainSlider);
+            int gval = qBound(ui_->gainSlider->minimum(),
+                              static_cast<int>(current_gain * 100.0f),
+                              ui_->gainSlider->maximum());
+            ui_->gainSlider->setValue(gval);
+        }
+        ui_->gainValueLabel->setText(QString::number(current_gain, 'f', 2) + "x");
     });
 
     connect(&ctrl_, &AppController::cameraDisconnected, this, [this]() {
@@ -981,6 +1022,35 @@ void MainWindow::on_connectCamera() {
         slider->setEnabled(!auto_on);
         label->setEnabled(!auto_on);
         ui_->autoExposureCheck->setEnabled(true);
+
+        // Sync gain UI state from camera
+        {
+            unsigned short gMin, gMax, gDef;
+            ctrl_.cameraHandler().getGainRange(gMin, gMax, gDef);
+            auto& gslider = ui_->gainSlider;
+            gslider->setMinimum(static_cast<int>(gMin));
+            gslider->setMaximum(static_cast<int>(gMax));
+            float current_gain = ctrl_.cameraHandler().getGain();
+            int gval = qBound(gslider->minimum(), static_cast<int>(current_gain * 100.0f), gslider->maximum());
+            gslider->setValue(gval);
+            ui_->gainValueLabel->setText(QString::number(current_gain, 'f', 2) + "x");
+            gslider->setEnabled(!auto_on);
+            ui_->gainValueLabel->setEnabled(!auto_on);
+        }
+
+        // Sync sharpening UI state from camera
+        {
+            unsigned short current_sharp = ctrl_.cameraHandler().getSharpening();
+            QSignalBlocker sb(ui_->sharpeningSlider);
+            ui_->sharpeningSlider->setMinimum(0);
+            ui_->sharpeningSlider->setMaximum(500);
+            ui_->sharpeningSlider->setValue(static_cast<int>(current_sharp));
+            ui_->sharpeningValueLabel->setText(current_sharp == 0 ? QStringLiteral("关")
+                                                : QString::number(current_sharp));
+            ui_->sharpeningSlider->setEnabled(true);
+            ui_->sharpeningValueLabel->setEnabled(true);
+        }
+
         if (ui_->hflipCheck) ui_->hflipCheck->setEnabled(true);
         if (ui_->vflipCheck) ui_->vflipCheck->setEnabled(true);
         if (ui_->negativeCheck) ui_->negativeCheck->setEnabled(true);
@@ -1001,6 +1071,10 @@ void MainWindow::on_disconnectCamera() {
     ui_->autoExposureCheck->setEnabled(false);
     ui_->exposureSlider->setEnabled(false);
     ui_->exposureValueLabel->setEnabled(false);
+    ui_->gainSlider->setEnabled(false);
+    ui_->gainValueLabel->setEnabled(false);
+    ui_->sharpeningSlider->setEnabled(false);
+    ui_->sharpeningValueLabel->setEnabled(false);
     ui_->rotationCombo->setEnabled(false);
     ui_->resolutionCombo->setEnabled(false);
     if (ui_->hflipCheck) ui_->hflipCheck->setEnabled(false);
@@ -2219,9 +2293,9 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                 if (dlg.exec() == QDialog::Accepted) {
                     int newOx = oxSpin->value();
                     int newOy = oySpin->value();
-                    bool oxOk = updateMapCell(coPath, "ox_values", row, col, newOx,
+                    bool oxOk = updateMapCell(coPath, "ox_values", newOx,
                         "Crop Offset Map — 每个网格位置的裁剪偏移量(像素)");
-                    bool oyOk = updateMapCell(coPath, "oy_values", row, col, newOy,
+                    bool oyOk = updateMapCell(coPath, "oy_values", newOy,
                         "Crop Offset Map — 每个网格位置的裁剪偏移量(像素)");
                     if (oxOk && oyOk) {
                         appendLog(QString("Crop Offset 已更新: [%1,%2] ox=%3 oy=%4")

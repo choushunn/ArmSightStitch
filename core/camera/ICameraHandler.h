@@ -61,6 +61,9 @@ public:
     virtual bool getNegative() const = 0;
     virtual bool setGain(float gain) = 0;
     virtual float getGain() const = 0;
+    virtual void getGainRange(unsigned short& min_pct, unsigned short& max_pct, unsigned short& def_pct) const = 0;
+    virtual bool setSharpening(unsigned short strength) = 0;
+    virtual unsigned short getSharpening() const = 0;
     virtual bool setResolution(int width, int height) = 0;
     virtual void getResolution(int& width, int& height) const = 0;
     virtual std::vector<std::pair<int, int>> getSupportedResolutions() const = 0;

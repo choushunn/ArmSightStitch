@@ -153,7 +153,6 @@ set(SOURCES
     core/stitch/FeatureStitchAlgorithm.h
     core/stitch/ZScaleGridStitchAlgorithm.h
     core/stitch/SeamFeatherStitchAlgorithm.h
-    core/stitch/AdvancedGridStitchAlgorithm.h
     core/stitch/IStitchAlgorithm.h
     infra/config/ConfigManager.cpp
     ui/WorkflowManager.cpp
@@ -261,6 +260,8 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         ${CMAKE_CURRENT_SOURCE_DIR}/res/scale_map_template.json $<TARGET_FILE_DIR:${PROJECT_NAME}>
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${CMAKE_CURRENT_SOURCE_DIR}/res/z_radial_template.json $<TARGET_FILE_DIR:${PROJECT_NAME}>
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/crop_offset_template.json $<TARGET_FILE_DIR:${PROJECT_NAME}>
     COMMENT "Copying stylesheet and config..."
 )
 
@@ -391,6 +392,7 @@ set(CPACK_RESOURCE_FILE_LICENSE    "${CMAKE_CURRENT_SOURCE_DIR}/resources/Licens
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin/
         DESTINATION bin
         USE_SOURCE_PERMISSIONS
-        PATTERN "logs" EXCLUDE)
+        PATTERN "logs" EXCLUDE
+        PATTERN "bin" EXCLUDE)
 
 include(CPack)

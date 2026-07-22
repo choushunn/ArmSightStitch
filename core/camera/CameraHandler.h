@@ -47,6 +47,9 @@ public:
     bool getNegative() const override;
     bool setGain(float gain);
     float getGain() const;
+    void getGainRange(unsigned short& min_pct, unsigned short& max_pct, unsigned short& def_pct) const override;
+    bool setSharpening(unsigned short strength) override;
+    unsigned short getSharpening() const override;
     bool setResolution(int width, int height);
     void getResolution(int& width, int& height) const;
     std::vector<std::pair<int, int>> getSupportedResolutions() const;

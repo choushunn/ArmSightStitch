@@ -79,12 +79,12 @@ StitchingSettingsDialog::StitchingSettingsDialog(QWidget* parent)
         // ── Algorithm-aware visibility ──
         connect(ui.algorithmCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
                 this, [this](int idx) {
-            bool isAdv = (idx == 4);
-            z_correction_coef_row_->setVisible(isAdv);
-            crop_offset_file_row_->setVisible(isAdv);
-            scaleModeCombo_->setVisible(isAdv);
-            ui.featherWidthSpin->setVisible(isAdv);
-            if (!isAdv) scaleMapRow_->setVisible(false);
+            bool isFeather = (idx == 3);  // SeamFeather with all advanced features
+            z_correction_coef_row_->setVisible(isFeather);
+            crop_offset_file_row_->setVisible(isFeather);
+            scaleModeCombo_->setVisible(isFeather);
+            ui.featherWidthSpin->setVisible(isFeather);
+            if (!isFeather) scaleMapRow_->setVisible(false);
         });
 
         // Initial state: hide advanced controls
@@ -112,7 +112,10 @@ QString StitchingSettingsDialog::scaleMapFile() const {
 void StitchingSettingsDialog::setGridSizeX(int val) { ui.gridXSpin->setValue(val); }
 void StitchingSettingsDialog::setGridSizeY(int val) { ui.gridYSpin->setValue(val); }
 void StitchingSettingsDialog::setCenterCropSize(int val) { ui.centerCropSpin->setValue(val); }
-void StitchingSettingsDialog::setStitchAlgorithm(int algo) { ui.algorithmCombo->setCurrentIndex(algo); }
+void StitchingSettingsDialog::setStitchAlgorithm(int algo) {
+    // algo 4 merged into algo 3; map for backward compat
+    ui.algorithmCombo->setCurrentIndex(algo == 4 ? 3 : algo);
+}
 void StitchingSettingsDialog::setFeatherWidth(int val) { ui.featherWidthSpin->setValue(val); }
 void StitchingSettingsDialog::setInputDir(const QString& dir) { ui.inputDirEdit->setText(dir); }
 void StitchingSettingsDialog::setScaleMode(int mode) {
