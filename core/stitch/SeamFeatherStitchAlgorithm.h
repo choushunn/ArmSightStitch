@@ -2,6 +2,10 @@
 
 #include "IStitchAlgorithm.h"
 #include <opencv2/imgproc.hpp>
+#ifdef HAVE_OPENCV_CUDA
+#include <opencv2/cudaarithm.hpp>
+#include <opencv2/cudawarping.hpp>
+#endif
 #include <spdlog/spdlog.h>
 #include <QFile>
 #include <QJsonDocument>
@@ -390,9 +394,15 @@ private:
             return result;
         }
 
-        // ── Weighted accumulation ──
-        cv::Mat accSum(canvasH, canvasW, CV_32FC3, cv::Scalar(0, 0, 0));
-        cv::Mat accWeight(canvasH, canvasW, CV_32FC1, cv::Scalar(0.0f));
+#ifdef HAVE_OPENCV_CUDA
+        // ── GPU weighted accumulation ──
+        cv::cuda::GpuMat gpuAccSum(canvasH, canvasW, CV_32FC3);
+        cv::cuda::GpuMat gpuAccWeight(canvasH, canvasW, CV_32FC1);
+        gpuAccSum.setTo(cv::Scalar(0, 0, 0));
+        gpuAccWeight.setTo(cv::Scalar(0.0f));
+
+        cv::cuda::GpuMat gpuTile, gpuTileFloat, gpuMask, gpuMask3, gpuWeighted;
+        cv::cuda::GpuMat gpuTmpSum, gpuTmpW;
 
         for (size_t i = 0; i < images.size(); ++i) {
             int row, col;
@@ -434,7 +444,7 @@ private:
             int th = tile.rows;
             int tw = tile.cols;
 
-            // ── Build feather mask ──
+            // ── Build feather mask (CPU — small, per-tile) ──
             cv::Mat mask = buildFeatherMask(th, tw, hasLeft, hasRight, hasTop, hasBottom, fw);
 
             // ── Canvas placement (overlap into neighbor cells) ──
@@ -454,31 +464,127 @@ private:
             cv::Rect canvasRoi(x0, y0, tw - sx0, th - sy0);
             cv::Rect tileRoi(sx0, sy0, tw - sx0, th - sy0);
 
-            // ── Accumulate ──
-            cv::Mat tileFloat;
-            tile(tileRoi).convertTo(tileFloat, CV_32FC3);
-            cv::Mat maskCrop = mask(tileRoi);
+            // ── GPU accumulation ──
+            cv::Mat tileCpu = tile(tileRoi);
+            cv::Mat maskCpu = mask(tileRoi);
 
-            cv::Mat mask3;
-            cv::merge(std::vector<cv::Mat>{maskCrop.clone(), maskCrop.clone(), maskCrop.clone()}, mask3);
-            cv::Mat weighted;
-            cv::multiply(tileFloat, mask3, weighted);
-            cv::add(accSum(canvasRoi), weighted, accSum(canvasRoi));
-            cv::add(accWeight(canvasRoi), maskCrop, accWeight(canvasRoi));
+            gpuTile.upload(tileCpu);
+            gpuTile.convertTo(gpuTileFloat, CV_32FC3);
+            gpuMask.upload(maskCpu);
+
+            std::vector<cv::cuda::GpuMat> maskChs{gpuMask, gpuMask, gpuMask};
+            cv::cuda::merge(maskChs, gpuMask3);
+            cv::cuda::multiply(gpuTileFloat, gpuMask3, gpuWeighted);
+
+            cv::cuda::GpuMat gpuAccRoi = gpuAccSum(canvasRoi);
+            cv::cuda::add(gpuAccRoi, gpuWeighted, gpuTmpSum);
+            gpuTmpSum.copyTo(gpuAccRoi);
+
+            cv::cuda::GpuMat gpuWeightRoi = gpuAccWeight(canvasRoi);
+            cv::cuda::add(gpuWeightRoi, gpuMask, gpuTmpW);
+            gpuTmpW.copyTo(gpuWeightRoi);
 
             int pct = 20 + static_cast<int>((i * 80) / images.size());
             reportProgress(pct, 100);
         }
 
-        // ── Normalize ──
-        cv::Mat result(canvasH, canvasW, images[0].type());
-        cv::Mat weight3;
-        cv::merge(std::vector<cv::Mat>{
-            accWeight.clone(), accWeight.clone(), accWeight.clone()
-        }, weight3);
+        // ── GPU normalize ──
+        cv::cuda::GpuMat gpuWeight3, gpuResult;
+        std::vector<cv::cuda::GpuMat> wChs{gpuAccWeight, gpuAccWeight, gpuAccWeight};
+        cv::cuda::merge(wChs, gpuWeight3);
+        cv::cuda::max(gpuWeight3, 1e-8, gpuWeight3);
+        cv::cuda::divide(gpuAccSum, gpuWeight3, gpuAccSum);
+        gpuAccSum.convertTo(gpuResult, images[0].type());
+
+        cv::Mat result;
+        gpuResult.download(result);
+#else
+        // ── CPU weighted accumulation (fallback when CUDA unavailable) ──
+        cv::Mat accSum(canvasH, canvasW, CV_32FC3, cv::Scalar(0, 0, 0));
+        cv::Mat accWeight(canvasH, canvasW, CV_32FC1, cv::Scalar(0.0f));
+
+        for (size_t i = 0; i < images.size(); ++i) {
+            int row, col;
+            if (!positions.empty()) {
+                row = positions[i].first; col = positions[i].second;
+            } else {
+                row = static_cast<int>(i) / nCols; col = static_cast<int>(i) % nCols;
+            }
+            if (row < 0 || row >= nRows || col < 0 || col >= nCols) {
+                SPDLOG_WARN("Position [{},{}] out of grid bounds, skipping", row, col);
+                continue;
+            }
+
+            cv::Mat uniform = scaleToUniform(images[i], row, col,
+                hasZ ? zValues[i] : 0, zRef);
+
+            bool hasLeft   = (col > 0);
+            bool hasRight  = (col < nCols - 1);
+            bool hasTop    = (row > 0);
+            bool hasBottom = (row < nRows - 1);
+
+            int cropLeft   = baseCrop.x - (hasLeft   ? fw : 0);
+            int cropTop    = baseCrop.y - (hasTop    ? fw : 0);
+            int cropRight  = baseCrop.x + baseCrop.width  + (hasRight  ? fw : 0);
+            int cropBottom = baseCrop.y + baseCrop.height + (hasBottom ? fw : 0);
+
+            cropLeft   = std::max(0, cropLeft);
+            cropTop    = std::max(0, cropTop);
+            cropRight  = std::min(uniform.cols, cropRight);
+            cropBottom = std::min(uniform.rows, cropBottom);
+
+            cv::Mat tile = uniform(cv::Rect(cropLeft, cropTop,
+                                           cropRight - cropLeft,
+                                           cropBottom - cropTop));
+            int th = tile.rows;
+            int tw = tile.cols;
+
+            cv::Mat mask = buildFeatherMask(th, tw, hasLeft, hasRight, hasTop, hasBottom, fw);
+
+            int x0 = col * tileW - (hasLeft   ? fw : 0);
+            int y0 = row * tileH - (hasTop    ? fw : 0);
+            int x1 = x0 + tw;
+            int y1 = y0 + th;
+
+            int sx0 = 0, sy0 = 0;
+            if (x0 < 0) { sx0 = -x0; x0 = 0; }
+            if (y0 < 0) { sy0 = -y0; y0 = 0; }
+            if (x1 > canvasW) { tw -= x1 - canvasW; x1 = canvasW; }
+            if (y1 > canvasH) { th -= y1 - canvasH; y1 = canvasH; }
+            if (sx0 >= tw || sy0 >= th) continue;
+
+            cv::Rect canvasRoi(x0, y0, tw - sx0, th - sy0);
+            cv::Rect tileRoi(sx0, sy0, tw - sx0, th - sy0);
+
+            cv::Mat tileCpu = tile(tileRoi);
+            cv::Mat maskCpu = mask(tileRoi);
+
+            cv::Mat tileFloat, mask3, weighted;
+            tileCpu.convertTo(tileFloat, CV_32FC3);
+            std::vector<cv::Mat> maskChs{maskCpu, maskCpu, maskCpu};
+            cv::merge(maskChs, mask3);
+            cv::multiply(tileFloat, mask3, weighted);
+
+            cv::Mat accRoi = accSum(canvasRoi);
+            cv::add(accRoi, weighted, accRoi);
+
+            cv::Mat weightRoi = accWeight(canvasRoi);
+            cv::add(weightRoi, maskCpu, weightRoi);
+
+            int pct = 20 + static_cast<int>((i * 80) / images.size());
+            reportProgress(pct, 100);
+        }
+
+        // ── CPU normalize ──
+        cv::Mat weight3, resultFloat;
+        std::vector<cv::Mat> wChs{accWeight, accWeight, accWeight};
+        cv::merge(wChs, weight3);
         cv::max(weight3, 1e-8, weight3);
-        cv::divide(accSum, weight3, accSum);
-        accSum.convertTo(result, images[0].type());
+        cv::divide(accSum, weight3, resultFloat);
+
+        cv::Mat result;
+        resultFloat.convertTo(result, images[0].type());
+#endif
 
         return result;
     }

@@ -119,7 +119,7 @@ public:
 
     /**
      * @brief Set Z-axis mode
-     * @param mode 0 = spherical cap compensation, 1 = manual per-position Z-map
+     * @param mode 0 = spherical cap compensation, 1 = manual per-position Z-map, 2 = radial Z-map
      */
     void setZMode(int mode) override;
 
@@ -128,6 +128,12 @@ public:
      * @param path File path (JSON: {"z_values": [[z00,z01,...], [z10,...], ...]})
      */
     void setZMapFile(const std::string& path) override;
+
+    /**
+     * @brief Set path to radial Z-map JSON file used when zMode == 2
+     * @param path File path (JSON: {"z_radial": [{"r":0.0,"z":80000}, ...]})
+     */
+    void setZRadialFile(const std::string& path) override;
 
     /**
      * @brief Get saved images count
@@ -208,10 +214,20 @@ private:
     // Scan timing
     int dwell_time_ms_ = 20;
 
-    // Z-axis mode: 0 = spherical cap, 1 = manual per-position Z-map
+    // Z-axis mode: 0 = spherical cap, 1 = manual per-position Z-map, 2 = radial Z-map
     int z_mode_ = 0;
-    std::string z_map_file_;              // path to Z-map JSON file
+    std::string z_map_file_;              // path to Z-map JSON file (mode == 1)
     std::vector<std::vector<int>> z_map_;  // loaded Z-map [row][col]
+
+    // Radial Z-map (mode == 2)
+    struct RadialZEntry {
+        double r = 0.0;  // normalized radius 0.0 ~ 1.0+
+        int z = 0;       // Z pulse value
+    };
+    std::string z_radial_file_;                  // path to radial Z-map JSON file
+    std::vector<RadialZEntry> z_radial_;          // loaded radial entries, sorted by r
+    void loadRadialZMap(const std::string& path);  // parse JSON into z_radial_
+    int interpolateRadialZ(double r, int zBase) const;  // linear interpolation
     
     // Callbacks
     std::function<bool(cv::Mat&)> image_capture_callback_;

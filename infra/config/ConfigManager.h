@@ -101,11 +101,13 @@ public:
     void setDustMaxIter(int v);
     void setDustNmsIou(double v);
 
-    // Z-axis mode: 0=spherical cap (default), 1=manual per-position Z-map
+    // Z-axis mode: 0=spherical cap (default), 1=manual per-position Z-map, 2=radial Z-map
     int zMode() const { return z_mode_; }
     void setZMode(int mode);
     std::string zMapFile() const { return z_map_file_; }
     void setZMapFile(const std::string& path);
+    std::string zRadialFile() const { return z_radial_file_; }
+    void setZRadialFile(const std::string& path);
 
     // Image save path
     std::string imageSaveBasePath() const { return image_save_base_path_; }
@@ -176,8 +178,9 @@ private:
     int sphere_cap_height_ = 50000;
     int sphere_height_offset_ = 0;
     int z_base_height_ = 80000;
-    int z_mode_ = 0;              // 0=spherical cap, 1=manual per-position Z-map
+    int z_mode_ = 0;              // 0=spherical cap, 1=manual per-position Z-map, 2=radial Z-map
     std::string z_map_file_;      // path to Z-map JSON file when z_mode_ == 1
+    std::string z_radial_file_;   // path to radial Z-map JSON when z_mode_ == 2
 
     int dwell_time_ms_ = 300;
 

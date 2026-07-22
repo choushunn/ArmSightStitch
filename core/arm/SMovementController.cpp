@@ -185,8 +185,9 @@ void SMovementController::setDwellTimeMs(int ms) {
 }
 
 void SMovementController::setZMode(int mode) {
-    z_mode_ = (mode == 1) ? 1 : 0;
-    SPDLOG_INFO("Z mode set to: {} ({})", z_mode_, z_mode_ == 0 ? "spherical cap" : "manual Z-map");
+    z_mode_ = (mode >= 0 && mode <= 2) ? mode : 0;
+    static const char* names[] = {"spherical cap", "manual Z-map", "radial Z-map"};
+    SPDLOG_INFO("Z mode set to: {} ({})", z_mode_, names[z_mode_]);
 }
 
 void SMovementController::setZMapFile(const std::string& path) {
@@ -239,6 +240,74 @@ void SMovementController::setZMapFile(const std::string& path) {
     } else {
         z_map_.clear();
     }
+}
+
+void SMovementController::setZRadialFile(const std::string& path) {
+    z_radial_file_ = path;
+    loadRadialZMap(path);
+}
+
+void SMovementController::loadRadialZMap(const std::string& path) {
+    z_radial_.clear();
+    if (path.empty()) return;
+
+    try {
+        QFile file(QString::fromStdString(path));
+        if (!file.open(QIODevice::ReadOnly)) {
+            SPDLOG_ERROR("Cannot open radial Z-map file: {}", path);
+            return;
+        }
+        QByteArray data = file.readAll();
+        file.close();
+        QJsonDocument doc = QJsonDocument::fromJson(data);
+        if (!doc.isObject()) {
+            SPDLOG_ERROR("Radial Z-map file is not a valid JSON object: {}", path);
+            return;
+        }
+        QJsonObject root = doc.object();
+        if (!root.contains("z_radial") || !root["z_radial"].isArray()) {
+            SPDLOG_ERROR("Radial Z-map file missing 'z_radial' array: {}", path);
+            return;
+        }
+        QJsonArray entries = root["z_radial"].toArray();
+        for (int i = 0; i < entries.size(); ++i) {
+            if (!entries[i].isObject()) continue;
+            QJsonObject obj = entries[i].toObject();
+            RadialZEntry entry;
+            entry.r = obj["r"].toDouble();
+            entry.z = obj["z"].toInt();
+            z_radial_.push_back(entry);
+        }
+        // Sort by r ascending
+        std::sort(z_radial_.begin(), z_radial_.end(),
+                  [](const RadialZEntry& a, const RadialZEntry& b) { return a.r < b.r; });
+        SPDLOG_INFO("Radial Z-map loaded from {}: {} entries", path, z_radial_.size());
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("Failed to parse radial Z-map file {}: {}", path, e.what());
+        z_radial_.clear();
+    }
+}
+
+int SMovementController::interpolateRadialZ(double r, int zBase) const {
+    if (z_radial_.empty()) return zBase;
+    if (z_radial_.size() == 1) return z_radial_[0].z;
+
+    // r below first entry → use first entry
+    if (r <= z_radial_.front().r) return z_radial_.front().z;
+    // r above last entry → use last entry
+    if (r >= z_radial_.back().r) return z_radial_.back().z;
+
+    // Linear interpolation between two nearest entries
+    for (size_t i = 0; i < z_radial_.size() - 1; ++i) {
+        if (r >= z_radial_[i].r && r <= z_radial_[i + 1].r) {
+            double range = z_radial_[i + 1].r - z_radial_[i].r;
+            if (range <= 0.0) return z_radial_[i].z;
+            double t = (r - z_radial_[i].r) / range;
+            return static_cast<int>(std::round(
+                z_radial_[i].z + t * (z_radial_[i + 1].z - z_radial_[i].z)));
+        }
+    }
+    return zBase;
 }
 
 SMovementStatus SMovementController::getStatus() const {
@@ -331,7 +400,20 @@ std::vector<SMovementPoint> SMovementController::generateFixedPointSMovementPath
 
                 // ── Z-axis height determination ──
                 {
-                    if (z_mode_ == 1) {
+                    if (z_mode_ == 2) {
+                        // Radial Z-map: distance from grid center → interpolate Z
+                        double dx = static_cast<double>(point.x) - cx;
+                        double dy = static_cast<double>(point.y) - cy;
+                        double r_raw = std::sqrt(dx * dx + dy * dy);
+                        // Normalize: grid center → 0, farthest edge → 1.0
+                        double halfDiag = std::sqrt(
+                            (static_cast<double>(end_pos.x - start_pos.x) / 2.0) * 
+                            (static_cast<double>(end_pos.x - start_pos.x) / 2.0) +
+                            (static_cast<double>(end_pos.y - start_pos.y) / 2.0) * 
+                            (static_cast<double>(end_pos.y - start_pos.y) / 2.0));
+                        double r_norm = (halfDiag > 0.0) ? (r_raw / halfDiag) : 0.0;
+                        point.z = std::max(0, std::min(interpolateRadialZ(r_norm, zBase), zBase));
+                    } else if (z_mode_ == 1) {
                         // Manual per-position Z-map: look up Z from loaded map
                         if (y_idx < static_cast<int>(z_map_.size()) &&
                             actual_x_idx < static_cast<int>(z_map_[y_idx].size())) {

@@ -2,6 +2,11 @@
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
+#ifdef HAVE_OPENCV_CUDAFILTERS
+#include <opencv2/cudafilters.hpp>
+#include <opencv2/cudaarithm.hpp>
+#include <opencv2/cudaimgproc.hpp>
+#endif
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
@@ -189,7 +194,18 @@ private:
         const int blur = params_.bgBlurSize | 1;
 
         cv::Mat bg;
+#ifdef HAVE_OPENCV_CUDAFILTERS
+        {
+            cv::cuda::GpuMat gpuGray, gpuBg;
+            gpuGray.upload(gray);
+            auto gaussian = cv::cuda::createGaussianFilter(gray.type(), -1,
+                cv::Size(blur, blur), blur / 2);
+            gaussian->apply(gpuGray, gpuBg);
+            gpuBg.download(bg);
+        }
+#else
         cv::GaussianBlur(gray, bg, cv::Size(blur, blur), blur / 2);
+#endif
         bg_out = bg;
 
         // dark_spots = clip(bg - gray, 0, None) 转 uint8（暗斑：比背景更暗的区域）
@@ -228,7 +244,19 @@ private:
         // 膨胀（iterations=0 时跳过，保持紧凑边界避免跨颗粒粘连）
         if (params_.dilateIter > 0) {
             cv::Mat dk = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5));
+#ifdef HAVE_OPENCV_CUDAFILTERS
+            {
+                cv::cuda::GpuMat gpuMask, gpuOut;
+                gpuMask.upload(mask);
+                auto dilateF = cv::cuda::createMorphologyFilter(
+                    cv::MORPH_DILATE, mask.type(), dk,
+                    cv::Point(-1, -1), params_.dilateIter);
+                dilateF->apply(gpuMask, gpuOut);
+                gpuOut.download(mask);
+            }
+#else
             cv::dilate(mask, mask, dk, cv::Point(-1, -1), params_.dilateIter);
+#endif
         }
         return mask;
     }

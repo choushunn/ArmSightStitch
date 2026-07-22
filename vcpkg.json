@@ -4,7 +4,25 @@
   "description": "ArmSightStitch - Robotic Arm Control with Visual Detection and Image Stitching",
   "builtin-baseline": "d87340acc46bdeda386037b38aca30136e667e47",
   "dependencies": [
-    "opencv4",
+    {
+      "name": "opencv4",
+      "default-features": false,
+      "features": [
+        "calib3d",
+        "dshow",
+        "fs",
+        "gapi",
+        "highgui",
+        "intrinsics",
+        "jpeg",
+        "png",
+        "quirc",
+        "thread",
+        "tiff",
+        "webp",
+        "win32ui"
+      ]
+    },
     "spdlog",
     {
       "name": "ncnn",

@@ -42,7 +42,20 @@ set(TIFF_INCLUDE_DIR "${CMAKE_PREFIX_PATH}/include" CACHE PATH "" FORCE)
 set(TIFF_LIBRARY "${CMAKE_PREFIX_PATH}/lib/libtiff.a" CACHE FILEPATH "" FORCE)
 set(TIFF_LIBRARY_RELEASE "${CMAKE_PREFIX_PATH}/lib/libtiff.a" CACHE FILEPATH "" FORCE)
 set(TIFF_LIBRARY_DEBUG "${CMAKE_PREFIX_PATH}/debug/lib/libtiffd.a" CACHE FILEPATH "" FORCE)
-find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs stitching)
+# Required: core OpenCV modules (CPU build)
+# CUDA modules are optional — guarded by HAS_OPENCV_CUDA at compile time
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs stitching
+             OPTIONAL_COMPONENTS cudaarithm cudawarping cudafilters cudaimgproc)
+set(HAS_OPENCV_CUDA TRUE)
+foreach(comp cudaarithm cudawarping cudafilters cudaimgproc)
+    if(NOT OpenCV_${comp}_FOUND)
+        set(HAS_OPENCV_CUDA FALSE)
+        break()
+    endif()
+endforeach()
+if(NOT HAS_OPENCV_CUDA)
+    message(WARNING "OpenCV CUDA modules not available — GPU-accelerated features disabled")
+endif()
 message(STATUS "Found OpenCV: ${OpenCV_VERSION} at ${OpenCV_DIR}")
 
 # Optimize: strip dead code from statically linked libraries
@@ -190,6 +203,9 @@ if(HAS_LIBMODBUS)
     target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32)
 endif()
 
+if(HAS_OPENCV_CUDA)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE HAVE_OPENCV_CUDA HAVE_OPENCV_CUDAFILTERS)
+endif()
 if(NOT HAS_NCNN)
     target_compile_definitions(${PROJECT_NAME} PRIVATE ARM_SIGHT_STITCH_NO_DETECTOR)
 endif()
@@ -237,6 +253,12 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         ${CMAKE_CURRENT_SOURCE_DIR}/ui/industrial_theme.qss $<TARGET_FILE_DIR:${PROJECT_NAME}>
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${CMAKE_CURRENT_SOURCE_DIR}/config.json $<TARGET_FILE_DIR:${PROJECT_NAME}>
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/z_map_template.json $<TARGET_FILE_DIR:${PROJECT_NAME}>
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/scale_map_template.json $<TARGET_FILE_DIR:${PROJECT_NAME}>
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/z_radial_template.json $<TARGET_FILE_DIR:${PROJECT_NAME}>
     COMMENT "Copying stylesheet and config..."
 )
 

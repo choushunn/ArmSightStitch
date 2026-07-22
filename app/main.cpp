@@ -72,6 +72,15 @@ int main(int argc, char *argv[]) {
         "    [80000,80000,80000,80000,80000,80000,80000,80000,80000,80000]\n"
         "  ]\n"
         "}\n"), "Z-map");
+    ensureJsonFile(cfg.zRadialFile(), QStringLiteral(
+        "{\n"
+        "  \"description\": \"Radial Z-Map — 按归一化半径采样的 Z 轴高度（脉冲数）\",\n"
+        "  \"z_radial\": [\n"
+        "    {\"r\":0.0,\"z\":80000},\n"
+        "    {\"r\":0.5,\"z\":78000},\n"
+        "    {\"r\":1.0,\"z\":72000}\n"
+        "  ]\n"
+        "}\n"), "Radial Z-map");
     ensureJsonFile(cfg.scaleMapFile(), QStringLiteral(
         "{\n"
         "  \"description\": \"Scale-Map — 每个网格位置的缩放因子\",\n"

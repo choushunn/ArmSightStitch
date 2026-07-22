@@ -30,6 +30,17 @@
     "dust_max_iter": 4,
     "dust_nms_iou": 0.1,
 
+    "sphere_radius": 230000,
+    "sphere_cap_height": 50000,
+    "sphere_height_offset": 0,
+    "z_base_height": 80000,
+    "z_mode": 0,
+    "z_map_file": "",
+    "z_radial_file": "",
+    "scale_mode": 0,
+    "scale_map_file": "",
+    "image_save_base_path": "",
+
     "log_path": "./logs/armsightstitch.log",
     "position_tolerance": 100.0,
 

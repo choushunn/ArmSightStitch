@@ -110,6 +110,9 @@ public:
     /// Set path to Z-map JSON file used when zMode == 1.
     /// File format: { "z_values": [[row0_z0, row0_z1, ...], [row1_z0, ...], ...] }
     virtual void setZMapFile(const std::string& path) = 0;
+    /// Set path to radial Z-map JSON file used when zMode == 2.
+    /// File format: { "z_radial": [{"r": 0.0, "z": 80000}, {"r": 0.5, "z": 78000}, ...] }
+    virtual void setZRadialFile(const std::string& path) = 0;
     virtual SMovementStatus getStatus() const = 0;
     virtual std::vector<SMovementPoint> getMovementPath() const = 0;
     virtual int getSavedImagesCount() const = 0;

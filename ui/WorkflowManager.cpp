@@ -120,6 +120,9 @@ void WorkflowManager::startSMovement(const cv::Size& grid_size,
     if (cfg.zMode() == 1 && !cfg.zMapFile().empty()) {
         s_movement_.setZMapFile(cfg.zMapFile());
     }
+    if (cfg.zMode() == 2 && !cfg.zRadialFile().empty()) {
+        s_movement_.setZRadialFile(cfg.zRadialFile());
+    }
     s_movement_.setDwellTimeMs(cfg.dwellTimeMs());
 
     if (!s_movement_.initialize(grid_size, start_pos, end_pos)) {

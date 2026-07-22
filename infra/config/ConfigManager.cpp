@@ -41,6 +41,7 @@ void ConfigManager::loadDefaults() {
     {
         QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
         z_map_file_ = (docs + "/ScannerData/z_map.json").toStdString();
+        z_radial_file_ = (docs + "/ScannerData/z_radial.json").toStdString();
     }
     dwell_time_ms_ = 300;
     center_crop_size_ = 1775;
@@ -196,6 +197,7 @@ bool ConfigManager::loadFromJson(const QJsonObject& json) {
     readInt("z_base_height", z_base_height_);
     readInt("z_mode", z_mode_);
     readStr("z_map_file", z_map_file_);
+    readStr("z_radial_file", z_radial_file_);
 
     readStr("image_save_base_path", image_save_base_path_);
     readStr("log_path", log_path_);
@@ -283,6 +285,7 @@ QJsonObject ConfigManager::toJson() const {
     json["z_base_height"] = z_base_height_;
     json["z_mode"] = z_mode_;
     json["z_map_file"] = QString::fromStdString(z_map_file_);
+    json["z_radial_file"] = QString::fromStdString(z_radial_file_);
     json["image_save_base_path"] = QString::fromStdString(image_save_base_path_);
     json["log_path"] = QString::fromStdString(log_path_);
 
@@ -471,11 +474,15 @@ void ConfigManager::setZBaseHeight(int z) {
 }
 
 void ConfigManager::setZMode(int mode) {
-    z_mode_ = (mode == 1) ? 1 : 0;
+    z_mode_ = (mode >= 0 && mode <= 2) ? mode : 0;
 }
 
 void ConfigManager::setZMapFile(const std::string& path) {
     z_map_file_ = path;
+}
+
+void ConfigManager::setZRadialFile(const std::string& path) {
+    z_radial_file_ = path;
 }
 
 void ConfigManager::setImageSaveBasePath(const std::string& path) {

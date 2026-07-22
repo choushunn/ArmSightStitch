@@ -1,3 +1,9 @@
+// MSVC: windows.h must be first to prevent WDK/OpenCV header conflicts
+#ifdef _MSC_VER
+#define NOMINMAX
+#include <windows.h>
+#endif
+
 #include "MainWindow.h"
 #include "ui_MainWindow.h"
 #include "ui/AppController.h"
@@ -118,6 +124,52 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     });
     connect(&arm_connect_watcher_, &QFutureWatcher<bool>::finished, this, &MainWindow::onArmConnectFinished);
     connect(&arm_move_watcher_, &QFutureWatcher<void>::finished, this, &MainWindow::onArmMoveFinished);
+    connect(&frame_replace_watcher_, &QFutureWatcher<std::pair<cv::Mat,bool>>::finished, this, [this]() {
+        auto [frame, ok] = frame_replace_future_.result();
+        int row = frame_replace_row_, col = frame_replace_col_;
+        if (!ok || frame.empty()) {
+            QMessageBox::warning(this, "错误", "相机采集帧失败，请检查相机连接");
+            return;
+        }
+        if (row < 0 || col < 0) return;
+        // Thumbnail update
+        int cropSize = ConfigManager::instance().centerCropSize();
+        cv::Mat cropped;
+        if (cropSize > 0 && cropSize < frame.cols && cropSize < frame.rows) {
+            int left = (frame.cols - cropSize) / 2;
+            int top  = (frame.rows - cropSize) / 2;
+            cropped = frame(cv::Rect(left, top, cropSize, cropSize));
+        } else {
+            cropped = frame;
+        }
+        cv::Mat thumbOrig, thumbNeg;
+        cv::resize(cropped, thumbOrig, cv::Size(50, 50), 0, 0, cv::INTER_AREA);
+        cv::bitwise_not(thumbOrig, thumbNeg);
+        QPixmap pixOrig = QPixmap::fromImage(cvMatToQImage(thumbOrig));
+        QPixmap pixNeg = QPixmap::fromImage(cvMatToQImage(thumbNeg));
+        {
+            std::lock_guard<std::mutex> lock(grid_thumbnails_mutex_);
+            grid_thumbnails_[{row, col}] = {pixOrig, pixNeg};
+        }
+        QPixmap pix = scan_showing_negative_ ? pixNeg : pixOrig;
+        auto* cellItem = ui_->topCellsTable->item(row, col);
+        if (cellItem) {
+            auto* lbl = qobject_cast<QLabel*>(ui_->topCellsTable->cellWidget(row, col));
+            if (lbl) {
+                lbl->setPixmap(pix);
+            } else {
+                auto* newLbl = new QLabel();
+                newLbl->setPixmap(pix);
+                newLbl->setScaledContents(true);
+                newLbl->setContentsMargins(0, 0, 0, 0);
+                newLbl->setAlignment(Qt::AlignCenter);
+                newLbl->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+                ui_->topCellsTable->setCellWidget(row, col, newLbl);
+            }
+        }
+        appendLog(QString("单元格 [行%1,列%2] 帧已替换").arg(row+1).arg(col+1), "INFO");
+    });
+    connect(&zstack_watcher_, &QFutureWatcher<ZStackResult>::finished, this, &MainWindow::onZStackFinished);
     connect(&zero_progress_watcher_, &QFutureWatcher<bool>::finished, this, &MainWindow::onZeroProgressFinished);
 
     // Reference log panel from .ui (placed in left sidebar's hardware section)
@@ -353,95 +405,118 @@ void MainWindow::connectSignals() {
                                                         QFileDialog::ShowDirsOnly);
         if (dir.isEmpty()) return;
 
-        last_scan_dir_ = dir.toStdString();
-        ctrl_.setScanDir(dir.toStdString());  // 同步扫描目录供检测 JSON 导出
-
-        auto& cfg = ConfigManager::instance();
-        cv::Size gs(cfg.gridSizeX(), cfg.gridSizeY());
-        auto images = ctrl_.loadImages(dir.toStdString());
-        if (images.empty()) {
-            QMessageBox::warning(this, "警告", "所选文件夹中没有图像文件。");
-            return;
-        }
-
-        // Parse filename pattern {row}_{col}[_{z}].jpg to build image map.
-        // Matches the stitcher's regex so folders produced by this app's scan
-        // (which save as {row}_{col}_{z}.jpg) load correctly, and legacy
-        // {row}_{col}.jpg files still work.
-        std::map<std::pair<int,int>, cv::Mat> cellImages;
-        std::map<std::pair<int,int>, QString> cellFiles;  // remember the actual file per cell
+        // ── Collect file list only (fast, no imread) ──
         std::regex namePattern(R"(^(\d+)_(\d+)(?:_(\d+))?$)");
         QDir qdir(dir);
+        std::vector<std::pair<std::pair<int,int>, QString>> fileList;
         for (const auto& fi : qdir.entryInfoList({"*.jpg", "*.png", "*.bmp"}, QDir::Files)) {
-            std::string name = fi.baseName().toStdString(); // e.g. "0_1" or "0_1_75000"
+            std::string name = fi.baseName().toStdString();
             std::smatch m;
             if (!std::regex_match(name, m, namePattern)) continue;
             int r = std::stoi(m[1].str());
             int c = std::stoi(m[2].str());
-            cv::Mat img = cv::imread(fi.absoluteFilePath().toStdString());
-            if (!img.empty()) {
-                cellImages[{r, c}] = img;
-                cellFiles[{r, c}] = fi.absoluteFilePath();
-            }
+            fileList.push_back({{r, c}, fi.absoluteFilePath()});
         }
-        if (cellImages.empty()) {
+        if (fileList.empty()) {
             QMessageBox::warning(this, "警告", "文件夹中没有 {row}_{col}.jpg 格式的图像。");
             return;
         }
 
-        // Clear previous cell data
+        // ── Prepare UI state ──
+        last_scan_dir_ = dir.toStdString();
+        ctrl_.setScanDir(dir.toStdString());
+        auto& cfg = ConfigManager::instance();
+        cv::Size gs(cfg.gridSizeX(), cfg.gridSizeY());
+        {
+            std::lock_guard<std::mutex> lock(scan_state_mutex_);
+            scan_base_dir_ = dir.toStdString();
+        }
         {
             std::lock_guard<std::mutex> lock(s_movement_images_mutex_);
             s_movement_images_.clear();
         }
-        grid_thumbnails_.clear();
-        scan_base_dir_ = dir.toStdString();
-        ui_->topCellsTable->clearContents();
-
-        // Load images into cells
-        for (auto& [rc, img] : cellImages) {
-            // Filenames use 1-indexed display coordinates; convert to 0-indexed table coords
-            int row = rc.first - 1, col = rc.second - 1;
-            if (row >= gs.height || col >= gs.width) continue;
-
-            std::string fn = cellFiles[{row, col}].toStdString();  // actual file on disk
-            {
-                std::lock_guard<std::mutex> lock(s_movement_images_mutex_);
-                s_movement_images_[{row, col}] = fn;
-            }
-
-            // Show thumbnail in cell (center-crop to match stitching before resize)
-            int cropSize = ConfigManager::instance().centerCropSize();
-            cv::Mat cropped;
-            if (cropSize > 0 && cropSize < img.cols && cropSize < img.rows) {
-                int left = (img.cols - cropSize) / 2;
-                int top = (img.rows - cropSize) / 2;
-                cropped = img(cv::Rect(left, top, cropSize, cropSize));
-            } else {
-                cropped = img;
-            }
-            cv::Mat thumb;
-            cv::resize(cropped, thumb, cv::Size(50, 50), 0, 0, cv::INTER_AREA);
-            QPixmap pixOrig = QPixmap::fromImage(cvMatToQImage(thumb));
-            // Negative thumbnail
-            cv::Mat thumbNeg;
-            cv::bitwise_not(thumb, thumbNeg);
-            QPixmap pixNeg = QPixmap::fromImage(cvMatToQImage(thumbNeg));
-            grid_thumbnails_[{row, col}] = {pixOrig, pixNeg};
-            QPixmap pix = scan_showing_negative_ ? pixNeg : pixOrig;
-            auto* item = ui_->topCellsTable->item(row, col);
-            if (item) {
-                auto* lbl = new QLabel();
-                lbl->setPixmap(pix);
-                lbl->setScaledContents(true);
-                lbl->setContentsMargins(0, 0, 0, 0);
-                lbl->setAlignment(Qt::AlignCenter);
-                lbl->setAttribute(Qt::WA_TransparentForMouseEvents, true);
-                ui_->topCellsTable->setCellWidget(row, col, lbl);
-            }
+        {
+            std::lock_guard<std::mutex> lock(grid_thumbnails_mutex_);
+            grid_thumbnails_.clear();
         }
-        appendLog(QString("已加载 %1 张图像: %2").arg(cellImages.size()).arg(dir), "INFO");
-        ui_->scanNegativeCheck->setEnabled(true);
+        ui_->topCellsTable->clearContents();
+        ui_->statusLabel->setText("正在加载图像...");
+
+        // ── Async: imread + thumbnail generation in worker thread ──
+        if (folder_load_watcher_) {
+            folder_load_watcher_->disconnect();
+            folder_load_watcher_->deleteLater();
+        }
+        folder_load_watcher_ = new QFutureWatcher<FolderLoadResult>(this);
+        connect(folder_load_watcher_, &QFutureWatcher<FolderLoadResult>::finished, this,
+                [this, dir, gs]() {
+            ui_->statusLabel->setText("就绪");
+            auto result = folder_load_watcher_->result();
+            if (result.count == 0) {
+                appendLog("加载失败: 没有可读取的图像", "WARN");
+                return;
+            }
+            // Populate table from precomputed data
+            for (int i = 0; i < (int)result.thumbnails.size(); ++i) {
+                int row = i / gs.width;
+                int col = i % gs.width;
+                if (row >= gs.height) break;
+                const std::string& fn = result.cellFiles[i];
+                if (fn.empty()) continue;
+                {
+                    std::lock_guard<std::mutex> lock(s_movement_images_mutex_);
+                    s_movement_images_[{row, col}] = fn;
+                }
+                {
+                    std::lock_guard<std::mutex> lock(grid_thumbnails_mutex_);
+                    grid_thumbnails_[{row, col}] = {result.thumbnails[i], result.thumbnails[i]};
+                }
+                QPixmap pix = scan_showing_negative_ ? result.thumbnails[i] : result.thumbnails[i];
+                auto* item = ui_->topCellsTable->item(row, col);
+                if (item) {
+                    auto* lbl = new QLabel();
+                    lbl->setPixmap(pix);
+                    lbl->setScaledContents(true);
+                    lbl->setContentsMargins(0, 0, 0, 0);
+                    lbl->setAlignment(Qt::AlignCenter);
+                    lbl->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+                    ui_->topCellsTable->setCellWidget(row, col, lbl);
+                }
+            }
+            appendLog(QString("已加载 %1 张图像: %2").arg(result.count).arg(dir), "INFO");
+            ui_->scanNegativeCheck->setEnabled(true);
+        });
+
+        int cropSize = ConfigManager::instance().centerCropSize();
+        folder_load_watcher_->setFuture(QtConcurrent::run([fileList, gs, cropSize]() -> FolderLoadResult {
+            FolderLoadResult r;
+            r.gridSize = gs;
+            r.cellFiles.resize(gs.width * gs.height);
+            r.thumbnails.resize(gs.width * gs.height);
+            for (auto& [rc, path] : fileList) {
+                int row = rc.first - 1, col = rc.second - 1;  // 1-indexed → 0-indexed
+                if (row < 0 || row >= gs.height || col < 0 || col >= gs.width) continue;
+                cv::Mat img = cv::imread(path.toStdString());
+                if (img.empty()) continue;
+                int idx = row * gs.width + col;
+                r.cellFiles[idx] = path.toStdString();
+                // Thumbnail: center-crop → resize → QPixmap
+                cv::Mat cropped;
+                if (cropSize > 0 && cropSize < img.cols && cropSize < img.rows) {
+                    int left = (img.cols - cropSize) / 2;
+                    int top  = (img.rows - cropSize) / 2;
+                    cropped = img(cv::Rect(left, top, cropSize, cropSize));
+                } else {
+                    cropped = img;
+                }
+                cv::Mat thumb;
+                cv::resize(cropped, thumb, cv::Size(50, 50), 0, 0, cv::INTER_AREA);
+                r.thumbnails[idx] = QPixmap::fromImage(
+                    QImage(thumb.data, thumb.cols, thumb.rows, thumb.step, QImage::Format_BGR888).copy());
+                r.count++;
+            }
+            return r;
+        }));
     });
 
     connect(ui_->actionImportConfig, &QAction::triggered, this, [this]() {
@@ -497,6 +572,7 @@ void MainWindow::connectSignals() {
         dlg.setSphereHeightOffset(cfg.sphereHeightOffset());
         dlg.setZBaseHeight(cfg.zBaseHeight());
         dlg.setZMapFile(cfg.zMapFile());
+        dlg.setZRadialFile(cfg.zRadialFile());
         if (dlg.exec() == QDialog::Accepted) {
             int mode = dlg.zMode();
             if (mode == 0) {
@@ -517,17 +593,25 @@ void MainWindow::connectSignals() {
                 appendLog(tr("球冠参数已更新: R=%1, h=%2, dH=%3, zBase=%4")
                     .arg(dlg.sphereRadius()).arg(dlg.sphereCapHeight())
                     .arg(dlg.sphereHeightOffset()).arg(dlg.zBaseHeight()), "INFO");
-            } else {
+            } else if (mode == 1) {
                 // Manual per-position Z-map mode
                 std::string mapPath = dlg.zMapFile();
                 if (!mapPath.empty()) {
                     cfg.setZMapFile(mapPath);
                     appendLog(tr("Z-Map 文件已设置: %1").arg(QString::fromStdString(mapPath)), "INFO");
                 }
+            } else {
+                // Radial Z-map mode (mode == 2)
+                std::string radialPath = dlg.zRadialFile();
+                if (!radialPath.empty()) {
+                    cfg.setZRadialFile(radialPath);
+                    appendLog(tr("径向 Z-Map 文件已设置: %1").arg(QString::fromStdString(radialPath)), "INFO");
+                }
             }
             cfg.setZMode(mode);
             cfg.saveToFile(QCoreApplication::applicationDirPath().toStdString() + "/config.json");
-            appendLog(tr("Z 轴模式已切换为: %1").arg(mode == 0 ? "球冠补偿" : "手动 Z-Map"), "INFO");
+            static const char* modeNames[] = {"球冠补偿", "手动 Z-Map", "径向 Z-Map"};
+            appendLog(tr("Z 轴模式已切换为: %1").arg(modeNames[mode]), "INFO");
         }
     });
 
@@ -635,6 +719,7 @@ void MainWindow::connectSignals() {
     // ---- 扫描网格负片显示 ----
     connect(ui_->scanNegativeCheck, &QCheckBox::toggled, this, [this](bool checked) {
         scan_showing_negative_ = checked;
+        std::lock_guard<std::mutex> lock(grid_thumbnails_mutex_);
         for (auto& [rc, pixmaps] : grid_thumbnails_) {
             auto* lbl = qobject_cast<QLabel*>(ui_->topCellsTable->cellWidget(rc.first, rc.second));
             if (lbl) lbl->setPixmap(checked ? pixmaps.second : pixmaps.first);
@@ -734,11 +819,16 @@ void MainWindow::connectSignals() {
         stitch_showing_negative_ = false;
 
         // 如果扫描目录中存在负片图像，异步拼接
-        if (!scan_base_dir_.empty() && hasNegativeImages(scan_base_dir_)) {
+        std::string scanDirCopy;
+        {
+            std::lock_guard<std::mutex> lock(scan_state_mutex_);
+            scanDirCopy = scan_base_dir_;
+        }
+        if (!scanDirCopy.empty() && hasNegativeImages(scanDirCopy)) {
             int gx = ConfigManager::instance().gridSizeX();
             int gy = ConfigManager::instance().gridSizeY();
             appendLog("检测到负片图像，开始负片拼接...", "INFO");
-            startNegativeStitching(scan_base_dir_, cv::Size(gx, gy));
+            startNegativeStitching(scanDirCopy, cv::Size(gx, gy));
         }
     });
 
@@ -814,6 +904,13 @@ void MainWindow::appendLog(const QString& msg, const QString& level) {
 
     status_log_edit_->append(
         QString("<span style='color:%1;'>%2%3</span>").arg(color, prefix, msg.toHtmlEscaped()));
+}
+
+// Thread-safe log append — can be called from any thread.
+void MainWindow::appendLogSafe(const QString& msg, const QString& level) {
+    QMetaObject::invokeMethod(this, [this, msg, level]() {
+        appendLog(msg, level);
+    }, Qt::QueuedConnection);
 }
 
 // ==================== Camera ====================
@@ -924,26 +1021,26 @@ void MainWindow::on_captureImage() {
         current_image_ = frame;
         displayImage(frame, ui_->cameraImageLabel);
 
-        // Save capture to Documents with timestamp
+        // Save capture to Documents with timestamp (imwrite async)
         QString dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
                       + "/ScannerData/captures";
         QDir().mkpath(dir);
         auto now = QDateTime::currentDateTime();
         QString ts = now.toString("yyyyMMdd_HHmmss");
         QString filename = dir + "/capture_" + ts + ".jpg";
-        cv::imwrite(filename.toStdString(), frame);
-        current_image_source_ = filename.toStdString();  // 供检测 JSON 命名
+        QString negDir = dir + "/negative";
+        QDir().mkpath(negDir);
+        QString negFn = negDir + "/capture_" + ts + ".jpg";
+        current_image_source_ = filename.toStdString();
         appendLog(QString("捕获已保存: %1").arg(filename), "INFO");
 
-        // 负片版本（始终保存）
-        {
+        // Async imwrite (fire-and-forget)
+        QtConcurrent::run([frame, filename, negFn]() {
+            cv::imwrite(filename.toStdString(), frame);
             cv::Mat neg;
             cv::bitwise_not(frame, neg);
-            QString negDir = dir + "/negative";
-            QDir().mkpath(negDir);
-            QString negFn = negDir + "/capture_" + ts + ".jpg";
             cv::imwrite(negFn.toStdString(), neg);
-        }
+        });
     }
 }
 
@@ -1087,12 +1184,21 @@ bool MainWindow::isArmAtZero() {
 void MainWindow::startScanSequence() {
     auto& cfg = ConfigManager::instance();
     cv::Size gs(cfg.gridSizeX(), cfg.gridSizeY());
-    scan_base_dir_.clear();  // 新扫描开始，清除旧目录
-    grid_thumbnails_.clear();
+    {
+        std::lock_guard<std::mutex> lock(scan_state_mutex_);
+        scan_base_dir_.clear();  // 新扫描开始，清除旧目录
+    }
+    {
+        std::lock_guard<std::mutex> lock(grid_thumbnails_mutex_);
+        grid_thumbnails_.clear();
+    }
 
     ctrl_.movementController().setImageSaveCallback([this](const cv::Mat& frame, const std::string& path, int row, int col, int z) {
         // Track scan base directory for later stitching
-        if (scan_base_dir_.empty()) scan_base_dir_ = path;
+        {
+            std::lock_guard<std::mutex> lock(scan_state_mutex_);
+            if (scan_base_dir_.empty()) scan_base_dir_ = path;
+        }
         // Ensure original/ and negative/ subdirectories exist
         std::string origDir = path + "/original";
         std::string negDir  = path + "/negative";
@@ -1149,7 +1255,7 @@ void MainWindow::startScanSequence() {
                 QPixmap pixNeg = QPixmap::fromImage(cvMatToQImage(thumbNeg));
                 // Store both
                 {
-                    std::lock_guard<std::mutex> lock(s_movement_images_mutex_);
+                    std::lock_guard<std::mutex> lock(grid_thumbnails_mutex_);
                     grid_thumbnails_[{row, tableCol}] = {pixOrig, pixNeg};
                 }
                 QPixmap pix = scan_showing_negative_ ? pixNeg : pixOrig;
@@ -1217,6 +1323,7 @@ void MainWindow::on_toggleStartStopSMovement() {
     ui_->quickScanBtn->setText("正在归零...");
 
     auto* progress = new QProgressDialog("机械臂未归零，正在归零中...\n归零完成后请再次点击扫描", QString(), 0, 5, this);
+    zero_progress_dlg_ = progress;
     progress->setWindowTitle("归零中");
     progress->setWindowModality(Qt::WindowModal);
     progress->setMinimumDuration(0);
@@ -1240,10 +1347,10 @@ void MainWindow::on_toggleStartStopSMovement() {
 }
 
 void MainWindow::onZeroProgressFinished() {
-    auto* progress = findChild<QProgressDialog*>();
-    if (progress) {
-        progress->close();
-        progress->deleteLater();
+    if (zero_progress_dlg_) {
+        zero_progress_dlg_->close();
+        zero_progress_dlg_->deleteLater();
+        zero_progress_dlg_ = nullptr;
     }
 
     ui_->quickScanBtn->setEnabled(true);
@@ -1683,6 +1790,135 @@ void MainWindow::on_topCellsTable_cellClicked(int /*row*/, int /*column*/) {
     // Qt double-emission of cellClicked for cell + cellWidget.
 }
 
+void MainWindow::onZStackFinished() {
+    auto res = zstack_future_.result();
+    int row = res.row, col = res.col;
+    if (!res.ok) {
+        QMessageBox::warning(this, "Z-Stack 对焦",
+            QString("Z-Stack 对焦失败: [行%1,列%2]\n请检查日志").arg(row+1).arg(col+1));
+        return;
+    }
+    if (row < 0 || col < 0) return;
+
+    // Load the final image and update grid thumbnail
+    QString origQPath = QString::fromStdString(res.origPath);
+    if (!origQPath.isEmpty() && QFileInfo::exists(origQPath)) {
+        auto* watcher = new QFutureWatcher<cv::Mat>(this);
+        connect(watcher, &QFutureWatcher<cv::Mat>::finished, this, [this, watcher, row, col]() {
+            cv::Mat frame = watcher->result();
+            if (frame.empty()) return;
+
+            int cropSize = ConfigManager::instance().centerCropSize();
+            cv::Mat cropped;
+            if (cropSize > 0 && cropSize < frame.cols && cropSize < frame.rows) {
+                int left = (frame.cols - cropSize) / 2;
+                int top  = (frame.rows - cropSize) / 2;
+                cropped = frame(cv::Rect(left, top, cropSize, cropSize));
+            } else {
+                cropped = frame;
+            }
+            cv::Mat thumbOrig, thumbNeg;
+            cv::resize(cropped, thumbOrig, cv::Size(50, 50), 0, 0, cv::INTER_AREA);
+            cv::bitwise_not(thumbOrig, thumbNeg);
+            QPixmap pixOrig = QPixmap::fromImage(cvMatToQImage(thumbOrig));
+            QPixmap pixNeg = QPixmap::fromImage(cvMatToQImage(thumbNeg));
+            {
+                std::lock_guard<std::mutex> lock(grid_thumbnails_mutex_);
+                grid_thumbnails_[{row, col}] = {pixOrig, pixNeg};
+            }
+            QPixmap pix = scan_showing_negative_ ? pixNeg : pixOrig;
+            auto* lbl = qobject_cast<QLabel*>(ui_->topCellsTable->cellWidget(row, col));
+            if (lbl) {
+                lbl->setPixmap(pix);
+            } else {
+                auto* newLbl = new QLabel();
+                newLbl->setPixmap(pix);
+                newLbl->setScaledContents(true);
+                newLbl->setContentsMargins(0, 0, 0, 0);
+                newLbl->setAlignment(Qt::AlignCenter);
+                newLbl->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+                ui_->topCellsTable->setCellWidget(row, col, newLbl);
+            }
+            watcher->deleteLater();
+        });
+        watcher->setFuture(QtConcurrent::run([origQPath]() {
+            return cv::imread(origQPath.toStdString());
+        }));
+    }
+
+    // Show result and ask for Z-Map confirmation
+    auto& samples = res.focusData.samples;
+    QString detail;
+    if (!samples.empty()) {
+        double minS = samples[0].score, maxS = samples[0].score;
+        for (auto& s : samples) { minS = std::min(minS, s.score); maxS = std::max(maxS, s.score); }
+        detail = QString("\n清晰度范围: %1 ~ %2\n采样层数: %3")
+            .arg(minS, 0, 'f', 1).arg(maxS, 0, 'f', 1).arg(samples.size());
+    }
+
+    QMessageBox msgBox(this);
+    msgBox.setWindowTitle("Z-Stack 对焦完成");
+    msgBox.setText(QString("单元格 [行%1,列%2]\n\n"
+                           "最佳 Z: %3 脉冲  (原: %4)\n"
+                           "峰值清晰度: %5%6")
+                       .arg(row+1).arg(col+1)
+                       .arg(res.optimalZ).arg(res.prevZ)
+                       .arg(res.peakScore, 0, 'f', 1)
+                       .arg(detail));
+    msgBox.setInformativeText("是否将此最佳 Z 值写入 Z-Map JSON？");
+    QPushButton* btnYes = msgBox.addButton("写入 Z-Map", QMessageBox::AcceptRole);
+    QPushButton* btnNo  = msgBox.addButton("仅更新图像", QMessageBox::RejectRole);
+    msgBox.setDefaultButton(btnYes);
+    msgBox.exec();
+
+    if (msgBox.clickedButton() == btnYes) {
+        // Write Z-Map JSON on UI thread
+        QString zPath = QString::fromStdString(res.zMapPath);
+        if (!QFileInfo::exists(zPath)) {
+            QString tmpl = QCoreApplication::applicationDirPath()
+                           + "/z_map_template.json";
+            if (QFileInfo::exists(tmpl))
+                QFile::copy(tmpl, zPath);
+        }
+        QJsonArray rows;
+        if (QFileInfo::exists(zPath)) {
+            QFile f(zPath);
+            if (f.open(QIODevice::ReadOnly)) {
+                QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+                f.close();
+                if (doc.isObject() && doc["z_values"].isArray())
+                    rows = doc["z_values"].toArray();
+            }
+        }
+        int gx = ConfigManager::instance().gridSizeX();
+        int zBase = ConfigManager::instance().zBaseHeight();
+        while (rows.size() <= row) {
+            QJsonArray r;
+            for (int c = 0; c < gx; ++c) r.append((int)zBase);
+            rows.append(r);
+        }
+        QJsonArray targetRow = rows[row].toArray();
+        while (targetRow.size() <= col) targetRow.append((int)zBase);
+        targetRow[col] = res.optimalZ;
+        rows[row] = targetRow;
+
+        QDir().mkpath(QFileInfo(zPath).absolutePath());
+        QFile f(zPath);
+        if (f.open(QIODevice::WriteOnly)) {
+            QJsonObject root;
+            root["description"] = "Z-Map — Z-Stack 自动对焦标定";
+            root["z_values"] = rows;
+            f.write(QJsonDocument(root).toJson());
+            f.close();
+            appendLog(QString("Z-Map 已更新: [行%1,列%2] Z=%3")
+                .arg(row+1).arg(col+1).arg(res.optimalZ), "INFO");
+        }
+    } else {
+        appendLog(QString("Z-Stack 对焦完成 (未写入Z-Map): [行%1,列%2] 最佳Z=%3")
+            .arg(row+1).arg(col+1).arg(res.optimalZ), "INFO");
+    }
+}
+
 // ==================== Helpers ====================
 
 void MainWindow::displayImage(const cv::Mat& image, QLabel* label) {
@@ -1777,8 +2013,8 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
         if (!item) return false;
 
         if (me->button() == Qt::LeftButton) {
-            // Fullscreen image preview
-            if (preview_dlg_) return true; // guard double-popup
+            // Fullscreen image preview — async imread to avoid UI block
+            if (preview_dlg_) return true;
             int row = item->row(), col = item->column();
             std::string img_path;
             {
@@ -1787,32 +2023,45 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                 if (it != s_movement_images_.end()) img_path = it->second;
             }
             if (!img_path.empty()) {
-                // If showing negative, reconstruct path to negative/ subfolder
                 std::string loadPath = img_path;
-                if (scan_showing_negative_ && !scan_base_dir_.empty()) {
-                    // Extract filename (row_col_z.jpg) from stored original path
-                    // to preserve the Z value, then prepend negative/ directory
-                    std::filesystem::path origPath(img_path);
-                    loadPath = scan_base_dir_ + "/negative/" + origPath.filename().string();
+                if (scan_showing_negative_) {
+                    std::string scanDir;
+                    {
+                        std::lock_guard<std::mutex> lock(scan_state_mutex_);
+                        scanDir = scan_base_dir_;
+                    }
+                    if (!scanDir.empty()) {
+                        std::filesystem::path origPath(img_path);
+                        loadPath = scanDir + "/negative/" + origPath.filename().string();
+                    }
                 }
-                cv::Mat img = cv::imread(loadPath);
-                // Fallback to original if negative file doesn't exist
-                if (img.empty() && scan_showing_negative_) {
-                    img = cv::imread(img_path);
-                }
-                if (!img.empty()) {
-                    auto* dlg = new QLabel(nullptr, Qt::Window | Qt::FramelessWindowHint);
-                    preview_dlg_ = dlg;
-                    dlg->setAttribute(Qt::WA_DeleteOnClose);
-                    dlg->setPixmap(QPixmap::fromImage(cvMatToQImage(img))
-                                   .scaled(dlg->screen()->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-                    dlg->setAlignment(Qt::AlignCenter);
-                    dlg->setStyleSheet("background-color: black;");
-                    dlg->setCursor(Qt::CrossCursor);
-                    dlg->installEventFilter(this);
-                    dlg->showFullScreen();
-                    connect(dlg, &QObject::destroyed, this, [this]() { preview_dlg_ = nullptr; });
-                }
+                // Launch async imread; use a local watcher so multiple clicks don't conflict
+                cell_preview_load_path_ = loadPath;
+                auto* watcher = new QFutureWatcher<cv::Mat>(this);
+                connect(watcher, &QFutureWatcher<cv::Mat>::finished, this, [this, watcher]() {
+                    cv::Mat img = watcher->result();
+                    // Fallback to original if negative file doesn't exist
+                    if (img.empty() && scan_showing_negative_) {
+                        img = cv::imread(cell_preview_load_path_);
+                    }
+                    if (!img.empty() && !preview_dlg_) {
+                        auto* dlg = new QLabel(nullptr, Qt::Window | Qt::FramelessWindowHint);
+                        preview_dlg_ = dlg;
+                        dlg->setAttribute(Qt::WA_DeleteOnClose);
+                        dlg->setPixmap(QPixmap::fromImage(cvMatToQImage(img))
+                                       .scaled(dlg->screen()->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+                        dlg->setAlignment(Qt::AlignCenter);
+                        dlg->setStyleSheet("background-color: black;");
+                        dlg->setCursor(Qt::CrossCursor);
+                        dlg->installEventFilter(this);
+                        dlg->showFullScreen();
+                        connect(dlg, &QObject::destroyed, this, [this]() { preview_dlg_ = nullptr; });
+                    }
+                    watcher->deleteLater();
+                });
+                watcher->setFuture(QtConcurrent::run([loadPath]() {
+                    return cv::imread(loadPath);
+                }));
             }
             return true;
         }
@@ -1831,6 +2080,11 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             if (ctrl_.cameraHandler().isConnected()) {
                 replaceFrame = menu.addAction(
                     QString("替换当前帧 [行%1,列%2]").arg(row+1).arg(col+1));
+            }
+            QAction* zstackAF = nullptr;
+            if (ctrl_.cameraHandler().isConnected() && ctrl_.armController().isConnected()) {
+                zstackAF = menu.addAction(
+                    QString("Z-Stack 自动对焦 [行%1,列%2]").arg(row+1).arg(col+1));
             }
 
             QAction* chosen = menu.exec(me->globalPos());
@@ -1921,7 +2175,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                             .arg(row+1).arg(col+1).arg(newS, 0, 'f', 3));
                 }
             } else if (replaceFrame && chosen == replaceFrame) {
-                // Capture current camera frame and overwrite the cell's image
+                // Async: capture frame + overwrite files in worker thread
                 std::string origPath;
                 {
                     std::lock_guard<std::mutex> lock(s_movement_images_mutex_);
@@ -1932,54 +2186,248 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                     QMessageBox::warning(this, "提示",
                         QString("单元格 [行%1,列%2] 没有已扫描的图像").arg(row+1).arg(col+1));
                 } else {
-                    cv::Mat frame;
-                    if (ctrl_.cameraHandler().captureTriggerFrame(frame) && !frame.empty()) {
-                        // Overwrite original
+                    frame_replace_row_ = row;
+                    frame_replace_col_ = col;
+                    QString qOrig = QString::fromStdString(origPath);
+                    QString qNeg = QString(qOrig).replace("/original/", "/negative/");
+                    auto& cam = ctrl_.cameraHandler();
+                    frame_replace_future_ = QtConcurrent::run([&cam, origPath, qNeg]() -> std::pair<cv::Mat,bool> {
+                        cv::Mat frame;
+                        if (!cam.captureTriggerFrame(frame) || frame.empty())
+                            return {cv::Mat(), false};
                         cv::imwrite(origPath, frame);
-                        // Derive and overwrite negative
-                        QString qOrig = QString::fromStdString(origPath);
-                        QString qNeg = QString(qOrig).replace("/original/", "/negative/");
                         cv::Mat negFrame;
                         cv::bitwise_not(frame, negFrame);
                         cv::imwrite(qNeg.toStdString(), negFrame);
-                        // Update thumbnail
-                        int cropSize = cfg.centerCropSize();
-                        cv::Mat cropped;
-                        if (cropSize > 0 && cropSize < frame.cols && cropSize < frame.rows) {
-                            int left = (frame.cols - cropSize) / 2;
-                            int top = (frame.rows - cropSize) / 2;
-                            cropped = frame(cv::Rect(left, top, cropSize, cropSize));
-                        } else {
-                            cropped = frame;
-                        }
-                        cv::Mat thumbOrig, thumbNeg;
-                        cv::resize(cropped, thumbOrig, cv::Size(50, 50), 0, 0, cv::INTER_AREA);
-                        cv::bitwise_not(thumbOrig, thumbNeg);
-                        QPixmap pixOrig = QPixmap::fromImage(cvMatToQImage(thumbOrig));
-                        QPixmap pixNeg = QPixmap::fromImage(cvMatToQImage(thumbNeg));
-                        grid_thumbnails_[{row, col}] = {pixOrig, pixNeg};
-                        // Update cell widget
-                        QPixmap pix = scan_showing_negative_ ? pixNeg : pixOrig;
-                        auto* cellItem = ui_->topCellsTable->item(row, col);
-                        if (cellItem) {
-                            auto* lbl = qobject_cast<QLabel*>(ui_->topCellsTable->cellWidget(row, col));
-                            if (lbl) {
-                                lbl->setPixmap(pix);
-                            } else {
-                                auto* newLbl = new QLabel();
-                                newLbl->setPixmap(pix);
-                                newLbl->setScaledContents(true);
-                                newLbl->setContentsMargins(0, 0, 0, 0);
-                                newLbl->setAlignment(Qt::AlignCenter);
-                                newLbl->setAttribute(Qt::WA_TransparentForMouseEvents, true);
-                                ui_->topCellsTable->setCellWidget(row, col, newLbl);
+                        return {frame, true};
+                    });
+                    frame_replace_watcher_.setFuture(frame_replace_future_);
+                }
+            } else if (zstackAF && chosen == zstackAF) {
+                // ── Z-Stack autofocus dialog ──
+                bool rangeOk = false, stepOk = false;
+                int zRange = QInputDialog::getInt(this, "Z-Stack 自动对焦 — 扫描范围",
+                    QString("Z 轴扫描范围 (脉冲数):\n"
+                            "例如 ±2000 → 共扫描 4000 脉冲范围\n"
+                            "[行%1,列%2]")
+                        .arg(row+1).arg(col+1),
+                    2000, 100, 20000, 100, &rangeOk);
+                if (!rangeOk) return true;
+
+                int zStep = QInputDialog::getInt(this, "Z-Stack 自动对焦 — 步进",
+                    QString("Z 轴步进 (脉冲数):\n"
+                            "步进越小越精确，但扫描层数越多\n"
+                            "[行%1,列%2] 范围 ±%3")
+                        .arg(row+1).arg(col+1).arg(zRange),
+                    100, 20, 1000, 10, &stepOk);
+                if (!stepOk) return true;
+
+                int gx = cfg.gridSizeX(), gy = cfg.gridSizeY();
+                int stepSize = cfg.stepSize();
+                int zBase = cfg.zBaseHeight();
+
+                // Compute cell XY + current Z
+                int cellX = col * stepSize;
+                int cellY = row * stepSize;
+                int cellZ = cfg.zHeight(); // fallback
+                {
+                    // Determine Z for this cell using current Z-mode
+                    int zMode = cfg.zMode();
+                    if (zMode == 2) {
+                        // Radial Z-map — compute r from grid center
+                        double cx = static_cast<double>((gx - 1) * stepSize) / 2.0;
+                        double cy = static_cast<double>((gy - 1) * stepSize) / 2.0;
+                        double dx = static_cast<double>(cellX) - cx;
+                        double dy = static_cast<double>(cellY) - cy;
+                        double r_raw = std::sqrt(dx * dx + dy * dy);
+                        double halfDiag = std::sqrt(cx * cx + cy * cy);
+                        double r_norm = (halfDiag > 0.0) ? (r_raw / halfDiag) : 0.0;
+                        // Note: interpolateRadialZ lives in SMovementController;
+                        // for simplicity use raw formula here
+                        std::string rPath = cfg.zRadialFile();
+                        if (!rPath.empty()) {
+                            QFile rf(QString::fromStdString(rPath));
+                            if (rf.open(QIODevice::ReadOnly)) {
+                                QJsonDocument rd = QJsonDocument::fromJson(rf.readAll());
+                                rf.close();
+                                if (rd.isObject() && rd["z_radial"].isArray()) {
+                                    QJsonArray entries = rd["z_radial"].toArray();
+                                    std::vector<std::pair<double,int>> pts;
+                                    for (int i = 0; i < entries.size(); ++i) {
+                                        if (!entries[i].isObject()) continue;
+                                        QJsonObject o = entries[i].toObject();
+                                        pts.emplace_back(o["r"].toDouble(), o["z"].toInt());
+                                    }
+                                    if (!pts.empty()) {
+                                        std::sort(pts.begin(), pts.end());
+                                        if (r_norm <= pts.front().first) cellZ = pts.front().second;
+                                        else if (r_norm >= pts.back().first) cellZ = pts.back().second;
+                                        else {
+                                            for (size_t i = 0; i < pts.size()-1; ++i) {
+                                                if (r_norm >= pts[i].first && r_norm <= pts[i+1].first) {
+                                                    double range = pts[i+1].first - pts[i].first;
+                                                    double t = (range > 0) ? (r_norm - pts[i].first)/range : 0;
+                                                    cellZ = static_cast<int>(std::round(pts[i].second + t*(pts[i+1].second - pts[i].second)));
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
-                        appendLog(QString("单元格 [行%1,列%2] 帧已替换").arg(row+1).arg(col+1), "INFO");
-                    } else {
-                        QMessageBox::warning(this, "错误", "相机采集帧失败，请检查相机连接");
+                    } else if (zMode == 1) {
+                        // Manual Z-map — read from JSON
+                        QString zPath = QString::fromStdString(cfg.zMapFile());
+                        if (QFileInfo::exists(zPath)) {
+                            QFile zf(zPath);
+                            if (zf.open(QIODevice::ReadOnly)) {
+                                QJsonDocument zd = QJsonDocument::fromJson(zf.readAll());
+                                zf.close();
+                                if (zd.isObject() && zd["z_values"].isArray()) {
+                                    QJsonArray rows2 = zd["z_values"].toArray();
+                                    if (row < rows2.size() && rows2[row].isArray()) {
+                                        QJsonArray cols2 = rows2[row].toArray();
+                                        if (col < cols2.size())
+                                            cellZ = cols2[col].toInt(zBase);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
+
+                int zStart = std::max(0, cellZ - zRange);
+                int zEnd   = std::min(zBase, cellZ + zRange);
+
+                appendLog(QString("启动 Z-Stack 对焦: [行%1,列%2] Z=%3 范围[%4,%5] 步进%6")
+                    .arg(row+1).arg(col+1).arg(cellZ).arg(zStart).arg(zEnd).arg(zStep), "INFO");
+
+                // ── Async Z-Stack execution ──
+                auto& arm = ctrl_.armController();
+                auto& cam = ctrl_.cameraHandler();
+                int zStackRow = row, zStackCol = col;
+
+                zstack_future_ = QtConcurrent::run([&arm, &cam, zStackRow, zStackCol,
+                    cellX, cellY, cellZ, zStart, zEnd, zStep, zBase, gx, this]() -> ZStackResult
+                {
+                    ZStackResult res;
+                    res.row = zStackRow;
+                    res.col = zStackCol;
+
+                    // Step 1: Move arm to cell XY at start Z
+                    appendLogSafe("Z-Stack: 移动到起始位置...", "INFO");
+                    if (!arm.moveAxesConcurrent(cellX, cellY, zStart)) {
+                        appendLogSafe("Z-Stack: 移动失败", "ERROR");
+                        return res;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+
+                    // Step 2: Z sweep — capture at each Z and evaluate sharpness
+                    int lo = std::min(zStart, zEnd);
+                    int hi = std::max(zStart, zEnd);
+                    int totalSteps = (hi - lo) / zStep + 1;
+                    int stepIdx = 0;
+                    double bestScore = 0.0;
+                    int    bestZ = zStart;
+
+                    // Use single-axis Z move for sweep (faster than 3-axis)
+                    // First positioning already done above with 3-axis move
+                    int prevZ = zStart;
+
+                    for (int z = lo; z <= hi; z += zStep) {
+                        // Move only Z axis
+                        if (z != prevZ) {
+                            arm.moveToPosition(2, z);
+                            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                        }
+                        prevZ = z;
+                        stepIdx++;
+
+                        // Capture frame
+                        cv::Mat frame;
+                        if (!cam.captureTriggerFrame(frame) || frame.empty()) {
+                            continue;
+                        }
+
+                        // Evaluate sharpness
+                        double score = core::SharpnessEvaluator::laplacianVarianceBGR(frame);
+                        res.focusData.samples.push_back({z, score});
+
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bestZ = z;
+                        }
+
+                        // Log progress every 10 steps
+                        if (stepIdx % 10 == 0) {
+                            appendLogSafe(QString("Z-Stack: %1/%2  Z=%3  score=%4")
+                                .arg(stepIdx).arg(totalSteps).arg(z)
+                                .arg(score, 0, 'f', 1), "INFO");
+                        }
+                    }
+
+                    res.optimalZ  = bestZ;
+                    res.peakScore = bestScore;
+                    res.focusData.optimalZ  = bestZ;
+                    res.focusData.peakScore = bestScore;
+
+                    if (res.focusData.samples.empty()) {
+                        appendLogSafe("Z-Stack: 无有效采样，对焦失败", "ERROR");
+                        return res;
+                    }
+
+                    appendLogSafe(QString("Z-Stack: 最佳 Z=%1 清晰度=%2 (共%3层)")
+                        .arg(bestZ).arg(bestScore, 0, 'f', 1)
+                        .arg(static_cast<int>(res.focusData.samples.size())), "INFO");
+
+                    // Step 3: Move to optimal Z and capture final image
+                    if (bestZ != prevZ) {
+                        arm.moveToPosition(2, bestZ);
+                        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+                    }
+
+                    cv::Mat finalFrame;
+                    if (!cam.captureTriggerFrame(finalFrame) || finalFrame.empty()) {
+                        appendLogSafe("Z-Stack: 最终拍摄失败", "ERROR");
+                        return res;
+                    }
+                    res.ok = true;
+
+                    // Step 4: Write final image to disk + update Z-Map JSON
+                    {
+                        std::lock_guard<std::mutex> lock(s_movement_images_mutex_);
+                        auto it = s_movement_images_.find({zStackRow, zStackCol});
+                        if (it != s_movement_images_.end()) {
+                            res.origPath = it->second;
+                            res.negPath  = QString::fromStdString(it->second)
+                                            .replace("/original/", "/negative/").toStdString();
+                            cv::imwrite(res.origPath, finalFrame);
+                            cv::Mat negFrame;
+                            cv::bitwise_not(finalFrame, negFrame);
+                            cv::imwrite(res.negPath, negFrame);
+                        }
+                    }
+
+                    // Store Z-Map path for confirmation write on UI thread
+                    {
+                        auto& cfg2 = ConfigManager::instance();
+                        QString zPath = QString::fromStdString(cfg2.zMapFile());
+                        if (zPath.isEmpty()) {
+                            QString docs = QStandardPaths::writableLocation(
+                                QStandardPaths::DocumentsLocation);
+                            zPath = docs + "/ScannerData/z_map.json";
+                        }
+                        res.zMapPath = zPath.toStdString();
+                        res.prevZ = cellZ;
+                    }
+
+                    appendLogSafe(QString("Z-Stack 完成: [行%1,列%2] 最佳Z=%3 峰值=%4")
+                        .arg(zStackRow+1).arg(zStackCol+1).arg(bestZ)
+                        .arg(bestScore, 0, 'f', 1), "INFO");
+                    return res;
+                });
+                zstack_watcher_.setFuture(zstack_future_);
             }
             return true;
         }
@@ -2017,39 +2465,91 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                         }
                     }
                 }
-            } else {
-                // Spherical cap Z compensation (default, mode 0)
-                // Grid center = cap center
-                double cx = static_cast<double>(step * (gx - 1)) / 2.0;
-                double cy = static_cast<double>(step * (gy - 1)) / 2.0;
-                double R = static_cast<double>(cfg.sphereRadius());
-                double h = static_cast<double>(cfg.sphereCapHeight());
-                int dH = cfg.sphereHeightOffset();
+            } else if (zMode == 2) {
+                // Radial Z-map: distance from center → linear interpolation
+                double gcx = static_cast<double>(step * (gx - 1)) / 2.0;
+                double gcy = static_cast<double>(step * (gy - 1)) / 2.0;
+                double dx = static_cast<double>(x) - gcx;
+                double dy = static_cast<double>(y) - gcy;
+                double r_raw = std::sqrt(dx * dx + dy * dy);
+                double halfDiag = std::sqrt(
+                    (gcx * gcx) + (gcy * gcy));
+                double r_norm = (halfDiag > 0.0) ? (r_raw / halfDiag) : 0.0;
 
-                if (h > 0.0) {
-                    double Rs = (R * R + h * h) / (2.0 * h);
-                    double dx = static_cast<double>(x) - cx;
-                    double dy = static_cast<double>(y) - cy;
-                    double r = std::sqrt(dx * dx + dy * dy);
-
-                    double cap = 0.0;
-                    if (r <= R) {
-                        double sq = Rs * Rs - r * r;
-                        cap = std::sqrt(std::max(0.0, sq)) - (Rs - h);
+                QString zrPath = QString::fromStdString(cfg.zRadialFile());
+                if (QFileInfo::exists(zrPath)) {
+                    QFile f(zrPath);
+                    if (f.open(QIODevice::ReadOnly)) {
+                        QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+                        f.close();
+                        if (doc.isObject()) {
+                            QJsonObject rootObj = doc.object();
+                            QJsonArray entries = rootObj[QStringLiteral("z_radial")].toArray();
+                            if (!entries.empty()) {
+                                // Linear interpolation
+                                QJsonObject e0 = entries[0].toObject();
+                                double prev_r = e0[QStringLiteral("r")].toDouble();
+                                int prev_z = e0[QStringLiteral("z")].toInt();
+                                if (r_norm <= prev_r) {
+                                    z = std::max(0, std::min(prev_z, zBase));
+                                } else {
+                                    for (int i = 1; i < entries.size(); ++i) {
+                                        QJsonObject ei = entries[i].toObject();
+                                        double cur_r = ei[QStringLiteral("r")].toDouble();
+                                        int cur_z = ei[QStringLiteral("z")].toInt();
+                                        if (r_norm <= cur_r) {
+                                            double range = cur_r - prev_r;
+                                            double t = (range > 0.0) ? (r_norm - prev_r) / range : 0.0;
+                                            z = std::max(0, std::min(
+                                                static_cast<int>(std::round(prev_z + t * (cur_z - prev_z))), zBase));
+                                            break;
+                                        }
+                                        prev_r = cur_r;
+                                        prev_z = cur_z;
+                                    }
+                                    // r_norm > last entry → use last
+                                    QJsonObject eLast = entries.last().toObject();
+                                    if (r_norm > eLast[QStringLiteral("r")].toDouble()) {
+                                        z = std::max(0, std::min(eLast[QStringLiteral("z")].toInt(), zBase));
+                                    }
+                                }
+                            }
+                        }
                     }
-                    int zVal = static_cast<int>(std::round(
-                        static_cast<double>(zBase) - cap - static_cast<double>(dH)));
-                    z = std::max(0, std::min(zVal, zBase));
-                } else {
-                    z = zBase;
                 }
-            }
+            } else {
+            // Spherical cap Z compensation (default, mode 0)
+            // Grid center = cap center
+            double cx = static_cast<double>(step * (gx - 1)) / 2.0;
+            double cy = static_cast<double>(step * (gy - 1)) / 2.0;
+            double R = static_cast<double>(cfg.sphereRadius());
+            double h = static_cast<double>(cfg.sphereCapHeight());
+            int dH = cfg.sphereHeightOffset();
 
-            auto* ctrl = &ctrl_;
-            QtConcurrent::run([ctrl, x, y, z]() {
-                ctrl->armController().moveAxesConcurrent(x, y, z);
-            });
-            return true;
+            if (h > 0.0) {
+                double Rs = (R * R + h * h) / (2.0 * h);
+                double dx2 = static_cast<double>(x) - cx;
+                double dy2 = static_cast<double>(y) - cy;
+                double r = std::sqrt(dx2 * dx2 + dy2 * dy2);
+
+                double cap = 0.0;
+                if (r <= R) {
+                    double sq = Rs * Rs - r * r;
+                    cap = std::sqrt(std::max(0.0, sq)) - (Rs - h);
+                }
+                int zVal = static_cast<int>(std::round(
+                    static_cast<double>(zBase) - cap - static_cast<double>(dH)));
+                z = std::max(0, std::min(zVal, zBase));
+            } else {
+                z = zBase;
+            }
+        }
+
+        auto* ctrl = &ctrl_;
+        QtConcurrent::run([ctrl, x, y, z]() {
+            ctrl->armController().moveAxesConcurrent(x, y, z);
+        });
+        return true;
         }
     }
 
@@ -2204,10 +2704,3 @@ void MainWindow::onNegativeStitchingFinished() {
     }
 }
 
-#ifdef _WIN32
-#include <windows.h>
-extern int main(int argc, char* argv[]);
-int WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
-    return main(__argc, __argv);
-}
-#endif

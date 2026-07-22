@@ -199,6 +199,9 @@ bool AppController::startSMovement(const cv::Size& gridSize, int stepSize, int z
     if (cfg.zMode() == 1 && !cfg.zMapFile().empty()) {
         sm.setZMapFile(cfg.zMapFile());
     }
+    if (cfg.zMode() == 2 && !cfg.zRadialFile().empty()) {
+        sm.setZRadialFile(cfg.zRadialFile());
+    }
 
     std::string savePath = infra::createNextRunDir(cfg.imageSaveBasePath());
     sm.setSaveDirectory(savePath);
