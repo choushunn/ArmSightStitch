@@ -63,6 +63,15 @@ void ConfigManager::loadDefaults() {
     dust_max_iter_ = 4;
     dust_nms_iou_ = 0.1;
 
+    edge_clahe_clip_ = 2.0;
+    edge_clahe_tile_grid_ = 8;
+    edge_threshold_ = 30;
+    edge_sobel_ksize_ = 3;
+    edge_dilate_iter_ = 1;
+    edge_min_bbox_area_ = 25;
+    edge_nms_iou_thresh_ = 0.4;
+    edge_nms_contain_thresh_ = 0.5;
+
 {
     QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
     image_save_base_path_ = (docs + "/ScannerData/captured_images").toStdString();
@@ -203,6 +212,15 @@ bool ConfigManager::loadFromJson(const QJsonObject& json) {
     readInt("dust_max_iter", dust_max_iter_);
     readDouble("dust_nms_iou", dust_nms_iou_);
 
+    readDouble("edge_clahe_clip", edge_clahe_clip_);
+    readInt("edge_clahe_tile_grid", edge_clahe_tile_grid_);
+    readInt("edge_threshold", edge_threshold_);
+    readInt("edge_sobel_ksize", edge_sobel_ksize_);
+    readInt("edge_dilate_iter", edge_dilate_iter_);
+    readInt("edge_min_bbox_area", edge_min_bbox_area_);
+    readDouble("edge_nms_iou_thresh", edge_nms_iou_thresh_);
+    readDouble("edge_nms_contain_thresh", edge_nms_contain_thresh_);
+
     readInt("sphere_radius", sphere_radius_);
     readInt("sphere_cap_height", sphere_cap_height_);
     readInt("sphere_height_offset", sphere_height_offset_);
@@ -293,6 +311,14 @@ QJsonObject ConfigManager::toJson() const {
     json["dust_dilate_iter"] = dust_dilate_iter_;
     json["dust_max_iter"] = dust_max_iter_;
     json["dust_nms_iou"] = dust_nms_iou_;
+    json["edge_clahe_clip"] = edge_clahe_clip_;
+    json["edge_clahe_tile_grid"] = edge_clahe_tile_grid_;
+    json["edge_threshold"] = edge_threshold_;
+    json["edge_sobel_ksize"] = edge_sobel_ksize_;
+    json["edge_dilate_iter"] = edge_dilate_iter_;
+    json["edge_min_bbox_area"] = edge_min_bbox_area_;
+    json["edge_nms_iou_thresh"] = edge_nms_iou_thresh_;
+    json["edge_nms_contain_thresh"] = edge_nms_contain_thresh_;
     json["sphere_radius"] = sphere_radius_;
     json["sphere_cap_height"] = sphere_cap_height_;
     json["sphere_height_offset"] = sphere_height_offset_;
@@ -454,7 +480,7 @@ void ConfigManager::setCropOffsetFile(const std::string& path) {
 }
 
 void ConfigManager::setDetectionAlgorithm(int algo) {
-    if (algo >= 0 && algo <= 1) detection_algorithm_ = algo;
+    if (algo >= 0 && algo <= 2) detection_algorithm_ = algo;
 }
 
 void ConfigManager::setDustClaheClip(double v) {
@@ -477,6 +503,31 @@ void ConfigManager::setDustMaxIter(int v) {
 }
 void ConfigManager::setDustNmsIou(double v) {
     if (v >= 0.0 && v <= 1.0) dust_nms_iou_ = v;
+}
+
+void ConfigManager::setEdgeClaheClip(double v) {
+    if (v > 0.0) edge_clahe_clip_ = v;
+}
+void ConfigManager::setEdgeClaheTileGrid(int v) {
+    if (v > 0) edge_clahe_tile_grid_ = v;
+}
+void ConfigManager::setEdgeThreshold(int v) {
+    if (v >= 0 && v <= 255) edge_threshold_ = v;
+}
+void ConfigManager::setEdgeSobelKSize(int v) {
+    if (v >= 1 && v % 2 == 1) edge_sobel_ksize_ = v;
+}
+void ConfigManager::setEdgeDilateIter(int v) {
+    if (v >= 0 && v <= 10) edge_dilate_iter_ = v;
+}
+void ConfigManager::setEdgeMinBboxArea(int v) {
+    if (v >= 0) edge_min_bbox_area_ = v;
+}
+void ConfigManager::setEdgeNmsIouThresh(double v) {
+    if (v >= 0.0 && v <= 1.0) edge_nms_iou_thresh_ = v;
+}
+void ConfigManager::setEdgeNmsContainThresh(double v) {
+    if (v >= 0.0 && v <= 1.0) edge_nms_contain_thresh_ = v;
 }
 
 void ConfigManager::setSphereRadius(int r) {

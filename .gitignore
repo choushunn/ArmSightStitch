@@ -20,6 +20,7 @@ build/
 # CLion / JetBrains
 .idea/
 bin/
+bin-msvc/
 # Compiled objects and binaries
 *.o
 *.obj

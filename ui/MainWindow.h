@@ -62,6 +62,7 @@ private slots:
 
     // Timer / Callbacks
     void onCameraFrameReady(const cv::Mat& frame);
+    void onFullFrameReady(const cv::Mat& frame);
     void onStitchingFinished();
     void onDetectionFinished();
     void onArmConnectFinished();
@@ -108,6 +109,7 @@ private:
     std::map<std::pair<int, int>, std::string> s_movement_images_;
     mutable std::mutex s_movement_images_mutex_;
     cv::Mat current_image_, stitched_result_;
+    cv::Mat current_full_frame_;                 // full-res frame for detection (not scaled to 640px)
     cv::Mat stitched_result_negative_;           // 负片拼接结果
     std::string current_image_source_;           // 当前图像来源文件（用于检测 JSON 命名，实时帧为空）
     std::string last_scan_dir_;                   // 最近扫描目录（用于负片拼接查找）

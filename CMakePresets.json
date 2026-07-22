@@ -63,8 +63,8 @@
     {
       "name": "msvc-deploy",
       "configurePreset": "msvc",
-      "displayName": "Build + Deploy Qt deps (MSVC)",
-      "targets": ["deploy"]
+      "displayName": "Build + Deploy Qt deps (MSVC + CUDA)",
+      "targets": ["deploy-msvc"]
     }
   ]
 }

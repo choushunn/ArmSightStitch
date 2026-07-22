@@ -86,7 +86,7 @@ public:
     std::string cropOffsetFile() const { return crop_offset_file_; }
     void setCropOffsetFile(const std::string& path);
 
-    // Detection algorithm selection: 0=YOLO, 1=Dust(traditional CV)
+    // Detection algorithm selection: 0=YOLO, 1=Dust(traditional CV), 2=Edge(Sobel)
     int detectionAlgorithm() const { return detection_algorithm_; }
     void setDetectionAlgorithm(int algo);
 
@@ -106,6 +106,25 @@ public:
     void setDustDilateIter(int v);
     void setDustMaxIter(int v);
     void setDustNmsIou(double v);
+
+    // Edge detection parameters (mirror docs/det.py)
+    double edgeClaheClip() const { return edge_clahe_clip_; }
+    int edgeClaheTileGrid() const { return edge_clahe_tile_grid_; }
+    int edgeThreshold() const { return edge_threshold_; }
+    int edgeSobelKSize() const { return edge_sobel_ksize_; }
+    int edgeDilateIter() const { return edge_dilate_iter_; }
+    int edgeMinBboxArea() const { return edge_min_bbox_area_; }
+    double edgeNmsIouThresh() const { return edge_nms_iou_thresh_; }
+    double edgeNmsContainThresh() const { return edge_nms_contain_thresh_; }
+
+    void setEdgeClaheClip(double v);
+    void setEdgeClaheTileGrid(int v);
+    void setEdgeThreshold(int v);
+    void setEdgeSobelKSize(int v);
+    void setEdgeDilateIter(int v);
+    void setEdgeMinBboxArea(int v);
+    void setEdgeNmsIouThresh(double v);
+    void setEdgeNmsContainThresh(double v);
 
     // Z-axis mode: 0=spherical cap (default), 1=manual per-position Z-map, 2=radial Z-map
     int zMode() const { return z_mode_; }
@@ -181,6 +200,15 @@ private:
     int dust_dilate_iter_ = 0;
     int dust_max_iter_ = 4;
     double dust_nms_iou_ = 0.1;    // 0 = disabled
+
+    double edge_clahe_clip_ = 2.0;
+    int edge_clahe_tile_grid_ = 8;
+    int edge_threshold_ = 30;
+    int edge_sobel_ksize_ = 3;
+    int edge_dilate_iter_ = 1;
+    int edge_min_bbox_area_ = 25;
+    double edge_nms_iou_thresh_ = 0.4;
+    double edge_nms_contain_thresh_ = 0.5;
 
     int sphere_radius_ = 230000;
     int sphere_cap_height_ = 50000;

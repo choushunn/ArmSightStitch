@@ -56,6 +56,7 @@ public:
 
 signals:
     void frameReady(const cv::Mat& preview);
+    void fullFrameReady(const cv::Mat& fullFrame);
     void exposureChanged();
     void cameraDisconnected();
     void cameraError(const QString& msg);

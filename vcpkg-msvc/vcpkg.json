@@ -1,0 +1,36 @@
+{
+  "name": "armsightstitch",
+  "version-string": "2.0.0",
+  "description": "ArmSightStitch - Robotic Arm Control with Visual Detection and Image Stitching (MSVC + CUDA)",
+  "builtin-baseline": "d87340acc46bdeda386037b38aca30136e667e47",
+  "dependencies": [
+    {
+      "name": "opencv4",
+      "default-features": false,
+      "features": [
+        "calib3d",
+        "dshow",
+        "fs",
+        "gapi",
+        "highgui",
+        "intrinsics",
+        "jpeg",
+        "png",
+        "quirc",
+        "thread",
+        "tiff",
+        "webp",
+        "win32ui",
+        "cuda",
+        "cudnn"
+      ]
+    },
+    "spdlog",
+    {
+      "name": "ncnn",
+      "features": [
+        "vulkan"
+      ]
+    }
+  ]
+}

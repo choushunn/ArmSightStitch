@@ -19,7 +19,7 @@ public:
         dwell_ms_ = new QSpinBox(this);
         dwell_ms_->setRange(0, 5000);
         dwell_ms_->setSuffix(" ms");
-        dwell_ms_->setToolTip("每个扫描位置到达后的停留时间（毫秒），用于等待机械臂稳定");
+        dwell_ms_->setToolTip("扫描位置到达后的停留时间");
         form->addRow("位置停留时间:", dwell_ms_);
 
         auto* btn = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
