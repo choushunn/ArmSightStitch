@@ -235,8 +235,13 @@ if(HAS_TOUPCAM)
 endif()
 
 # Output directory
+if(MSVC)
+    set(OUTPUT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/bin-msvc)
+else()
+    set(OUTPUT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/bin-mingw)
+endif()
 set_target_properties(${PROJECT_NAME} PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin
+    RUNTIME_OUTPUT_DIRECTORY ${OUTPUT_DIR}
 )
 
 # ============================================================

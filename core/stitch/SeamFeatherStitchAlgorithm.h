@@ -91,6 +91,30 @@ public:
             return {};
         }
 
+        // Validate all images share the same size and type — mismatch causes
+        // cv::arithm_op failure in feather accumulation (ROI dimension mismatch).
+        {
+            cv::Size refSize = images[0].size();
+            int refType = images[0].type();
+            for (size_t i = 1; i < images.size(); ++i) {
+                if (!images[i].empty()) {
+                    if (images[i].size() != refSize || images[i].type() != refType) {
+                        reportStatus(
+                            "Image size/type mismatch at index " + std::to_string(i) +
+                            ": expected " + std::to_string(refSize.width) + "x" +
+                            std::to_string(refSize.height) + " type=" + std::to_string(refType) +
+                            ", got " + std::to_string(images[i].cols) + "x" +
+                            std::to_string(images[i].rows) + " type=" +
+                            std::to_string(images[i].type()));
+                        return {};
+                    }
+                } else {
+                    reportStatus("Empty image at index " + std::to_string(i));
+                    return {};
+                }
+            }
+        }
+
         const bool hasZ = !zValues.empty();
         try {
             reportStatus("Seam-feather stitching " + std::to_string(images.size()) +
@@ -111,11 +135,16 @@ public:
             // After Z-scaling, each image is interpolated back to its original dimensions,
             // so all tiles have uniform pixel size and cover the same physical area.
             cv::Size refSize = images[0].size();
+            SPDLOG_INFO("SeamFeather: refSize={}x{} type={} nChannels={}",
+                        refSize.width, refSize.height, images[0].type(), images[0].channels());
             cv::Mat result = stitchImpl(images, positions, zValues, zRef, refSize, gridSize);
             reportProgress(100, 100);
             reportStatus("Seam-feather stitching completed");
             return result;
         } catch (const std::exception& e) {
+            SPDLOG_ERROR("SeamFeather exception: {} ({} images, grid={}x{}, ref={}x{})",
+                         e.what(), images.size(), gridSize.width, gridSize.height,
+                         images[0].cols, images[0].rows);
             reportStatus(std::string("Seam-feather stitching error: ") + e.what());
             reportProgress(100, 100);
             return {};
@@ -483,13 +512,17 @@ private:
         int tileW, tileH;
         computeTileSize(refSize, tileW, tileH);
 
+        // ── Channel count (not hardcoded to 3 — images may be grayscale or BGRA) ──
+        const int nChannels = images[0].channels();
+        const int accType = CV_MAKETYPE(CV_32F, nChannels);
+
         // ── Canvas dimensions ──
         int canvasW = nCols * tileW;
         int canvasH = nRows * tileH;
 
-        SPDLOG_INFO("SeamFeather: grid={}x{} tile={}x{} canvas={}x{} fw={} hasZ={} coef={} stack={}",
+        SPDLOG_INFO("SeamFeather: grid={}x{} tile={}x{} canvas={}x{} fw={} hasZ={} coef={} stack={} ch={}",
                     nCols, nRows, tileW, tileH, canvasW, canvasH, fw, hasZ,
-                    z_correction_coef_, scale_stack_);
+                    z_correction_coef_, scale_stack_, nChannels);
 
         // ── Helper: get crop offset for a grid cell ──
         auto getOffset = [&](int row, int col, int& ox, int& oy) {
@@ -532,7 +565,7 @@ private:
 
 #ifdef HAVE_OPENCV_CUDA
         // ── GPU weighted accumulation ──
-        cv::cuda::GpuMat gpuAccSum(canvasH, canvasW, CV_32FC3);
+        cv::cuda::GpuMat gpuAccSum(canvasH, canvasW, accType);
         cv::cuda::GpuMat gpuAccWeight(canvasH, canvasW, CV_32FC1);
         gpuAccSum.setTo(cv::Scalar(0, 0, 0));
         gpuAccWeight.setTo(cv::Scalar(0.0f));
@@ -612,10 +645,10 @@ private:
             cv::Mat maskCpu = mask(tileRoi);
 
             gpuTile.upload(tileCpu);
-            gpuTile.convertTo(gpuTileFloat, CV_32FC3);
+            gpuTile.convertTo(gpuTileFloat, accType);
             gpuMask.upload(maskCpu);
 
-            std::vector<cv::cuda::GpuMat> maskChs{gpuMask, gpuMask, gpuMask};
+            std::vector<cv::cuda::GpuMat> maskChs(nChannels, gpuMask);
             cv::cuda::merge(maskChs, gpuMask3);
             cv::cuda::multiply(gpuTileFloat, gpuMask3, gpuWeighted);
 
@@ -633,7 +666,7 @@ private:
 
         // ── GPU normalize ──
         cv::cuda::GpuMat gpuWeight3, gpuResult;
-        std::vector<cv::cuda::GpuMat> wChs{gpuAccWeight, gpuAccWeight, gpuAccWeight};
+        std::vector<cv::cuda::GpuMat> wChs(nChannels, gpuAccWeight);
         cv::cuda::merge(wChs, gpuWeight3);
         cv::cuda::max(gpuWeight3, 1e-8, gpuWeight3);
         cv::cuda::divide(gpuAccSum, gpuWeight3, gpuAccSum);
@@ -643,7 +676,7 @@ private:
         gpuResult.download(result);
 #else
         // ── CPU weighted accumulation (fallback when CUDA unavailable) ──
-        cv::Mat accSum(canvasH, canvasW, CV_32FC3, cv::Scalar(0, 0, 0));
+        cv::Mat accSum(canvasH, canvasW, accType, cv::Scalar(0, 0, 0));
         cv::Mat accWeight(canvasH, canvasW, CV_32FC1, cv::Scalar(0.0f));
 
         for (size_t i = 0; i < images.size(); ++i) {
@@ -715,8 +748,8 @@ private:
             cv::Mat maskCpu = mask(tileRoi);
 
             cv::Mat tileFloat, mask3, weighted;
-            tileCpu.convertTo(tileFloat, CV_32FC3);
-            std::vector<cv::Mat> maskChs{maskCpu, maskCpu, maskCpu};
+            tileCpu.convertTo(tileFloat, accType);
+            std::vector<cv::Mat> maskChs(static_cast<size_t>(nChannels), maskCpu);
             cv::merge(maskChs, mask3);
             cv::multiply(tileFloat, mask3, weighted);
 
@@ -732,7 +765,7 @@ private:
 
         // ── CPU normalize ──
         cv::Mat weight3, resultFloat;
-        std::vector<cv::Mat> wChs{accWeight, accWeight, accWeight};
+        std::vector<cv::Mat> wChs(static_cast<size_t>(nChannels), accWeight);
         cv::merge(wChs, weight3);
         cv::max(weight3, 1e-8, weight3);
         cv::divide(accSum, weight3, resultFloat);
