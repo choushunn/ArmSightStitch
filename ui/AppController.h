@@ -7,6 +7,7 @@
 #include "core/camera/ICameraHandler.h"
 #include "core/detector/IDetector.h"
 #include "core/detector/DustDetectionParams.h"
+#include "core/detector/EdgeDetectionParams.h"
 #include "core/stitch/IStitcher.h"
 
 namespace arm { struct SMovementStatus; }
@@ -53,11 +54,13 @@ public:
     std::vector<detector::Detection> detect(const cv::Mat& image);
     cv::Mat drawDetections(const cv::Mat& image, const std::vector<detector::Detection>& detections);
 
-    // Detector algorithm switching: 0=YOLO, 1=Dust(traditional CV)
+    // Detector algorithm switching: 0=YOLO, 1=Dust, 2=Edge(Sobel)
     void setDetectorAlgorithm(int algo);
     int detectorAlgorithm() const;
     void setDustParams(const detector::DustDetectionParams& params);
     detector::DustDetectionParams dustParams() const;
+    void setEdgeParams(const detector::EdgeDetectionParams& params);
+    detector::EdgeDetectionParams edgeParams() const;
 
     // Scan directory + detection result export
     void setScanDir(const std::string& dir);

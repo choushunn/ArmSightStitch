@@ -446,7 +446,7 @@ private:
             cv::Mat fade = makeFade(fw_v);          // 0→1
             cv::Mat roi = mask(cv::Rect(0, 0, w, fw_v));
             cv::Mat fade2D;
-            cv::repeat(fade.t(), w, 1, fade2D);
+            cv::repeat(fade.t(), 1, w, fade2D);     // repeat horizontally (nx) to fill width
             cv::multiply(roi, fade2D, roi);
         }
 
@@ -456,7 +456,7 @@ private:
             cv::flip(fade, fade, 1);                // 1→0
             cv::Mat roi = mask(cv::Rect(0, h - fw_v, w, fw_v));
             cv::Mat fade2D;
-            cv::repeat(fade.t(), w, 1, fade2D);
+            cv::repeat(fade.t(), 1, w, fade2D);     // repeat horizontally (nx) to fill width
             cv::multiply(roi, fade2D, roi);
         }
 
@@ -567,8 +567,8 @@ private:
         // ── GPU weighted accumulation ──
         cv::cuda::GpuMat gpuAccSum(canvasH, canvasW, accType);
         cv::cuda::GpuMat gpuAccWeight(canvasH, canvasW, CV_32FC1);
-        gpuAccSum.setTo(cv::Scalar(0, 0, 0));
-        gpuAccWeight.setTo(cv::Scalar(0.0f));
+        gpuAccSum.setTo(cv::Scalar::all(0));
+        gpuAccWeight.setTo(cv::Scalar::all(0));
 
         cv::cuda::GpuMat gpuTile, gpuTileFloat, gpuMask, gpuMask3, gpuWeighted;
         cv::cuda::GpuMat gpuTmpSum, gpuTmpW;
@@ -648,9 +648,15 @@ private:
             gpuTile.convertTo(gpuTileFloat, accType);
             gpuMask.upload(maskCpu);
 
-            std::vector<cv::cuda::GpuMat> maskChs(nChannels, gpuMask);
-            cv::cuda::merge(maskChs, gpuMask3);
-            cv::cuda::multiply(gpuTileFloat, gpuMask3, gpuWeighted);
+            // cv::cuda::merge may fail for nChannels==1 in some OpenCV builds;
+            // skip the merge when there is only one channel.
+            if (nChannels == 1) {
+                cv::cuda::multiply(gpuTileFloat, gpuMask, gpuWeighted);
+            } else {
+                std::vector<cv::cuda::GpuMat> maskChs(nChannels, gpuMask);
+                cv::cuda::merge(maskChs, gpuMask3);
+                cv::cuda::multiply(gpuTileFloat, gpuMask3, gpuWeighted);
+            }
 
             cv::cuda::GpuMat gpuAccRoi = gpuAccSum(canvasRoi);
             cv::cuda::add(gpuAccRoi, gpuWeighted, gpuTmpSum);
@@ -665,19 +671,25 @@ private:
         }
 
         // ── GPU normalize ──
-        cv::cuda::GpuMat gpuWeight3, gpuResult;
-        std::vector<cv::cuda::GpuMat> wChs(nChannels, gpuAccWeight);
-        cv::cuda::merge(wChs, gpuWeight3);
-        cv::cuda::max(gpuWeight3, 1e-8, gpuWeight3);
-        cv::cuda::divide(gpuAccSum, gpuWeight3, gpuAccSum);
+        cv::cuda::GpuMat gpuResult;
+        if (nChannels == 1) {
+            cv::cuda::max(gpuAccWeight, 1e-8, gpuAccWeight);
+            cv::cuda::divide(gpuAccSum, gpuAccWeight, gpuAccSum);
+        } else {
+            cv::cuda::GpuMat gpuWeight3;
+            std::vector<cv::cuda::GpuMat> wChs(nChannels, gpuAccWeight);
+            cv::cuda::merge(wChs, gpuWeight3);
+            cv::cuda::max(gpuWeight3, 1e-8, gpuWeight3);
+            cv::cuda::divide(gpuAccSum, gpuWeight3, gpuAccSum);
+        }
         gpuAccSum.convertTo(gpuResult, images[0].type());
 
         cv::Mat result;
         gpuResult.download(result);
 #else
         // ── CPU weighted accumulation (fallback when CUDA unavailable) ──
-        cv::Mat accSum(canvasH, canvasW, accType, cv::Scalar(0, 0, 0));
-        cv::Mat accWeight(canvasH, canvasW, CV_32FC1, cv::Scalar(0.0f));
+        cv::Mat accSum(canvasH, canvasW, accType, cv::Scalar::all(0));
+        cv::Mat accWeight(canvasH, canvasW, CV_32FC1, cv::Scalar::all(0));
 
         for (size_t i = 0; i < images.size(); ++i) {
             int row, col;
@@ -747,11 +759,17 @@ private:
             cv::Mat tileCpu = tile(tileRoi);
             cv::Mat maskCpu = mask(tileRoi);
 
-            cv::Mat tileFloat, mask3, weighted;
+            cv::Mat tileFloat, weighted;
             tileCpu.convertTo(tileFloat, accType);
-            std::vector<cv::Mat> maskChs(static_cast<size_t>(nChannels), maskCpu);
-            cv::merge(maskChs, mask3);
-            cv::multiply(tileFloat, mask3, weighted);
+            // cv::merge may fail for nChannels==1 in some OpenCV builds
+            if (nChannels == 1) {
+                cv::multiply(tileFloat, maskCpu, weighted);
+            } else {
+                cv::Mat mask3;
+                std::vector<cv::Mat> maskChs(static_cast<size_t>(nChannels), maskCpu);
+                cv::merge(maskChs, mask3);
+                cv::multiply(tileFloat, mask3, weighted);
+            }
 
             cv::Mat accRoi = accSum(canvasRoi);
             cv::add(accRoi, weighted, accRoi);
@@ -764,11 +782,17 @@ private:
         }
 
         // ── CPU normalize ──
-        cv::Mat weight3, resultFloat;
-        std::vector<cv::Mat> wChs(static_cast<size_t>(nChannels), accWeight);
-        cv::merge(wChs, weight3);
-        cv::max(weight3, 1e-8, weight3);
-        cv::divide(accSum, weight3, resultFloat);
+        cv::Mat resultFloat;
+        if (nChannels == 1) {
+            cv::max(accWeight, 1e-8, accWeight);
+            cv::divide(accSum, accWeight, resultFloat);
+        } else {
+            cv::Mat weight3;
+            std::vector<cv::Mat> wChs(static_cast<size_t>(nChannels), accWeight);
+            cv::merge(wChs, weight3);
+            cv::max(weight3, 1e-8, weight3);
+            cv::divide(accSum, weight3, resultFloat);
+        }
 
         cv::Mat result;
         resultFloat.convertTo(result, images[0].type());
