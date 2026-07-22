@@ -115,6 +115,15 @@ private:
     mutable std::mutex scan_state_mutex_;
     std::map<std::pair<int,int>, std::pair<QPixmap, QPixmap>> grid_thumbnails_;  // {orig, neg}，受 grid_thumbnails_mutex_ 保护
     mutable std::mutex grid_thumbnails_mutex_;
+
+    // 扫描进度栅格样式
+    std::set<std::pair<int, int>> scanned_cells_;
+    int current_scan_row_ = -1;
+    int current_scan_col_ = -1;
+    int selected_grid_row_ = -1;
+    int selected_grid_col_ = -1;
+    void applyCellBorder(int row, int col);
+
     QPixmap stitched_pixmap_, detected_pixmap_;
     QLabel* fullscreen_dlg_ = nullptr;
     QPushButton* negative_toggle_btn_ = nullptr;  // 拼接结果显示切换按钮
@@ -200,4 +209,5 @@ private:
     };
     QFuture<ZStackResult> zstack_future_;
     QFutureWatcher<ZStackResult> zstack_watcher_;
+    std::atomic<bool> zstack_busy_{false};
 };

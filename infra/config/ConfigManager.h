@@ -30,11 +30,13 @@ public:
     int cameraHeight() const { return camera_height_; }
     float cameraExposure() const { return camera_exposure_; }
     float cameraGain() const { return camera_gain_; }
+    int cameraSharpening() const { return camera_sharpening_; }
 
     void setCameraWidth(int w);
     void setCameraHeight(int h);
     void setCameraExposure(float exp);
     void setCameraGain(float gain);
+    void setCameraSharpening(int v);
 
     // Model paths
     std::string modelParamPath() const { return model_param_path_; }
@@ -176,6 +178,7 @@ private:
     int camera_height_ = 480;
     float camera_exposure_ = 70.0f;
     float camera_gain_ = 1.0f;
+    int camera_sharpening_ = 0;
 
     std::string model_param_path_;
     std::string model_bin_path_;

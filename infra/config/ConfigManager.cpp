@@ -29,6 +29,7 @@ void ConfigManager::loadDefaults() {
     camera_height_ = 480;
     camera_exposure_ = 70.0f;
     camera_gain_ = 1.0f;
+    camera_sharpening_ = 0;
 
     model_param_path_ = "models/best-sim-opt.ncnn.param";
     model_bin_path_ = "models/best-sim-opt.ncnn.bin";
@@ -45,7 +46,7 @@ void ConfigManager::loadDefaults() {
     }
     dwell_time_ms_ = 300;
     center_crop_size_ = 1775;
-    stitch_algorithm_ = 0;
+    stitch_algorithm_ = 3;
     scale_mode_ = 0;
     {
         QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
@@ -54,7 +55,7 @@ void ConfigManager::loadDefaults() {
     }
     feather_width_ = 120;
 
-    detection_algorithm_ = 1;
+    detection_algorithm_ = 2;
     dust_clahe_clip_ = 2.0;
     dust_bg_blur_ = 31;
     dust_min_area_ = 50;
@@ -186,6 +187,7 @@ bool ConfigManager::loadFromJson(const QJsonObject& json) {
     readInt("camera_height", camera_height_);
     readFloat("camera_exposure", camera_exposure_);
     readFloat("camera_gain", camera_gain_);
+    readInt("camera_sharpening", camera_sharpening_);
 
     readStr("model_param_path", model_param_path_);
     readStr("model_bin_path", model_bin_path_);
@@ -289,6 +291,7 @@ QJsonObject ConfigManager::toJson() const {
     json["camera_height"] = camera_height_;
     json["camera_exposure"] = static_cast<double>(camera_exposure_);
     json["camera_gain"] = static_cast<double>(camera_gain_);
+    json["camera_sharpening"] = camera_sharpening_;
     json["model_param_path"] = QString::fromStdString(model_param_path_);
     json["model_bin_path"] = QString::fromStdString(model_bin_path_);
     json["grid_size_x"] = grid_size_x_;
@@ -421,6 +424,10 @@ void ConfigManager::setCameraExposure(float exp) {
 
 void ConfigManager::setCameraGain(float gain) {
     if (gain >= 0) camera_gain_ = gain;
+}
+
+void ConfigManager::setCameraSharpening(int v) {
+    if (v >= 0 && v <= 500) camera_sharpening_ = v;
 }
 
 void ConfigManager::setModelParamPath(const std::string& path) {

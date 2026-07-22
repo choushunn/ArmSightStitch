@@ -681,6 +681,9 @@ void MainWindow::connectSignals() {
         // Only apply to camera when not in auto-exposure mode, to avoid overriding auto exposure
         if (!ctrl_.cameraHandler().getAutoExposure()) {
             ctrl_.cameraHandler().setExposure(exposure);
+            ConfigManager::instance().setCameraExposure(exposure);
+            ConfigManager::instance().saveToFile(
+                QCoreApplication::applicationDirPath().toStdString() + "/config.json");
         }
     });
 
@@ -690,6 +693,9 @@ void MainWindow::connectSignals() {
         ui_->gainValueLabel->setText(QString::number(gain, 'f', 2) + "x");
         if (!ctrl_.cameraHandler().getAutoExposure()) {
             ctrl_.cameraHandler().setGain(gain);
+            ConfigManager::instance().setCameraGain(gain);
+            ConfigManager::instance().saveToFile(
+                QCoreApplication::applicationDirPath().toStdString() + "/config.json");
         }
     });
 
@@ -700,6 +706,9 @@ void MainWindow::connectSignals() {
         else
             ui_->sharpeningValueLabel->setText(QString::number(val));
         ctrl_.cameraHandler().setSharpening(static_cast<unsigned short>(val));
+        ConfigManager::instance().setCameraSharpening(val);
+        ConfigManager::instance().saveToFile(
+            QCoreApplication::applicationDirPath().toStdString() + "/config.json");
     });
 
     // ---- 相机旋转控制 ----
@@ -754,6 +763,7 @@ void MainWindow::connectSignals() {
         for (auto& [rc, pixmaps] : grid_thumbnails_) {
             auto* lbl = qobject_cast<QLabel*>(ui_->topCellsTable->cellWidget(rc.first, rc.second));
             if (lbl) lbl->setPixmap(checked ? pixmaps.second : pixmaps.first);
+            applyCellBorder(rc.first, rc.second);
         }
     });
 
@@ -805,6 +815,19 @@ void MainWindow::connectSignals() {
 
     // ---- 扫描页面: 网格 ----
     connect(ui_->topCellsTable, &QTableWidget::cellClicked, this, &MainWindow::on_topCellsTable_cellClicked);
+    connect(ui_->topCellsTable, &QTableWidget::currentCellChanged,
+            this, [this](int curRow, int curCol, int prevRow, int prevCol) {
+        if (prevRow >= 0 && prevCol >= 0) {
+            selected_grid_row_ = -1;
+            selected_grid_col_ = -1;
+            applyCellBorder(prevRow, prevCol);
+        }
+        if (curRow >= 0 && curCol >= 0) {
+            selected_grid_row_ = curRow;
+            selected_grid_col_ = curCol;
+            applyCellBorder(curRow, curCol);
+        }
+    });
 
     // ---- 拼接页面 ----
 
@@ -930,6 +953,36 @@ void MainWindow::initGridTables() {
     }
 }
 
+void MainWindow::applyCellBorder(int row, int col) {
+    bool isScanning = (row == current_scan_row_ && col == current_scan_col_);
+    bool isSelected = (row == selected_grid_row_ && col == selected_grid_col_);
+    bool isScanned = scanned_cells_.count({row, col}) > 0;
+
+    auto* lbl = qobject_cast<QLabel*>(ui_->topCellsTable->cellWidget(row, col));
+    if (lbl) {
+        QString style;
+        if (isScanning)
+            style = "border: 2px solid #0078D7;";
+        else if (isSelected)
+            style = "border: 2px solid #FF8C00;";
+        else if (isScanned)
+            style = "border: 1px solid #28A745;";
+        lbl->setStyleSheet(style);
+        return;
+    }
+    auto* item = ui_->topCellsTable->item(row, col);
+    if (item) {
+        if (isScanning)
+            item->setBackground(QColor(0, 120, 215, 40));
+        else if (isSelected)
+            item->setBackground(QColor(255, 140, 0, 40));
+        else if (isScanned)
+            item->setBackground(QColor(40, 167, 69, 25));
+        else
+            item->setBackground(QColor(0, 0, 0, 0));
+    }
+}
+
 void MainWindow::appendLog(const QString& msg, const QString& level) {
     QString color;
     if (level == "ERROR") color = "#D9534F";     // 工业红
@@ -1002,6 +1055,17 @@ void MainWindow::on_connectCamera() {
         // First frame arrives via signal on next event-loop iteration,
         // after Qt layouts settle — no manual defer needed
         ui_->statusLabel->setText("相机已连接");
+
+        // 从 config 恢复相机参数到硬件（持久化跨会话）
+        {
+            auto& cfg = ConfigManager::instance();
+            bool hw_auto = ctrl_.cameraHandler().getAutoExposure();
+            if (!hw_auto) {
+                ctrl_.cameraHandler().setExposure(cfg.cameraExposure());
+                ctrl_.cameraHandler().setGain(cfg.cameraGain());
+            }
+            ctrl_.cameraHandler().setSharpening(static_cast<unsigned short>(cfg.cameraSharpening()));
+        }
 
         // Sync exposure UI state from camera
         bool auto_on = ctrl_.cameraHandler().getAutoExposure();
@@ -1266,6 +1330,15 @@ void MainWindow::startScanSequence() {
         std::lock_guard<std::mutex> lock(grid_thumbnails_mutex_);
         grid_thumbnails_.clear();
     }
+    scanned_cells_.clear();
+    current_scan_row_ = -1;
+    current_scan_col_ = -1;
+    {
+        int gx = cfg.gridSizeX(), gy = cfg.gridSizeY();
+        for (int r = 0; r < gy; ++r)
+            for (int c = 0; c < gx; ++c)
+                applyCellBorder(r, c);
+    }
 
     ctrl_.movementController().setImageSaveCallback([this](const cv::Mat& frame, const std::string& path, int row, int col, int z) {
         // Track scan base directory for later stitching
@@ -1344,6 +1417,10 @@ void MainWindow::startScanSequence() {
                         lbl->setAttribute(Qt::WA_TransparentForMouseEvents, true);
                         ui_->topCellsTable->setCellWidget(row, tableCol, lbl);
                     }
+                }, Qt::QueuedConnection);
+                QMetaObject::invokeMethod(this, [this, row, tableCol]() {
+                    scanned_cells_.insert({row, tableCol});
+                    applyCellBorder(row, tableCol);
                 }, Qt::QueuedConnection);
             }
         }
@@ -1571,57 +1648,10 @@ void MainWindow::on_stitchRun() {
     last_scan_dir_ = dirPath;  // 记录目录用于负片拼接
     ctrl_.setScanDir(dirPath);  // 同步给 AppController 供检测 JSON 导出定位
 
-    // Use position-based loading: parse row_col from filenames (like docs/stitch.py)
-    cv::Size detectedGrid = gs;
-    auto positioned = ctrl_.loadImagesWithPositions(dirPath, detectedGrid);
+    // 防重复点击：已有拼接进行中则忽略
+    if (stitch_progress_dlg_) return;
 
-    if (positioned.empty()) {
-        // Fallback: legacy sequential loading
-        auto images = ctrl_.loadImages(dirPath);
-        if (images.empty()) {
-            QMessageBox::warning(this, "警告",
-                QString("目录 %1 中没有图像。\n请先执行扫描采集图像").arg(pathEdit->text()));
-            return;
-        }
-        // Confirm before stitching
-        auto btn = QMessageBox::question(this, "确认拼接",
-            QString("已选择 %1 张图像，是否开始拼接？").arg(images.size()),
-            QMessageBox::Yes | QMessageBox::No);
-        if (btn != QMessageBox::Yes) return;
-
-        stitch_progress_dlg_ = new QProgressDialog("正在拼接图像...", QString(), 0, 100, this);
-        stitch_progress_dlg_->setWindowModality(Qt::WindowModal);
-        stitch_progress_dlg_->setAutoClose(false);
-        stitch_progress_dlg_->show();
-
-        stitch_progress_->setValue(0);
-        stitch_progress_->setVisible(true);
-        ui_->statusLabel->setText("正在拼接...");
-        stitching_future_ = QtConcurrent::run([this, images, gs]() {
-            ctrl_.stitcher().setCenterCropSize(ConfigManager::instance().centerCropSize());
-            ctrl_.stitcher().setAlgorithm(ConfigManager::instance().stitchAlgorithm());
-            ctrl_.stitcher().setFeatherWidth(ConfigManager::instance().featherWidth());
-            ctrl_.stitcher().setScaleMode(ConfigManager::instance().scaleMode());
-            ctrl_.stitcher().setScaleMapFile(ConfigManager::instance().scaleMapFile());
-            ctrl_.stitcher().setZCorrectionCoef(ConfigManager::instance().zCorrectionCoef());
-            ctrl_.stitcher().setCropOffsetFile(ConfigManager::instance().cropOffsetFile());
-            auto sorted = ctrl_.stitcher().sortImagesInSCurveOrder(images, gs);
-            return ctrl_.stitcher().stitchImages(sorted, gs);
-        });
-        stitching_watcher_.setFuture(stitching_future_);
-        return;
-    }
-
-    // Confirm before stitching
-    auto btn = QMessageBox::question(this, "确认拼接",
-        QString("已选择 %1 张图像 (网格 %2x%3)，是否开始拼接？")
-            .arg(positioned.size())
-            .arg(detectedGrid.width)
-            .arg(detectedGrid.height),
-        QMessageBox::Yes | QMessageBox::No);
-    if (btn != QMessageBox::Yes) return;
-
-    stitch_progress_dlg_ = new QProgressDialog("正在拼接图像...", QString(), 0, 100, this);
+    stitch_progress_dlg_ = new QProgressDialog("正在加载图像并拼接...", QString(), 0, 100, this);
     stitch_progress_dlg_->setWindowModality(Qt::WindowModal);
     stitch_progress_dlg_->setAutoClose(false);
     stitch_progress_dlg_->show();
@@ -1630,17 +1660,24 @@ void MainWindow::on_stitchRun() {
     stitch_progress_->setVisible(true);
     ui_->statusLabel->setText("正在拼接...");
 
-    // Apply center crop setting from config
-    ctrl_.stitcher().setCenterCropSize(ConfigManager::instance().centerCropSize());
-    ctrl_.stitcher().setAlgorithm(ConfigManager::instance().stitchAlgorithm());
-    ctrl_.stitcher().setFeatherWidth(ConfigManager::instance().featherWidth());
-    ctrl_.stitcher().setScaleMode(ConfigManager::instance().scaleMode());
-    ctrl_.stitcher().setScaleMapFile(ConfigManager::instance().scaleMapFile());
-    ctrl_.stitcher().setZCorrectionCoef(ConfigManager::instance().zCorrectionCoef());
-    ctrl_.stitcher().setCropOffsetFile(ConfigManager::instance().cropOffsetFile());
+    ctrl_.stitcher().setCenterCropSize(cfg.centerCropSize());
+    ctrl_.stitcher().setAlgorithm(cfg.stitchAlgorithm());
+    ctrl_.stitcher().setFeatherWidth(cfg.featherWidth());
+    ctrl_.stitcher().setScaleMode(cfg.scaleMode());
+    ctrl_.stitcher().setScaleMapFile(cfg.scaleMapFile());
+    ctrl_.stitcher().setZCorrectionCoef(cfg.zCorrectionCoef());
+    ctrl_.stitcher().setCropOffsetFile(cfg.cropOffsetFile());
 
-    stitching_future_ = QtConcurrent::run([this, positioned, detectedGrid]() {
-        return ctrl_.stitcher().stitchImagesWithPositions(positioned, detectedGrid);
+    stitching_future_ = QtConcurrent::run([this, dirPath, gs]() -> cv::Mat {
+        cv::Size detectedGrid = gs;
+        auto positioned = ctrl_.loadImagesWithPositions(dirPath, detectedGrid);
+        if (!positioned.empty()) {
+            return ctrl_.stitcher().stitchImagesWithPositions(positioned, detectedGrid);
+        }
+        auto images = ctrl_.loadImages(dirPath);
+        if (images.empty()) return cv::Mat();
+        auto sorted = ctrl_.stitcher().sortImagesInSCurveOrder(images, gs);
+        return ctrl_.stitcher().stitchImages(sorted, gs);
     });
     stitching_watcher_.setFuture(stitching_future_);
 }
@@ -1657,7 +1694,10 @@ void MainWindow::onStitchingFinished() {
 
     stitch_progress_->setVisible(false);
     cv::Mat result = stitching_future_.result();
-    if (!result.empty()) {
+    if (result.empty()) {
+        ui_->statusLabel->setText("拼接失败");
+        QMessageBox::warning(this, "拼接失败", "目录中没有图像，或拼接处理失败。");
+    } else {
         stitched_result_ = result;
         stitched_result_negative_ = cv::Mat();  // 清除旧负片结果
         displayImageFullQuality(result, ui_->stitchImageLabel, stitched_pixmap_);
@@ -1684,9 +1724,6 @@ void MainWindow::onStitchingFinished() {
             int gy = ConfigManager::instance().gridSizeY();
             startNegativeStitching(last_scan_dir_, cv::Size(gx, gy));
         }
-    } else {
-        ui_->statusLabel->setText("拼接失败");
-        QMessageBox::warning(this, "拼接失败", "图像拼接失败，请检查图像文件。");
     }
 }
 
@@ -1819,6 +1856,28 @@ void MainWindow::onArmStatusChanged(const arm::ArmStatus& status) {
 }
 
 void MainWindow::onMovementStatus(const arm::SMovementStatus& status) {
+    // 扫描栅格进度高亮
+    if (status.running) {
+        int row = status.current_position.row;
+        int col = status.current_position.col;
+        if (row >= 0 && col >= 0) {
+            if (current_scan_row_ >= 0 && current_scan_col_ >= 0
+                && (current_scan_row_ != row || current_scan_col_ != col)) {
+                scanned_cells_.insert({current_scan_row_, current_scan_col_});
+                applyCellBorder(current_scan_row_, current_scan_col_);
+            }
+            current_scan_row_ = row;
+            current_scan_col_ = col;
+            applyCellBorder(row, col);
+        }
+    }
+    if (!status.running && !status.paused && current_scan_row_ >= 0) {
+        scanned_cells_.insert({current_scan_row_, current_scan_col_});
+        applyCellBorder(current_scan_row_, current_scan_col_);
+        current_scan_row_ = -1;
+        current_scan_col_ = -1;
+    }
+
     // Throttle per-point updates: only log meaningful status changes
     if (!status.status_message.empty()
         && status.status_message.find("Moving") == std::string::npos
@@ -1867,6 +1926,7 @@ void MainWindow::on_topCellsTable_cellClicked(int /*row*/, int /*column*/) {
 }
 
 void MainWindow::onZStackFinished() {
+    zstack_busy_ = false;
     auto res = zstack_future_.result();
     int row = res.row, col = res.col;
     if (!res.ok) {
@@ -2346,6 +2406,12 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                         .arg(row+1).arg(col+1).arg(zRange),
                     100, 20, 1000, 10, &stepOk);
                 if (!stepOk) return true;
+
+                if (zstack_busy_.exchange(true)) {
+                    QMessageBox::warning(this, "Z-Stack 对焦",
+                        "已有 Z-Stack 对焦正在进行中，请等待完成后再试。");
+                    return true;
+                }
 
                 int gx = cfg.gridSizeX(), gy = cfg.gridSizeY();
                 int stepSize = cfg.stepSize();

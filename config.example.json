@@ -10,6 +10,7 @@
     "camera_height": 480,
     "camera_exposure": 70.0,
     "camera_gain": 1.0,
+    "camera_sharpening": 0,
 
     "_AI检测模型": "---",
     "model_param_path": "models/best-sim-opt.ncnn.param",
@@ -24,7 +25,7 @@
     "center_crop_size": 1775,
 
     "_图像拼接": "---",
-    "stitch_algorithm": 0,
+    "stitch_algorithm": 3,
     "feather_width": 120,
     "z_correction_coef": 1.0,
 
@@ -44,8 +45,8 @@
     "_裁剪偏移文件": "---",
     "crop_offset_file": "",
 
-    "_尘埃检测_0NCNN_1传统图像处理": "---",
-    "detection_algorithm": 1,
+    "_检测_0YOLO_1Dust_2Sobel": "---",
+    "detection_algorithm": 2,
     "dust_clahe_clip": 2.0,
     "dust_bg_blur": 31,
     "dust_min_area": 50,

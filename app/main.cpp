@@ -23,6 +23,9 @@ int main(int argc, char *argv[]) {
     QString configPath = QApplication::applicationDirPath() + "/config.json";
     if (QFileInfo::exists(configPath)) {
         cfg.loadFromFile(configPath.toStdString());
+        // 旧默认值迁移：stitch 0→3(SeamFeather), detection 1→2(Sobel)
+        if (cfg.stitchAlgorithm() == 0) cfg.setStitchAlgorithm(3);
+        if (cfg.detectionAlgorithm() == 1) cfg.setDetectionAlgorithm(2);
     }
 
     // Initialize spdlog logging
