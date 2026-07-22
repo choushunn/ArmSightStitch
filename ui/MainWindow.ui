@@ -596,7 +596,6 @@
     <addaction name="actionScanParams"/>
     <addaction name="actionStitchSettings"/>
     <addaction name="actionDetSettings"/>
-    <addaction name="actionLoadModel"/>
     <addaction name="actionArmZero"/>
     <addaction name="actionSphereSettings"/>
    </widget>
@@ -658,9 +657,6 @@
   </action>
   <action name="actionDetSettings">
    <property name="text"><string>检测参数...</string></property>
-  </action>
-  <action name="actionLoadModel">
-   <property name="text"><string>加载模型...</string></property>
   </action>
   <action name="actionArmZero">
    <property name="text"><string>归零</string></property>

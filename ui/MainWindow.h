@@ -51,7 +51,7 @@ private slots:
     void on_togglePauseSMovement();
 
     // Detection
-    void on_loadModel();
+    // (on_loadModel removed)
     void on_detSettings();
     void on_manualDetect();
 

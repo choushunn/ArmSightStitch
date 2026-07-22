@@ -553,7 +553,7 @@ void MainWindow::connectSignals() {
     connect(ui_->actionDetSettings, &QAction::triggered, this, &MainWindow::on_detSettings);
     connect(ui_->actionStitchSettings, &QAction::triggered, this, &MainWindow::on_stitchSettings);
     connect(ui_->actionArmZero, &QAction::triggered, this, &MainWindow::on_zeroArm);
-    connect(ui_->actionLoadModel, &QAction::triggered, this, &MainWindow::on_loadModel);
+    // (actionLoadModel removed)
     // ---- 扫描参数设置 ----
     connect(ui_->actionScanParams, &QAction::triggered, this, [this]() {
         auto& cfg = ConfigManager::instance();
@@ -1445,32 +1445,13 @@ void MainWindow::on_togglePauseSMovement() {
 
 // ==================== Detection ====================
 
-void MainWindow::on_loadModel() {
-    auto& cfg = ConfigManager::instance();
-    DetectionSettingsDialog dlg(&ctrl_, this);
-    dlg.setDetectionAlgorithm(cfg.detectionAlgorithm());
-    dlg.setParamPath(QString::fromStdString(cfg.modelParamPath()));
-    dlg.setBinPath(QString::fromStdString(cfg.modelBinPath()));
-    dlg.setConfidenceThreshold(0.3);
-    dlg.setNmsThreshold(0.3);
-    dlg.setDustParams(ctrl_.dustParams());
-
-    if (dlg.exec() == QDialog::Accepted) {
-        model_loaded_ = ctrl_.loadDetectorModel(
-            dlg.paramPath().toStdString(), dlg.binPath().toStdString());
-        if (model_loaded_) {
-            ui_->statusLabel->setText("模型已加载");
-            appendLog("Detection model loaded", "INFO");
-        }
-    }
-}
-
 void MainWindow::on_detSettings() {
     auto& cfg = ConfigManager::instance();
 
     // 快照当前状态，取消时回退实时测试对检测器的改动
     int prevAlgo = ctrl_.detectorAlgorithm();
     detector::DustDetectionParams prevDust = ctrl_.dustParams();
+    detector::EdgeDetectionParams prevEdge = ctrl_.edgeParams();
     float prevConf = ctrl_.detector().getConfidenceThreshold();
     float prevNms  = ctrl_.detector().getNmsThreshold();
 
@@ -1481,10 +1462,12 @@ void MainWindow::on_detSettings() {
     dlg.setConfidenceThreshold(ctrl_.detector().getConfidenceThreshold());
     dlg.setNmsThreshold(ctrl_.detector().getNmsThreshold());
     dlg.setDustParams(prevDust);
+    dlg.setEdgeParams(prevEdge);
 
     if (dlg.exec() == QDialog::Accepted) {
         int algo = dlg.detectionAlgorithm();
         detector::DustDetectionParams dp = dlg.dustParams();
+        detector::EdgeDetectionParams ep = dlg.edgeParams();
 
         // 持久化到 ConfigManager
         cfg.setDetectionAlgorithm(algo);
@@ -1496,8 +1479,18 @@ void MainWindow::on_detSettings() {
         cfg.setDustMaxIter(dp.maxIter);
         cfg.setDustNmsIou(dp.nmsIou);
 
+        cfg.setEdgeClaheClip(ep.claheClip);
+        cfg.setEdgeClaheTileGrid(ep.claheTileGrid);
+        cfg.setEdgeThreshold(ep.edgeThreshold);
+        cfg.setEdgeSobelKSize(ep.sobelKSize);
+        cfg.setEdgeDilateIter(ep.dilateIter);
+        cfg.setEdgeMinBboxArea(ep.minBboxArea);
+        cfg.setEdgeNmsIouThresh(ep.nmsIouThresh);
+        cfg.setEdgeNmsContainThresh(ep.nmsContainThresh);
+
         // 应用到运行时检测器
         ctrl_.setDustParams(dp);
+        ctrl_.setEdgeParams(ep);
         ctrl_.setDetectorAlgorithm(algo);
         ctrl_.detector().setConfidenceThreshold(dlg.confidenceThreshold());
         ctrl_.detector().setNmsThreshold(dlg.nmsThreshold());
@@ -1506,6 +1499,7 @@ void MainWindow::on_detSettings() {
         // 回退实时测试可能造成的算法/参数改动
         ctrl_.setDetectorAlgorithm(prevAlgo);
         ctrl_.setDustParams(prevDust);
+        ctrl_.setEdgeParams(prevEdge);
         ctrl_.detector().setConfidenceThreshold(prevConf);
         ctrl_.detector().setNmsThreshold(prevNms);
         model_loaded_ = ctrl_.isModelLoaded();

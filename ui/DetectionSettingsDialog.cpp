@@ -49,6 +49,7 @@ void drawHr(QPainter& p, int& y, int thick = 1) {
 bool generatePdfReport(const QString& pdfPath,
                        const QString& imagePath, int algo,
                        const detector::DustDetectionParams& dp,
+                       const detector::EdgeDetectionParams& ep,
                        float confThresh, float nmsThresh,
                        const cv::Mat& annotated,
                        const std::vector<detector::Detection>& detections)
@@ -80,7 +81,9 @@ bool generatePdfReport(const QString& pdfPath,
     drawLine(p, y, QString("生成时间: %1").arg(
         QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss")), bodyF);
     drawLine(p, y, QString("检测算法: %1").arg(
-        algo == 0 ? "YOLO 目标检测" : "灰尘颗粒检测 (传统CV)"), bodyF);
+        algo == 2 ? "Sobel边缘检测 (传统CV)"
+        : algo == 1 ? "灰尘颗粒检测 (传统CV)"
+        : "YOLO 目标检测"), bodyF);
     drawLine(p, y, QString("源图片: %1").arg(imagePath), bodyF);
     y += 8;
     drawHr(p, y);
@@ -105,7 +108,7 @@ bool generatePdfReport(const QString& pdfPath,
     if (algo == 0) {
         paramRow("置信度阈值", QString::number(confThresh, 'f', 2),
                  "NMS 阈值", QString::number(nmsThresh, 'f', 2));
-    } else {
+    } else if (algo == 1) {
         paramRow("CLAHE 对比度", QString::number(dp.claheClip, 'f', 1),
                  "背景估计核", QString::number(dp.bgBlurSize));
         paramRow("最小面积", QString("%1 px²").arg(dp.minArea),
@@ -115,6 +118,15 @@ bool generatePdfReport(const QString& pdfPath,
         paramRow("NMS 合并",
                  dp.nmsIou > 0 ? QString::number(dp.nmsIou, 'f', 2) : "关闭",
                  "", "");
+    } else if (algo == 2) {
+        paramRow("CLAHE 对比度", QString::number(ep.claheClip, 'f', 1),
+                 "CLAHE 分块", QString::number(ep.claheTileGrid));
+        paramRow("边缘阈值", QString::number(ep.edgeThreshold),
+                 "Sobel 核", QString::number(ep.sobelKSize));
+        paramRow("膨胀次数", QString::number(ep.dilateIter),
+                 "最小框面积", QString("%1 px²").arg(ep.minBboxArea));
+        paramRow("NMS IoU", QString::number(ep.nmsIouThresh, 'f', 2),
+                 "NMS 包含", QString::number(ep.nmsContainThresh, 'f', 2));
     }
     y += 4;
     drawHr(p, y);
@@ -239,6 +251,7 @@ struct BatchEntry {
 bool generateBatchPdfReport(const QString& pdfPath,
                             int algo,
                             const detector::DustDetectionParams& dp,
+                            const detector::EdgeDetectionParams& ep,
                             float confThresh, float nmsThresh,
                             const std::vector<BatchEntry>& entries,
                             const QStringList& errors)
@@ -293,19 +306,27 @@ bool generateBatchPdfReport(const QString& pdfPath,
     drawLine(y, QString("生成时间: %1").arg(
         QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss")), bodyF);
     drawLine(y, QString("检测算法: %1").arg(
-        algo == 0 ? "YOLO 目标检测" : "灰尘颗粒检测 (传统CV)"), bodyF);
+        algo == 2 ? "Sobel边缘检测 (传统CV)"
+        : algo == 1 ? "灰尘颗粒检测 (传统CV)"
+        : "YOLO 目标检测"), bodyF);
     drawLine(y, QString("共检测 %1 张图片，检出 %2 个目标缺陷")
         .arg(entries.size()).arg(totalDets), bodyF);
 
     if (algo == 0) {
         drawLine(y, QString("参数: 置信度=%1  NMS=%2")
             .arg(confThresh, 0, 'f', 2).arg(nmsThresh, 0, 'f', 2), bodyF);
-    } else {
+    } else if (algo == 1) {
         drawLine(y, QString("参数: CLAHE=%1  核=%2  面积=%3-%4  膨胀=%5  迭代=%6  NMS合并=%7")
             .arg(dp.claheClip, 0, 'f', 1).arg(dp.bgBlurSize)
             .arg(dp.minArea).arg(dp.maxArea > 0 ? QString::number(dp.maxArea) : "不限")
             .arg(dp.dilateIter).arg(dp.maxIter)
             .arg(dp.nmsIou > 0 ? QString::number(dp.nmsIou, 'f', 2) : "关闭"), bodyF);
+    } else if (algo == 2) {
+        drawLine(y, QString("参数: CLAHE=%1  块=%2  阈值=%3  Sobel=%4  膨胀=%5  最小框=%6  IoU=%7  包含=%8")
+            .arg(ep.claheClip, 0, 'f', 1).arg(ep.claheTileGrid)
+            .arg(ep.edgeThreshold).arg(ep.sobelKSize).arg(ep.dilateIter)
+            .arg(ep.minBboxArea).arg(ep.nmsIouThresh, 0, 'f', 2)
+            .arg(ep.nmsContainThresh, 0, 'f', 2), bodyF);
     }
 
     if (!errors.isEmpty()) {
@@ -463,7 +484,7 @@ void DetectionSettingsDialog::setNmsThreshold(double val) { ui.nmsSpin->setValue
 
 int DetectionSettingsDialog::detectionAlgorithm() const { return ui.algorithmCombo->currentIndex(); }
 void DetectionSettingsDialog::setDetectionAlgorithm(int algo) {
-    ui.algorithmCombo->setCurrentIndex(algo == 1 ? 1 : 0);
+    ui.algorithmCombo->setCurrentIndex(algo >= 0 && algo <= 2 ? algo : 0);
 }
 
 detector::DustDetectionParams DetectionSettingsDialog::dustParams() const {
@@ -488,11 +509,38 @@ void DetectionSettingsDialog::setDustParams(const detector::DustDetectionParams&
     ui.nmsIouSpin->setValue(p.nmsIou);
 }
 
+detector::EdgeDetectionParams DetectionSettingsDialog::edgeParams() const {
+    detector::EdgeDetectionParams p;
+    p.claheClip        = ui.edgeClaheSpin->value();
+    p.claheTileGrid    = ui.edgeTileSpin->value();
+    p.edgeThreshold    = ui.edgeThreshSpin->value();
+    p.sobelKSize       = ui.sobelKSpin->value() | 1;
+    p.dilateIter       = ui.edgeDilateSpin->value();
+    p.minBboxArea      = ui.minBboxSpin->value();
+    p.nmsIouThresh     = ui.nmsIouThreshSpin->value();
+    p.nmsContainThresh = ui.nmsContainThreshSpin->value();
+    return p;
+}
+
+void DetectionSettingsDialog::setEdgeParams(const detector::EdgeDetectionParams& p) {
+    ui.edgeClaheSpin->setValue(p.claheClip);
+    ui.edgeTileSpin->setValue(p.claheTileGrid);
+    ui.edgeThreshSpin->setValue(p.edgeThreshold);
+    ui.sobelKSpin->setValue(p.sobelKSize);
+    ui.edgeDilateSpin->setValue(p.dilateIter);
+    ui.minBboxSpin->setValue(p.minBboxArea);
+    ui.nmsIouThreshSpin->setValue(p.nmsIouThresh);
+    ui.nmsContainThreshSpin->setValue(p.nmsContainThresh);
+}
+
 void DetectionSettingsDialog::onAlgorithmChanged(int index) {
+    const bool yolo = (index == 0);
     const bool dust = (index == 1);
-    ui.modelGroup->setVisible(!dust);
-    ui.thresholdsGroup->setVisible(!dust);
+    const bool edge = (index == 2);
+    ui.modelGroup->setVisible(yolo);
+    ui.thresholdsGroup->setVisible(yolo);
     ui.dustGroup->setVisible(dust);
+    ui.edgeGroup->setVisible(edge);
     // Collapse/expand to exactly fit visible widgets
     layout()->setSizeConstraint(QLayout::SetFixedSize);
     adjustSize();
@@ -564,6 +612,8 @@ void DetectionSettingsDialog::onDetectAndSave() {
     app_->setDetectorAlgorithm(algo);
     if (algo == 1) {
         app_->setDustParams(dustParams());
+    } else if (algo == 2) {
+        app_->setEdgeParams(edgeParams());
     } else {
         app_->detector().setConfidenceThreshold(static_cast<float>(ui.confidenceSpin->value()));
         app_->detector().setNmsThreshold(static_cast<float>(ui.nmsSpin->value()));
@@ -575,19 +625,22 @@ void DetectionSettingsDialog::onDetectAndSave() {
     }
 
     const detector::DustDetectionParams dp = dustParams();
+    const detector::EdgeDetectionParams ep = edgeParams();
     const float conf = static_cast<float>(ui.confidenceSpin->value());
     const float nms  = static_cast<float>(ui.nmsSpin->value());
     const bool batch = (modeCombo_ && modeCombo_->currentData().toInt() == 1);
 
     if (batch)
-        runBatchDetection(path, algo, dp, conf, nms);
+        runBatchDetection(path, algo, dp, ep, conf, nms);
     else
-        runSingleDetection(path, algo, dp, conf, nms);
+        runSingleDetection(path, algo, dp, ep, conf, nms);
 }
 
 void DetectionSettingsDialog::runSingleDetection(
     const QString& imgPath, int algo,
-    const detector::DustDetectionParams& dp, float conf, float nms)
+    const detector::DustDetectionParams& dp,
+    const detector::EdgeDetectionParams& ep,
+    float conf, float nms)
 {
     cv::Mat image = cv::imread(imgPath.toStdString(), cv::IMREAD_COLOR);
     if (image.empty()) {
@@ -634,7 +687,7 @@ void DetectionSettingsDialog::runSingleDetection(
         r->pdf  = d + "/" + bn + "_report.pdf";
         r->cnt  = static_cast<int>(dets.size());
         r->imgOk = cv::imwrite(r->out.toStdString(), ann);
-        r->pdfOk = generatePdfReport(r->pdf, imgPath, algo, dp, conf, nms, ann, dets);
+        r->pdfOk = generatePdfReport(r->pdf, imgPath, algo, dp, ep, conf, nms, ann, dets);
         auto jp = app_->saveDetectionsJson(dets, image, imgPath.toStdString());
         r->jp = QString::fromStdString(jp);
     }));
@@ -642,7 +695,9 @@ void DetectionSettingsDialog::runSingleDetection(
 
 void DetectionSettingsDialog::runBatchDetection(
     const QString& folderPath, int algo,
-    const detector::DustDetectionParams& dp, float conf, float nms)
+    const detector::DustDetectionParams& dp,
+    const detector::EdgeDetectionParams& ep,
+    float conf, float nms)
 {
     // ── Collect image files ──
     QDir dir(folderPath);
@@ -731,7 +786,7 @@ void DetectionSettingsDialog::runBatchDetection(
         // Generate combined batch PDF
         if (!batchEntries.empty()) {
             QString batchPdf = br->outFolder + "/_batch_report.pdf";
-            generateBatchPdfReport(batchPdf, algo, dp, conf, nms, batchEntries, errs);
+            generateBatchPdfReport(batchPdf, algo, dp, ep, conf, nms, batchEntries, errs);
         }
 
         br->totalDets = batchDets;
