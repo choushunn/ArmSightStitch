@@ -48,6 +48,10 @@ public:
         dH_->setRange(-9999999, 9999999);
         capForm->addRow("高度偏移 dH (脉冲数):", dH_);
 
+        zHeight_ = new QSpinBox(this);
+        zHeight_->setRange(0, 9999999);
+        capForm->addRow("扫描 Z 高度 (脉冲数):", zHeight_);
+
         zBase_ = new QSpinBox(this);
         zBase_->setRange(0, 9999999);
         capForm->addRow("Z 基准高度 (脉冲数):", zBase_);
@@ -131,6 +135,9 @@ public:
     int sphereRadius() const { return radius_->value(); }
     int sphereCapHeight() const { return cap_h_->value(); }
     int sphereHeightOffset() const { return dH_->value(); }
+    int zHeight() const { return zHeight_->value(); }
+    void setZHeight(int v) { zHeight_->setValue(v); }
+
     int zBaseHeight() const { return zBase_->value(); }
 
     void setSphereRadius(int v) { radius_->setValue(v); }
@@ -154,6 +161,7 @@ private:
     QSpinBox* radius_;
     QSpinBox* cap_h_;
     QSpinBox* dH_;
+    QSpinBox* zHeight_;
     QSpinBox* zBase_;
     QLineEdit* zMapFile_;
     QLineEdit* zRadialFile_ = nullptr;

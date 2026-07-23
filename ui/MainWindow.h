@@ -21,6 +21,7 @@
 #include "core/camera/ICameraHandler.h"
 #include "core/detector/IDetector.h"
 #include "core/SharpnessEvaluator.h"
+#include "core/stitch/IStitcher.h"
 
 class AppController;
 namespace Ui { class MainWindow; }
@@ -138,7 +139,12 @@ private:
     bool scan_stopped_by_user_ = false;
     QWidget* preview_dlg_ = nullptr; // grid cell fullscreen preview
     QProgressDialog* stitch_progress_dlg_ = nullptr;
-    QProgressDialog* zero_progress_dlg_ = nullptr;  // 归零进度弹窗，避免 findChild 误匹配
+    QProgressDialog* zero_progress_dlg_ = nullptr;
+    // 两阶段拼接 — 阶段间暂存加载结果
+    std::vector<stitch::PositionedImage> stitch_positioned_;
+    std::vector<cv::Mat> stitch_raw_images_;
+    cv::Size stitch_load_grid_{0, 0};
+    int stitch_load_count_ = 0;  // 归零进度弹窗，避免 findChild 误匹配
 
     QFuture<cv::Mat> stitching_future_;
     QFutureWatcher<cv::Mat> stitching_watcher_;
@@ -156,9 +162,6 @@ private:
     // Manual (one-shot) detection
     QFuture<DetectionResult> manual_detect_future_;
     QFutureWatcher<DetectionResult> manual_detect_watcher_;
-
-    // Stitching progress
-    QProgressBar* stitch_progress_ = nullptr;
 
     // FPS label next to resolution combo
     QLabel* fps_label_ = nullptr;

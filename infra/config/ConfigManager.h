@@ -4,6 +4,7 @@
 #include <QString>
 #include <QJsonObject>
 #include <QJsonDocument>
+#include <QStandardPaths>
 
 class ConfigManager {
 public:
@@ -85,7 +86,12 @@ public:
     // Z correction coefficient: global multiplier on Z-based scale (for AdvancedGridStitchAlgorithm)
     double zCorrectionCoef() const { return z_correction_coef_; }
     void setZCorrectionCoef(double coef);
-    std::string cropOffsetFile() const { return crop_offset_file_; }
+    std::string cropOffsetFile() const {
+        if (!crop_offset_file_.empty()) return crop_offset_file_;
+        // 回退默认路径 — 与 loadDefaults() 一致
+        QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+        return (docs + "/ScannerData/crop_offset.json").toStdString();
+    }
     void setCropOffsetFile(const std::string& path);
 
     // Detection algorithm selection: 0=YOLO, 1=Dust, 2=Edge(Sobel)

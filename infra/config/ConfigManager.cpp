@@ -37,7 +37,7 @@ void ConfigManager::loadDefaults() {
     grid_size_x_ = 10;
     grid_size_y_ = 10;
     step_size_ = 43000;
-    z_height_ = 80000;
+    z_height_ = 70000;
     z_mode_ = 0;
     {
         QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);

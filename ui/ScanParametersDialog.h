@@ -16,6 +16,12 @@ public:
         setMinimumWidth(320);
         auto* form = new QFormLayout(this);
 
+        step_size_ = new QSpinBox(this);
+        step_size_->setRange(100, 999999);
+        step_size_->setSuffix(" 脉冲");
+        step_size_->setToolTip("相邻栅格点之间的位移量（脉冲数），决定扫描覆盖密度");
+        form->addRow("步进步长:", step_size_);
+
         dwell_ms_ = new QSpinBox(this);
         dwell_ms_->setRange(0, 5000);
         dwell_ms_->setSuffix(" ms");
@@ -28,9 +34,13 @@ public:
         form->addRow(btn);
     }
 
+    int stepSize() const { return step_size_->value(); }
+    void setStepSize(int v) { step_size_->setValue(v); }
+
     int dwellTimeMs() const { return dwell_ms_->value(); }
     void setDwellTimeMs(int v) { dwell_ms_->setValue(v); }
 
 private:
+    QSpinBox* step_size_;
     QSpinBox* dwell_ms_;
 };

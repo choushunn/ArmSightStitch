@@ -206,10 +206,11 @@ void WorkflowManager::onZeroStep() {
                 emit statusMessage("Zeroing complete, starting S-movement...");
                 auto& cfg = ConfigManager::instance();
                 cv::Size grid_size(cfg.gridSizeX(), cfg.gridSizeY());
-                int end = cfg.stepSize() * (cfg.gridSizeX() - 1);
+                int endX = cfg.stepSize() * (cfg.gridSizeX() - 1);
+                int endY = cfg.stepSize() * (cfg.gridSizeY() - 1);
 
                 arm::SMovementPoint start_pos = {0, 0, cfg.zHeight(), 0, 0, 0, 0};
-                arm::SMovementPoint end_pos = {end, end, cfg.zHeight(), 0, 0, cfg.gridSizeY() - 1, cfg.gridSizeX() - 1};
+                arm::SMovementPoint end_pos = {endX, endY, cfg.zHeight(), 0, 0, cfg.gridSizeY() - 1, cfg.gridSizeX() - 1};
 
                 startSMovement(grid_size, start_pos, end_pos);
             } else {

@@ -187,7 +187,7 @@ public:
         cv::Mat result = image.clone();
         for (const auto& d : detections)
             cv::rectangle(result, d.bounding_box, cv::Scalar(0, 255, 0), 2); // 绿色（与 det.py 一致）
-        std::string label = "edge: " + std::to_string(detections.size());
+        std::string label = "defect: " + std::to_string(detections.size());
         cv::putText(result, label, cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1.0,
                     cv::Scalar(0, 255, 0), 2);
         return result;

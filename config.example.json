@@ -1,50 +1,41 @@
 {
     "_机械臂连接": "---",
-
     "arm_ip": "192.168.0.1",
     "arm_port": 502,
     "default_speed": 30000,
-
     "_相机参数": "---",
     "camera_width": 640,
     "camera_height": 480,
     "camera_exposure": 70.0,
     "camera_gain": 1.0,
     "camera_sharpening": 0,
-
     "_AI检测模型": "---",
     "model_param_path": "models/best-sim-opt.ncnn.param",
     "model_bin_path": "models/best-sim-opt.ncnn.bin",
-
     "_网格扫描": "---",
     "grid_size_x": 10,
     "grid_size_y": 10,
     "step_size": 43000,
-    "z_height": 80000,
+    "z_height": 70000,
     "dwell_time_ms": 300,
     "center_crop_size": 1775,
-
     "_图像拼接": "---",
     "stitch_algorithm": 3,
     "feather_width": 120,
     "z_correction_coef": 1.0,
-
     "_缩放映射_0自动_1手动": "---",
     "scale_mode": 0,
     "scale_map_file": "",
-
     "_Z轴模式_0球冠_1手动Map_2径向": "---",
     "z_mode": 0,
     "z_map_file": "",
     "z_radial_file": "",
-    "z_base_height": 80000,
+    "z_base_height": 70000,
     "sphere_radius": 230000,
     "sphere_cap_height": 50000,
     "sphere_height_offset": 0,
-
     "_裁剪偏移文件": "---",
     "crop_offset_file": "",
-
     "_检测_0YOLO_1Dust_2Sobel": "---",
     "detection_algorithm": 2,
     "dust_clahe_clip": 2.0,
@@ -54,15 +45,24 @@
     "dust_dilate_iter": 0,
     "dust_max_iter": 4,
     "dust_nms_iou": 0.1,
-
     "_轴限位_XYZAB": "---",
-    "axis_min_pos": [0, 0, 0, -180000, -180000],
-    "axis_max_pos": [384000, 384000, 80000, 180000, 180000],
+    "axis_min_pos": [
+        0,
+        0,
+        0,
+        -180000,
+        -180000
+    ],
+    "axis_max_pos": [
+        400000,
+        400000,
+        80000,
+        180000,
+        180000
+    ],
     "position_tolerance": 100.0,
-
     "_调试": "---",
     "modbus_debug": false,
-
     "_文件路径": "---",
     "image_save_base_path": "",
     "log_path": "./logs/armsightstitch.log"

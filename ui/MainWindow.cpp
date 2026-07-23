@@ -87,7 +87,7 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     ui_->cellMoveCheck->setEnabled(false);
     ui_->cellMoveCheck->setChecked(false);
     ui_->scanNegativeCheck->setEnabled(false);
-    ui_->scanNegativeCheck->setChecked(false);
+    ui_->scanNegativeCheck->setChecked(true);
     ui_->toolbarEmergStopBtn->setEnabled(false);
     ui_->speedSpin->setValue(ConfigManager::instance().defaultSpeed());
 
@@ -199,30 +199,32 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     fps_label_ = ui_->fpsLabel;
     camera_preview_check_ = ui_->cameraPreviewCheck;
 
-    // Stitch progress bar — placed below stitch preview
-    stitch_progress_ = new QProgressBar(this);
-    stitch_progress_->setRange(0, 100);
-    stitch_progress_->setValue(0);
-    stitch_progress_->setTextVisible(true);
-    stitch_progress_->setFormat("拼接进度: %p%");
-    stitch_progress_->setVisible(false);
+    // Negative film display toggle (placed below stitch preview)
+    negative_toggle_btn_ = new QPushButton("显示负片结果", this);
+    negative_toggle_btn_->setCheckable(true);
+    negative_toggle_btn_->setVisible(false);
+    negative_toggle_btn_->setEnabled(false);
     QWidget* stitch_parent = ui_->stitchImageLabel->parentWidget();
     if (stitch_parent) {
-        // Create a container that holds both the label and the progress bar
-        auto* container = new QWidget(this);
-        auto* vlay = new QVBoxLayout(container);
-        vlay->setContentsMargins(0, 0, 0, 0);
-
-        // Handle different parent types — must capture index BEFORE
-        // adding widgets to container (addWidget reparents, invalidating indexOf)
-        if (auto* splitter = qobject_cast<QSplitter*>(stitch_parent)) {
+        if (auto* lay = qobject_cast<QBoxLayout*>(stitch_parent->layout())) {
+            int idx = lay->indexOf(ui_->stitchImageLabel);
+            if (idx >= 0) {
+                lay->insertWidget(idx + 1, negative_toggle_btn_);
+            }
+        } else if (auto* splitter = qobject_cast<QSplitter*>(stitch_parent)) {
+            auto* container = new QWidget(this);
+            auto* vlay = new QVBoxLayout(container);
+            vlay->setContentsMargins(0, 0, 0, 0);
             int idx = splitter->indexOf(ui_->stitchImageLabel);
             if (idx >= 0) {
                 splitter->replaceWidget(idx, container);
                 vlay->addWidget(ui_->stitchImageLabel);
-                vlay->addWidget(stitch_progress_);
+                vlay->addWidget(negative_toggle_btn_);
             }
         } else if (auto* gl = qobject_cast<QGridLayout*>(stitch_parent->layout())) {
+            auto* container = new QWidget(this);
+            auto* vlay = new QVBoxLayout(container);
+            vlay->setContentsMargins(0, 0, 0, 0);
             int idx = gl->indexOf(ui_->stitchImageLabel);
             if (idx >= 0) {
                 int row, col, rs, cs;
@@ -230,28 +232,8 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
                 gl->removeWidget(ui_->stitchImageLabel);
                 gl->addWidget(container, row, col, rs, cs);
                 vlay->addWidget(ui_->stitchImageLabel);
-                vlay->addWidget(stitch_progress_);
+                vlay->addWidget(negative_toggle_btn_);
             }
-        } else if (auto* lay = qobject_cast<QBoxLayout*>(stitch_parent->layout())) {
-            int idx = lay->indexOf(ui_->stitchImageLabel);
-            if (idx >= 0) {
-                lay->insertWidget(idx + 1, stitch_progress_);
-            }
-            // Container not needed for simple box layout case
-            delete container;
-            container = nullptr;
-        }
-    }
-
-    // Negative film display toggle (in stitch area, after progress bar)
-    negative_toggle_btn_ = new QPushButton("显示负片结果", this);
-    negative_toggle_btn_->setCheckable(true);
-    negative_toggle_btn_->setVisible(false);
-    negative_toggle_btn_->setEnabled(false);
-    if (stitch_progress_->parentWidget()) {
-        auto* parentLayout = stitch_progress_->parentWidget()->layout();
-        if (parentLayout) {
-            parentLayout->addWidget(negative_toggle_btn_);
         }
     }
     connect(negative_toggle_btn_, &QPushButton::toggled, this, [this](bool checked) {
@@ -285,7 +267,6 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     ctrl_.stitcher().setProgressCallback([this](int cur, int total) {
         int pct = total > 0 ? cur * 100 / total : 0;
         QMetaObject::invokeMethod(this, [this, pct]() {
-            stitch_progress_->setValue(pct);
             if (stitch_progress_dlg_) stitch_progress_dlg_->setValue(pct);
         }, Qt::QueuedConnection);
     });
@@ -558,11 +539,14 @@ void MainWindow::connectSignals() {
     connect(ui_->actionScanParams, &QAction::triggered, this, [this]() {
         auto& cfg = ConfigManager::instance();
         ScanParametersDialog dlg(this);
+        dlg.setStepSize(cfg.stepSize());
         dlg.setDwellTimeMs(cfg.dwellTimeMs());
         if (dlg.exec() == QDialog::Accepted) {
+            cfg.setStepSize(dlg.stepSize());
             cfg.setDwellTimeMs(dlg.dwellTimeMs());
             cfg.saveToFile(QCoreApplication::applicationDirPath().toStdString() + "/config.json");
-            appendLog(tr("扫描参数已更新: 停留时间=%1 ms").arg(dlg.dwellTimeMs()), "INFO");
+            appendLog(tr("扫描参数已更新: 步长=%1 脉冲, 停留时间=%2 ms")
+                .arg(dlg.stepSize()).arg(dlg.dwellTimeMs()), "INFO");
         }
     });
 
@@ -574,6 +558,7 @@ void MainWindow::connectSignals() {
         dlg.setSphereRadius(cfg.sphereRadius());
         dlg.setSphereCapHeight(cfg.sphereCapHeight());
         dlg.setSphereHeightOffset(cfg.sphereHeightOffset());
+        dlg.setZHeight(cfg.zHeight());
         dlg.setZBaseHeight(cfg.zBaseHeight());
         dlg.setZMapFile(cfg.zMapFile());
         dlg.setZRadialFile(cfg.zRadialFile());
@@ -594,6 +579,7 @@ void MainWindow::connectSignals() {
                 cfg.setSphereCapHeight(dlg.sphereCapHeight());
                 cfg.setSphereHeightOffset(dlg.sphereHeightOffset());
                 cfg.setZBaseHeight(dlg.zBaseHeight());
+                cfg.setZHeight(dlg.zHeight());
                 appendLog(tr("球冠参数已更新: R=%1, h=%2, dH=%3, zBase=%4")
                     .arg(dlg.sphereRadius()).arg(dlg.sphereCapHeight())
                     .arg(dlg.sphereHeightOffset()).arg(dlg.zBaseHeight()), "INFO");
@@ -922,6 +908,13 @@ void MainWindow::connectSignals() {
 void MainWindow::initGridTables() {
     int gx = ConfigManager::instance().gridSizeX();
     int gy = ConfigManager::instance().gridSizeY();
+
+    // 清空旧扫描状态（表格重建后旧坐标无效）
+    scanned_cells_.clear();
+    current_scan_row_ = -1;
+    current_scan_col_ = -1;
+    selected_grid_row_ = -1;
+    selected_grid_col_ = -1;
 
     // 第3象限坐标系布局：行号在右侧，右上角为扫描起点 (row=1, col=1)
     // RTL: column 0 → 右侧，column gx-1 → 左侧，vertical header 自然出现在右侧
@@ -1417,8 +1410,7 @@ void MainWindow::startScanSequence() {
                         lbl->setAttribute(Qt::WA_TransparentForMouseEvents, true);
                         ui_->topCellsTable->setCellWidget(row, tableCol, lbl);
                     }
-                }, Qt::QueuedConnection);
-                QMetaObject::invokeMethod(this, [this, row, tableCol]() {
+                    // 缩略图设置 + 边框标记原子完成
                     scanned_cells_.insert({row, tableCol});
                     applyCellBorder(row, tableCol);
                 }, Qt::QueuedConnection);
@@ -1645,39 +1637,102 @@ void MainWindow::on_stitchRun() {
     if (dlg.exec() != QDialog::Accepted || pathEdit->text().isEmpty()) return;
 
     std::string dirPath = pathEdit->text().toStdString();
-    last_scan_dir_ = dirPath;  // 记录目录用于负片拼接
-    ctrl_.setScanDir(dirPath);  // 同步给 AppController 供检测 JSON 导出定位
+    last_scan_dir_ = dirPath;
+    ctrl_.setScanDir(dirPath);
 
-    // 防重复点击：已有拼接进行中则忽略
     if (stitch_progress_dlg_) return;
 
-    stitch_progress_dlg_ = new QProgressDialog("正在加载图像并拼接...", QString(), 0, 100, this);
+    // ── 阶段一：后台加载图像 ──
+    stitch_progress_dlg_ = new QProgressDialog("正在加载图像...", QString(), 0, 0, this);
     stitch_progress_dlg_->setWindowModality(Qt::WindowModal);
     stitch_progress_dlg_->setAutoClose(false);
     stitch_progress_dlg_->show();
-
-    stitch_progress_->setValue(0);
-    stitch_progress_->setVisible(true);
-    ui_->statusLabel->setText("正在拼接...");
-
-    ctrl_.stitcher().setCenterCropSize(cfg.centerCropSize());
-    ctrl_.stitcher().setAlgorithm(cfg.stitchAlgorithm());
-    ctrl_.stitcher().setFeatherWidth(cfg.featherWidth());
-    ctrl_.stitcher().setScaleMode(cfg.scaleMode());
-    ctrl_.stitcher().setScaleMapFile(cfg.scaleMapFile());
-    ctrl_.stitcher().setZCorrectionCoef(cfg.zCorrectionCoef());
-    ctrl_.stitcher().setCropOffsetFile(cfg.cropOffsetFile());
+    ui_->statusLabel->setText("正在加载图像...");
 
     stitching_future_ = QtConcurrent::run([this, dirPath, gs]() -> cv::Mat {
-        cv::Size detectedGrid = gs;
-        auto positioned = ctrl_.loadImagesWithPositions(dirPath, detectedGrid);
-        if (!positioned.empty()) {
-            return ctrl_.stitcher().stitchImagesWithPositions(positioned, detectedGrid);
+        cv::Size grid = gs;
+        stitch_positioned_ = ctrl_.loadImagesWithPositions(dirPath, grid);
+        if (!stitch_positioned_.empty()) {
+            stitch_positioned_.swap(stitch_positioned_);
+            stitch_raw_images_.clear();
+            stitch_load_grid_ = grid;
+            stitch_load_count_ = static_cast<int>(stitch_positioned_.size());
+        } else {
+            stitch_raw_images_ = ctrl_.loadImages(dirPath);
+            stitch_positioned_.clear();
+            stitch_load_grid_ = gs;
+            stitch_load_count_ = static_cast<int>(stitch_raw_images_.size());
         }
-        auto images = ctrl_.loadImages(dirPath);
-        if (images.empty()) return cv::Mat();
-        auto sorted = ctrl_.stitcher().sortImagesInSCurveOrder(images, gs);
-        return ctrl_.stitcher().stitchImages(sorted, gs);
+        return stitch_load_count_ > 0 ? cv::Mat(cv::Size(1, 1), CV_8UC1) : cv::Mat();
+    });
+
+    // 阶段一完成 → 确认对话框 → 阶段二
+    disconnect(&stitching_watcher_, &QFutureWatcher<cv::Mat>::finished,
+               this, &MainWindow::onStitchingFinished);
+    connect(&stitching_watcher_, &QFutureWatcher<cv::Mat>::finished, this, [this]() {
+        disconnect(&stitching_watcher_, &QFutureWatcher<cv::Mat>::finished, this, nullptr);
+
+        if (stitch_progress_dlg_) {
+            stitch_progress_dlg_->close();
+            stitch_progress_dlg_->deleteLater();
+            stitch_progress_dlg_ = nullptr;
+        }
+
+        if (stitch_load_count_ == 0) {
+            ui_->statusLabel->setText("拼接失败");
+            QMessageBox::warning(this, "拼接失败", "目录中没有图像。");
+            return;
+        }
+
+        // 确认对话框
+        QString confirmMsg;
+        if (!stitch_positioned_.empty()) {
+            confirmMsg = QString("已加载 %1 张图像 (网格 %2×%3)，是否开始拼接？")
+                .arg(stitch_load_count_)
+                .arg(stitch_load_grid_.width)
+                .arg(stitch_load_grid_.height);
+        } else {
+            confirmMsg = QString("已加载 %1 张图像，是否开始拼接？")
+                .arg(stitch_load_count_);
+        }
+        auto btn = QMessageBox::question(this, "确认拼接", confirmMsg,
+            QMessageBox::Yes | QMessageBox::No);
+        if (btn != QMessageBox::Yes) return;
+
+        // ── 阶段二：后台拼接 ──
+        stitch_progress_dlg_ = new QProgressDialog("正在拼接图像...", QString(), 0, 100, this);
+        stitch_progress_dlg_->setWindowModality(Qt::WindowModal);
+        stitch_progress_dlg_->setAutoClose(false);
+        stitch_progress_dlg_->show();
+        ui_->statusLabel->setText("正在拼接...");
+
+        auto& cfg2 = ConfigManager::instance();
+        ctrl_.stitcher().setCenterCropSize(cfg2.centerCropSize());
+        ctrl_.stitcher().setAlgorithm(cfg2.stitchAlgorithm());
+        ctrl_.stitcher().setFeatherWidth(cfg2.featherWidth());
+        ctrl_.stitcher().setScaleMode(cfg2.scaleMode());
+        ctrl_.stitcher().setScaleMapFile(cfg2.scaleMapFile());
+        ctrl_.stitcher().setZCorrectionCoef(cfg2.zCorrectionCoef());
+        ctrl_.stitcher().setCropOffsetFile(cfg2.cropOffsetFile());
+
+        if (!stitch_positioned_.empty()) {
+            auto positioned = std::move(stitch_positioned_);
+            cv::Size grid = stitch_load_grid_;
+            stitching_future_ = QtConcurrent::run([this, positioned, grid]() {
+                return ctrl_.stitcher().stitchImagesWithPositions(positioned, grid);
+            });
+        } else {
+            auto images = std::move(stitch_raw_images_);
+            cv::Size grid = stitch_load_grid_;
+            stitching_future_ = QtConcurrent::run([this, images, grid]() {
+                auto sorted = ctrl_.stitcher().sortImagesInSCurveOrder(images, grid);
+                return ctrl_.stitcher().stitchImages(sorted, grid);
+            });
+        }
+
+        connect(&stitching_watcher_, &QFutureWatcher<cv::Mat>::finished,
+                this, &MainWindow::onStitchingFinished);
+        stitching_watcher_.setFuture(stitching_future_);
     });
     stitching_watcher_.setFuture(stitching_future_);
 }
@@ -1686,13 +1741,10 @@ void MainWindow::onStitchingFinished() {
     // Close progress dialog after showing 100%
     if (stitch_progress_dlg_) {
         stitch_progress_dlg_->setValue(100);
-        stitch_progress_->setValue(100);
         stitch_progress_dlg_->close();
         stitch_progress_dlg_->deleteLater();
         stitch_progress_dlg_ = nullptr;
     }
-
-    stitch_progress_->setVisible(false);
     cv::Mat result = stitching_future_.result();
     if (result.empty()) {
         ui_->statusLabel->setText("拼接失败");
@@ -1752,6 +1804,8 @@ void MainWindow::on_stitchSettings() {
         cfg.setCropOffsetFile(dlg.cropOffsetFile().toStdString());
         cfg.setImageSaveBasePath(dlg.inputDir().toStdString());
         cfg.saveToFile(QCoreApplication::applicationDirPath().toStdString() + "/config.json");
+        // 刷新网格表格以匹配新尺寸
+        initGridTables();
     }
 }
 
