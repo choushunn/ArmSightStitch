@@ -1,6 +1,7 @@
 #pragma once
 
 #include "IStitchAlgorithm.h"
+#include "infra/report/EdgeCrop.h"
 #include <opencv2/imgproc.hpp>
 #include <spdlog/spdlog.h>
 #include <QFile>
@@ -132,7 +133,7 @@ private:
 
             // ── Compute reference Z and per-image scale factors ──
             int zRef = hasZ ? computeMedianZ(zValues) : 0;
-            SPDLOG_INFO("Z-scale stitch: zRef={}, hasZ={}, imageCount={}", zRef, hasZ, images.size());
+            SPDLOG_INFO("[Stitch] Z-scale stitch: zRef={}, hasZ={}, imageCount={}", zRef, hasZ, images.size());
 
             // ── Determine tile size from original image dimensions ──
             // After Z-scaling + interpolation, all images are back to original size,
@@ -141,9 +142,8 @@ private:
 
             int tileW, tileH;
             computeTileSize(refSize, tileW, tileH);
-            cv::Rect refCropRoi = computeCropRoi(refSize, tileW, tileH);
 
-            SPDLOG_INFO("Z-scale: zRef={}, tileSize={}x{}", zRef, tileW, tileH);
+            SPDLOG_INFO("[Stitch] Z-scale: zRef={}, tileSize={}x{}", zRef, tileW, tileH);
 
             int totalW = gridSize.width * tileW;
             int totalH = gridSize.height * tileH;
@@ -158,7 +158,7 @@ private:
                     row = positions[i].first;
                     col = positions[i].second;
                     if (row < 0 || row >= gridSize.height || col < 0 || col >= gridSize.width) {
-                        SPDLOG_WARN("Position [{},{}] out of grid bounds, skipping", row, col);
+                        SPDLOG_WARN("[Stitch] Position [{},{}] out of grid bounds, skipping", row, col);
                         continue;
                     }
                 } else {
@@ -179,13 +179,13 @@ private:
                         cv::resize(images[i], scaled, cv::Size(sw, sh), 0, 0, cv::INTER_LINEAR);
                         // Interpolate back to original size for uniform tile dimensions
                         cv::resize(scaled, processed, images[i].size(), 0, 0, cv::INTER_LINEAR);
-                        SPDLOG_DEBUG("Image[{}] Z={} scale={:.4f} -> {}x{} -> uniform {}x{}",
+                        SPDLOG_DEBUG("[Stitch] Image[{}] Z={} scale={:.4f} -> {}x{} -> uniform {}x{}",
                                      i, hasZ ? zValues[i] : 0, scale, sw, sh,
                                      images[i].cols, images[i].rows);
                     }
                 }
 
-                // ── Center-crop to uniform tile size ──
+                // ── Uniform center crop to tile size ──
                 processed = cropTileToSize(processed, tileW, tileH);
 
                 // ── Place in canvas ──
@@ -194,6 +194,19 @@ private:
 
                 int pct = 20 + static_cast<int>((i * 80) / images.size());
                 reportProgress(pct, 100);
+            }
+
+            // ── 画布扩展：从边界图像提取被中心裁剪切掉的外沿条带 ──
+            if (centerCropSize_ > 0) {
+                std::vector<std::pair<int, int>> pos;
+                if (hasPositions)
+                    pos = positions;
+                else
+                    for (size_t j = 0; j < images.size(); ++j)
+                        pos.emplace_back(static_cast<int>(j) / gridSize.width,
+                                         static_cast<int>(j) % gridSize.width);
+                result = report::applyEdgeExpansion(
+                    result, images, pos, gridSize, refSize, tileW, tileH);
             }
 
             reportProgress(100, 100);
@@ -230,36 +243,43 @@ private:
     }
 
     /// Compute the crop ROI for a source image based on current settings.
-    cv::Rect computeCropRoi(const cv::Size& imgSize, int tileW, int tileH) const {
+    /// When centerCropSize_ > 0 and position info is provided, uses edge-aware
+    /// cropping. Falls back to uniform center crop when row/col are -1.
+    cv::Rect computeCropRoi(const cv::Size& imgSize, int tileW, int tileH,
+                            int row = -1, int col = -1,
+                            int gridRows = -1, int gridCols = -1,
+                            int ox = 0, int oy = 0) const {
         if (centerCropSize_ > 0) {
-            int left = (imgSize.width - tileW) / 2;
-            int top = (imgSize.height - tileH) / 2;
-            return cv::Rect(left, top, tileW, tileH);
+            return report::computeEdgeAwareCropRoi(
+                imgSize, tileW, row, col, gridRows, gridCols, ox, oy);
         } else if (cropMargin_ > 0) {
             int crop = cropMargin_;
             if (crop * 2 >= imgSize.width || crop * 2 >= imgSize.height) {
                 crop = 0;
             }
-            return cv::Rect(crop, crop, tileW, tileH);
+            int left = crop + ox;
+            int top  = crop + oy;
+            left = std::max(0, std::min(left, imgSize.width  - tileW));
+            top  = std::max(0, std::min(top,  imgSize.height - tileH));
+            return cv::Rect(left, top, tileW, tileH);
         }
-        return cv::Rect(0, 0, tileW, tileH);
+        int left = std::max(0, std::min(ox, imgSize.width  - tileW));
+        int top  = std::max(0, std::min(oy, imgSize.height - tileH));
+        return cv::Rect(left, top, tileW, tileH);
     }
 
-    /// Center-crop an image to the exact target tile size.
+    /// Crop an image to the exact target tile size with edge-aware positioning.
+    /// When row/col/gridSize are provided, boundary tiles preserve outward edges.
     /// If the image is smaller than the target, it is placed centered on a black canvas.
-    cv::Mat cropTileToSize(const cv::Mat& src, int tileW, int tileH) const {
+    cv::Mat cropTileToSize(const cv::Mat& src, int tileW, int tileH,
+                           int row = -1, int col = -1,
+                           int gridRows = -1, int gridCols = -1) const {
         if (src.cols == tileW && src.rows == tileH) {
             return src;
         }
 
-        cv::Rect roi;
-        if (centerCropSize_ > 0 || cropMargin_ > 0) {
-            roi = computeCropRoi(cv::Size(src.cols, src.rows), tileW, tileH);
-        } else {
-            // No crop config — if scaled image differs from tile size,
-            // center-crop or pad to match
-            roi = computeCropRoi(cv::Size(src.cols, src.rows), tileW, tileH);
-        }
+        cv::Rect roi = computeCropRoi(cv::Size(src.cols, src.rows),
+                                       tileW, tileH, row, col, gridRows, gridCols);
 
         // Clamp ROI to source bounds
         roi.x = std::max(0, roi.x);

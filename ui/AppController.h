@@ -70,6 +70,11 @@ public:
     std::string saveDetectionsJson(const std::vector<detector::Detection>& detections,
                                    const cv::Mat& image,
                                    const std::string& sourceName);
+    /// Same but writes to a specific directory with a given base name.
+    std::string saveDetectionsJsonTo(const std::vector<detector::Detection>& detections,
+                                     const cv::Mat& image,
+                                     const std::string& outDir,
+                                     const std::string& baseName);
 
 signals:
     void statusMessage(const QString& msg);

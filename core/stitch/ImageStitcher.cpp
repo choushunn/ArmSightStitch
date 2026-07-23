@@ -58,7 +58,7 @@ void ImageStitcher::setAlgorithm(int algo) {
                : (algo == 4) ? algo4_.get()   // algo4 merged into SeamFeather
                : algo1_.get();
     if (algo < 0 || algo > 4) {
-        SPDLOG_WARN("Unknown stitch algorithm {}, defaulting to 0", algo);
+        SPDLOG_WARN("[Stitch] Unknown stitch algorithm {}, defaulting to 0", algo);
         next = algo1_.get();
     }
     if (next != current_algo_) {
@@ -152,7 +152,7 @@ bool ImageStitcher::stitchImagesFromDirectory(const std::string& input_dir,
             // Use auto-detected grid if none was explicitly provided (default 10x10)
             if (grid_size.width == 10 && grid_size.height == 10
                 && (detected_grid.width != 10 || detected_grid.height != 10)) {
-                SPDLOG_INFO("Auto-detected grid: {}x{}", detected_grid.width, detected_grid.height);
+                SPDLOG_INFO("[Stitch] Auto-detected grid: {}x{}", detected_grid.width, detected_grid.height);
             }
             updateStatus("Stitching " + std::to_string(positioned.size()) +
                          " images with positions...");
@@ -173,7 +173,7 @@ bool ImageStitcher::stitchImagesFromDirectory(const std::string& input_dir,
         updateStatus("Stitching completed successfully");
         return true;
     } catch (const std::exception& e) {
-        SPDLOG_ERROR("Error stitching images from directory: {}", e.what());
+        SPDLOG_ERROR("[Stitch] Error stitching images from directory: {}", e.what());
         updateStatus(std::string("Stitching error: ") + e.what());
         return false;
     }
@@ -236,7 +236,7 @@ std::vector<cv::Mat> ImageStitcher::loadImagesFromDirectory(const std::string& i
 
     try {
         if (!std::filesystem::exists(input_dir)) {
-            SPDLOG_ERROR("Directory does not exist: {}", input_dir);
+            SPDLOG_ERROR("[Stitch] Directory does not exist: {}", input_dir);
             return images;
         }
 
@@ -264,7 +264,7 @@ std::vector<cv::Mat> ImageStitcher::loadImagesFromDirectory(const std::string& i
             }
         }
     } catch (const std::exception& e) {
-        SPDLOG_ERROR("Error loading images from directory: {}", e.what());
+        SPDLOG_ERROR("[Stitch] Error loading images from directory: {}", e.what());
     }
 
     return images;
@@ -276,7 +276,7 @@ std::vector<PositionedImage> ImageStitcher::loadImagesWithPositions(const std::s
 
     try {
         if (!std::filesystem::exists(input_dir)) {
-            SPDLOG_ERROR("Directory does not exist: {}", input_dir);
+            SPDLOG_ERROR("[Stitch] Directory does not exist: {}", input_dir);
             return result;
         }
 
@@ -316,14 +316,14 @@ std::vector<PositionedImage> ImageStitcher::loadImagesWithPositions(const std::s
         }
 
         if (found.empty()) {
-            SPDLOG_WARN("No images with row_col pattern found in {}", input_dir);
+            SPDLOG_WARN("[Stitch] No images with row_col pattern found in {}", input_dir);
             return result;
         }
 
         // Convert 1-indexed display coordinates to 0-indexed (like stitch.py)
         // The filenames use display coordinates (1-indexed), we need 0-indexed for grid placement
         out_grid_size = cv::Size(maxCol, maxRow);  // width = max col, height = max row
-        SPDLOG_INFO("Detected grid: {}x{} from {} images (hasZ={})", maxCol, maxRow, found.size(), hasZValues);
+        SPDLOG_INFO("[Stitch] Detected grid: {}x{} from {} images (hasZ={})", maxCol, maxRow, found.size(), hasZValues);
 
         // Load images and build result
         for (const auto& [path, row, col, z] : found) {
@@ -340,9 +340,9 @@ std::vector<PositionedImage> ImageStitcher::loadImagesWithPositions(const std::s
             }
         }
 
-        SPDLOG_INFO("Loaded {} images with positions", result.size());
+        SPDLOG_INFO("[Stitch] Loaded {} images with positions", result.size());
     } catch (const std::exception& e) {
-        SPDLOG_ERROR("Error loading images with positions: {}", e.what());
+        SPDLOG_ERROR("[Stitch] Error loading images with positions: {}", e.what());
     }
 
     return result;
@@ -387,7 +387,7 @@ std::vector<cv::Mat> ImageStitcher::sortImagesInSCurveOrder(const std::vector<cv
             }
         }
     } catch (const std::exception& e) {
-        SPDLOG_ERROR("Error sorting images in S-curve order: {}", e.what());
+        SPDLOG_ERROR("[Stitch] Error sorting images in S-curve order: {}", e.what());
     }
 
     return sorted_images;
@@ -400,11 +400,13 @@ bool ImageStitcher::saveStitchedImage(const cv::Mat& image, const std::string& o
 
     try {
         if (!cv::imwrite(output_path, image)) {
+            SPDLOG_ERROR("[Stitch] imwrite failed for {}", output_path);
             return false;
         }
+        SPDLOG_INFO("[Stitch] Stitched image saved: {} ({}x{})", output_path, image.cols, image.rows);
         return true;
     } catch (const std::exception& e) {
-        SPDLOG_ERROR("Error saving stitched image: {}", e.what());
+        SPDLOG_ERROR("[Stitch] Error saving stitched image: {}", e.what());
         return false;
     }
 }

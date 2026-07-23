@@ -36,7 +36,7 @@ public:
             logger->flush_on(spdlog::level::info);
             set_default_logger(logger);
 
-            SPDLOG_INFO("LogManager initialized (file: {})",
+            SPDLOG_INFO("[Log] LogManager initialized (file: {})",
                         logFile.empty() ? "console only" : logFile);
         });
     }

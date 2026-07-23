@@ -85,7 +85,7 @@ void ConfigManager::applyEnvironmentOverrides() {
         const char* val = std::getenv(var);
         if (val && val[0] != '\0') {
             target = val;
-            SPDLOG_INFO("Config overridden by env {} = {}", var, target);
+            SPDLOG_INFO("[Config] Config overridden by env {} = {}", var, target);
         }
     };
 
@@ -93,7 +93,7 @@ void ConfigManager::applyEnvironmentOverrides() {
         const char* val = std::getenv(var);
         if (val && val[0] != '\0') {
             target = std::atoi(val);
-            SPDLOG_INFO("Config overridden by env {} = {}", var, target);
+            SPDLOG_INFO("[Config] Config overridden by env {} = {}", var, target);
         }
     };
 
@@ -115,7 +115,7 @@ void ConfigManager::applyEnvironmentOverrides() {
         const char* val = std::getenv("ARM_SIGHT_STITCH_Z_CORRECTION_COEF");
         if (val && val[0] != '\0') {
             z_correction_coef_ = std::atof(val);
-            SPDLOG_INFO("Config overridden by env ARM_SIGHT_STITCH_Z_CORRECTION_COEF = {}",
+            SPDLOG_INFO("[Config] Config overridden by env ARM_SIGHT_STITCH_Z_CORRECTION_COEF = {}",
                         z_correction_coef_);
         }
     }
@@ -255,7 +255,7 @@ bool ConfigManager::loadFromJson(const QJsonObject& json) {
         return false;
     }
 
-    SPDLOG_INFO("Configuration loaded successfully");
+    SPDLOG_INFO("[Config] Configuration loaded successfully");
     return true;
 }
 
@@ -278,7 +278,7 @@ bool ConfigManager::saveToFile(const std::string& filepath) const {
     file.write(doc.toJson(QJsonDocument::Indented));
     file.close();
 
-    SPDLOG_INFO("Configuration saved to {}", filepath);
+    SPDLOG_INFO("[Config] Configuration saved to {}", filepath);
     return true;
 }
 
@@ -386,19 +386,19 @@ bool ConfigManager::isValidFilePath(const std::string& path) {
 
 void ConfigManager::setArmIp(const std::string& ip) {
     if (ip.empty()) {
-        SPDLOG_WARN("Attempted to set empty arm IP, ignored");
+        SPDLOG_WARN("[Config] Attempted to set empty arm IP, ignored");
         return;
     }
     arm_ip_ = ip;
-    SPDLOG_INFO("Arm IP set to {}", ip);
+    SPDLOG_INFO("[Config] Arm IP set to {}", ip);
 }
 
 void ConfigManager::setArmPort(int port) {
     if (isValidPort(port)) {
         arm_port_ = port;
-        SPDLOG_INFO("Arm port set to {}", port);
+        SPDLOG_INFO("[Config] Arm port set to {}", port);
     } else {
-        SPDLOG_WARN("Invalid arm port: {}", port);
+        SPDLOG_WARN("[Config] Invalid arm port: {}", port);
     }
 }
 
@@ -406,7 +406,7 @@ void ConfigManager::setDefaultSpeed(int speed) {
     if (speed > 0 && speed <= 200000) {
         default_speed_ = speed;
     } else {
-        SPDLOG_WARN("Invalid speed value: {}", speed);
+        SPDLOG_WARN("[Config] Invalid speed value: {}", speed);
     }
 }
 

@@ -14,7 +14,7 @@
 int main(int argc, char *argv[]) {
     QApplication a(argc, argv);
 
-    a.setApplicationName("ScannerApp");
+    a.setApplicationName("明场显微成像验证组件");
     a.setApplicationVersion(APP_VERSION);
     a.setOrganizationName("");
 
@@ -34,12 +34,12 @@ int main(int argc, char *argv[]) {
         QDir().mkpath(QFileInfo(QString::fromStdString(logPath)).absolutePath());
     }
     infra::LogManager::init(logPath);
-    SPDLOG_INFO("Application started");
+    SPDLOG_INFO("[App] Application started");
 
     if (QFileInfo::exists(configPath)) {
-        SPDLOG_INFO("Configuration loaded from {}", configPath.toStdString());
+        SPDLOG_INFO("[App] Configuration loaded from {}", configPath.toStdString());
     } else {
-        SPDLOG_INFO("No config file found, using defaults");
+        SPDLOG_INFO("[App] No config file found, using defaults");
     }
 
     // ── Ensure Z-map / Scale-map templates exist in Documents ──
@@ -53,9 +53,9 @@ int main(int argc, char *argv[]) {
             if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
                 f.write(jsonContent.toUtf8());
                 f.close();
-                SPDLOG_INFO("{} template created at {}", label, filePath);
+                SPDLOG_INFO("[App] {} template created at {}", label, filePath);
             } else {
-                SPDLOG_WARN("Failed to create {} template at {}", label, filePath);
+                SPDLOG_WARN("[App] Failed to create {} template at {}", label, filePath);
             }
         }
     };
@@ -134,10 +134,10 @@ int main(int argc, char *argv[]) {
     AppController ctrl;
     MainWindow w(ctrl);
     w.resize(1728, 972);   // 1920*0.9 × 1080*0.9
-    w.showMaximized();
+    w.showFullScreen();
 
-    SPDLOG_INFO("Application entering event loop");
+    SPDLOG_INFO("[App] Application entering event loop");
     int result = a.exec();
-    SPDLOG_INFO("Application exited with code {}", result);
+    SPDLOG_INFO("[App] Application exited with code {}", result);
     return result;
 }

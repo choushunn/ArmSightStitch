@@ -1,6 +1,7 @@
 #pragma once
 
 #include "IStitchAlgorithm.h"
+#include "infra/report/EdgeCrop.h"
 #include <opencv2/imgproc.hpp>
 #ifdef HAVE_OPENCV_CUDA
 #include <opencv2/cudaarithm.hpp>
@@ -127,7 +128,7 @@ public:
             int zRef = 0;
             if (hasZ) {
                 zRef = computeMedianZ(zValues);
-                SPDLOG_INFO("SeamFeather: zRef={} (median of {} values), coef={}, stack={}",
+                SPDLOG_INFO("[Stitch] SeamFeather: zRef={} (median of {} values), coef={}, stack={}",
                             zRef, zValues.size(), z_correction_coef_, scale_stack_);
             }
 
@@ -135,14 +136,14 @@ public:
             // After Z-scaling, each image is interpolated back to its original dimensions,
             // so all tiles have uniform pixel size and cover the same physical area.
             cv::Size refSize = images[0].size();
-            SPDLOG_INFO("SeamFeather: refSize={}x{} type={} nChannels={}",
+            SPDLOG_INFO("[Stitch] SeamFeather: refSize={}x{} type={} nChannels={}",
                         refSize.width, refSize.height, images[0].type(), images[0].channels());
             cv::Mat result = stitchImpl(images, positions, zValues, zRef, refSize, gridSize);
             reportProgress(100, 100);
             reportStatus("Seam-feather stitching completed");
             return result;
         } catch (const std::exception& e) {
-            SPDLOG_ERROR("SeamFeather exception: {} ({} images, grid={}x{}, ref={}x{})",
+            SPDLOG_ERROR("[Stitch] SeamFeather exception: {} ({} images, grid={}x{}, ref={}x{})",
                          e.what(), images.size(), gridSize.width, gridSize.height,
                          images[0].cols, images[0].rows);
             reportStatus(std::string("Seam-feather stitching error: ") + e.what());
@@ -169,13 +170,13 @@ private:
         try {
             QFile file(QString::fromStdString(path));
             if (!file.open(QIODevice::ReadOnly)) {
-                SPDLOG_ERROR("SeamFeather: cannot open scale-map file: {}", path);
+                SPDLOG_ERROR("[Stitch] SeamFeather: cannot open scale-map file: {}", path);
                 return;
             }
             QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
             file.close();
             if (!doc.isObject() || !doc["scale_values"].isArray()) {
-                SPDLOG_ERROR("SeamFeather: scale-map missing 'scale_values' array");
+                SPDLOG_ERROR("[Stitch] SeamFeather: scale-map missing 'scale_values' array");
                 return;
             }
             QJsonArray rows = doc["scale_values"].toArray();
@@ -189,10 +190,10 @@ private:
                     rowVals.push_back(cols[c].toDouble());
                 scale_map_.push_back(std::move(rowVals));
             }
-            SPDLOG_INFO("SeamFeather: scale-map loaded {} x {}", scale_map_.size(),
+            SPDLOG_INFO("[Stitch] SeamFeather: scale-map loaded {} x {}", scale_map_.size(),
                         scale_map_.empty() ? 0 : scale_map_[0].size());
         } catch (const std::exception& e) {
-            SPDLOG_ERROR("SeamFeather: failed to parse scale-map: {}", e.what());
+            SPDLOG_ERROR("[Stitch] SeamFeather: failed to parse scale-map: {}", e.what());
             scale_map_.clear();
         }
     }
@@ -206,13 +207,13 @@ private:
         try {
             QFile file(QString::fromStdString(path));
             if (!file.open(QIODevice::ReadOnly)) {
-                SPDLOG_ERROR("SeamFeather: cannot open crop-offset file: {}", path);
+                SPDLOG_ERROR("[Stitch] SeamFeather: cannot open crop-offset file: {}", path);
                 return;
             }
             QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
             file.close();
             if (!doc.isObject()) {
-                SPDLOG_ERROR("SeamFeather: crop-offset file is not a JSON object");
+                SPDLOG_ERROR("[Stitch] SeamFeather: crop-offset file is not a JSON object");
                 return;
             }
             QJsonObject root = doc.object();
@@ -245,11 +246,11 @@ private:
                 }
             }
 
-            SPDLOG_INFO("SeamFeather: crop-offset loaded {}x{}, {}x{}",
+            SPDLOG_INFO("[Stitch] SeamFeather: crop-offset loaded {}x{}, {}x{}",
                         ox_values_.size(), ox_values_.empty() ? 0 : ox_values_[0].size(),
                         oy_values_.size(), oy_values_.empty() ? 0 : oy_values_[0].size());
         } catch (const std::exception& e) {
-            SPDLOG_ERROR("SeamFeather: failed to parse crop-offset: {}", e.what());
+            SPDLOG_ERROR("[Stitch] SeamFeather: failed to parse crop-offset: {}", e.what());
             ox_values_.clear();
             oy_values_.clear();
         }
@@ -266,7 +267,7 @@ private:
                 col >= 0 && col < static_cast<int>(scale_map_[row].size())) {
                 return scale_map_[row][col];
             }
-            SPDLOG_WARN("SeamFeather: scale-map missing entry [{},{}]", row, col);
+            SPDLOG_WARN("[Stitch] SeamFeather: scale-map missing entry [{},{}]", row, col);
             return 1.0;
         }
 
@@ -284,7 +285,7 @@ private:
                 col >= 0 && col < static_cast<int>(scale_map_[row].size())) {
                 manual = scale_map_[row][col];
             } else {
-                SPDLOG_WARN("SeamFeather: scale-map missing entry [{},{}]", row, col);
+                SPDLOG_WARN("[Stitch] SeamFeather: scale-map missing entry [{},{}]", row, col);
             }
             result = manual * zScale * z_correction_coef_;
         }
@@ -364,32 +365,68 @@ private:
         }
     }
 
-    /// Compute the crop ROI for a source image based on current settings.
-    /// Optional per-cell offset (ox, oy) shifts the center point.
+    /// Compute the crop ROI with edge-aware positioning.
+    /// When centerCropSize_ > 0, boundary images preserve outward edges.
+    /// Falls back to uniform center crop when row/col are -1.
+    /// Optional per-cell offset (ox, oy) from JSON is superimposed.
     cv::Rect computeCropRoi(const cv::Size& imgSize, int tileW, int tileH,
+                            int row = -1, int col = -1,
+                            int gridRows = -1, int gridCols = -1,
                             int ox = 0, int oy = 0) const
     {
-        if (centerCropSize_ > 0 || cropMargin_ > 0) {
-            if (centerCropSize_ > 0) {
-                int left = (imgSize.width  - tileW) / 2 + ox;
-                int top  = (imgSize.height - tileH) / 2 + oy;
-                left = std::max(0, std::min(left, imgSize.width  - tileW));
-                top  = std::max(0, std::min(top,  imgSize.height - tileH));
-                return cv::Rect(left, top, tileW, tileH);
+        if (centerCropSize_ > 0) {
+            return report::computeEdgeAwareCropRoi(
+                imgSize, tileW, row, col, gridRows, gridCols, ox, oy);
+        } else if (cropMargin_ > 0) {
+            int crop = cropMargin_;
+            int left = crop + ox;
+            int top  = crop + oy;
+            left = std::max(0, std::min(left, imgSize.width  - tileW));
+            top  = std::max(0, std::min(top,  imgSize.height - tileH));
+            return cv::Rect(left, top, tileW, tileH);
+        }
+        int left = std::max(0, std::min(ox, imgSize.width  - tileW));
+        int top  = std::max(0, std::min(oy, imgSize.height - tileH));
+        return cv::Rect(left, top, tileW, tileH);
+    }
+
+    /// Re-scale boundary images to uniform size and apply edge expansion
+    /// to append center-crop cut-off strips to the mosaic.
+    cv::Mat expandEdgesWithPositions(
+        cv::Mat result,
+        const std::vector<cv::Mat>& images,
+        const std::vector<std::pair<int,int>>& positions,
+        const std::vector<int>& zValues, int zRef, bool hasZ,
+        const cv::Size& gridSize, const cv::Size& refSize,
+        int tileW, int tileH)
+    {
+        if (centerCropSize_ <= 0 || images.empty()) return result;
+
+        std::vector<cv::Mat> edgeImgs;
+        std::vector<std::pair<int,int>> edgePos;
+        const bool hasPositions = !positions.empty();
+        int nRows = gridSize.height, nCols = gridSize.width;
+
+        for (size_t i = 0; i < images.size(); ++i) {
+            int row, col;
+            if (hasPositions) {
+                row = positions[i].first; col = positions[i].second;
             } else {
-                int crop = cropMargin_;
-                int left = crop + ox;
-                int top  = crop + oy;
-                left = std::max(0, std::min(left, imgSize.width  - tileW));
-                top  = std::max(0, std::min(top,  imgSize.height - tileH));
-                return cv::Rect(left, top, tileW, tileH);
+                row = static_cast<int>(i) / nCols;
+                col = static_cast<int>(i) % nCols;
+            }
+            if (row < 0 || row >= nRows || col < 0 || col >= nCols) continue;
+            if (row == 0 || row == nRows-1 || col == 0 || col == nCols-1) {
+                cv::Mat uniform = scaleToUniform(images[i], row, col,
+                    (hasZ && i < zValues.size()) ? zValues[i] : 0, zRef);
+                edgeImgs.push_back(uniform);
+                edgePos.emplace_back(row, col);
             }
         }
-        int left = ox;
-        int top  = oy;
-        left = std::max(0, std::min(left, imgSize.width  - tileW));
-        top  = std::max(0, std::min(top,  imgSize.height - tileH));
-        return cv::Rect(left, top, tileW, tileH);
+
+        if (edgeImgs.empty()) return result;
+        return report::applyEdgeExpansion(
+            result, edgeImgs, edgePos, gridSize, refSize, tileW, tileH);
     }
 
     /// Build a cosine feather mask for a single tile.
@@ -464,10 +501,14 @@ private:
     }
 
     /// Center-crop (or pad) a source tile to exact dimensions for placement.
-    /// Used as the base crop before feather expansion.
+    /// Edge-aware: boundary images preserve outward edges when row/col provided.
     /// Optional per-cell offset (ox, oy) shifts the crop center.
-    cv::Mat cropTile(const cv::Mat& src, int tileW, int tileH, int ox = 0, int oy = 0) const {
-        cv::Rect roi = computeCropRoi(cv::Size(src.cols, src.rows), tileW, tileH, ox, oy);
+    cv::Mat cropTile(const cv::Mat& src, int tileW, int tileH,
+                     int row = -1, int col = -1,
+                     int gridRows = -1, int gridCols = -1,
+                     int ox = 0, int oy = 0) const {
+        cv::Rect roi = computeCropRoi(cv::Size(src.cols, src.rows),
+                                       tileW, tileH, row, col, gridRows, gridCols, ox, oy);
 
         // Clamp to source bounds
         roi.x = std::max(0, roi.x);
@@ -520,7 +561,7 @@ private:
         int canvasW = nCols * tileW;
         int canvasH = nRows * tileH;
 
-        SPDLOG_INFO("SeamFeather: grid={}x{} tile={}x{} canvas={}x{} fw={} hasZ={} coef={} stack={} ch={}",
+        SPDLOG_INFO("[Stitch] SeamFeather: grid={}x{} tile={}x{} canvas={}x{} fw={} hasZ={} coef={} stack={} ch={}",
                     nCols, nRows, tileW, tileH, canvasW, canvasH, fw, hasZ,
                     z_correction_coef_, scale_stack_, nChannels);
 
@@ -560,6 +601,11 @@ private:
                 int pct = 20 + static_cast<int>((i * 80) / images.size());
                 reportProgress(pct, 100);
             }
+
+            // ── 画布扩展：从边界图像提取被中心裁剪切掉的外沿条带 ──
+            result = expandEdgesWithPositions(result, images, positions,
+                                              zValues, zRef, hasZ,
+                                              gridSize, refSize, tileW, tileH);
             return result;
         }
 
@@ -581,7 +627,7 @@ private:
                 row = static_cast<int>(i) / nCols; col = static_cast<int>(i) % nCols;
             }
             if (row < 0 || row >= nRows || col < 0 || col >= nCols) {
-                SPDLOG_WARN("Position [{},{}] out of grid bounds, skipping", row, col);
+                SPDLOG_WARN("[Stitch] Position [{},{}] out of grid bounds, skipping", row, col);
                 continue;
             }
 
@@ -592,7 +638,7 @@ private:
             cv::Mat uniform = scaleToUniform(images[i], row, col,
                 hasZ ? zValues[i] : 0, zRef);
 
-            // ── 2. Compute base crop ROI with per-cell offset ──
+            // ── 2. Compute base crop ROI with center positioning ──
             cv::Rect baseCrop = computeCropRoi(cv::Size(uniform.cols, uniform.rows),
                                                tileW, tileH, ox, oy);
 
@@ -699,7 +745,7 @@ private:
                 row = static_cast<int>(i) / nCols; col = static_cast<int>(i) % nCols;
             }
             if (row < 0 || row >= nRows || col < 0 || col >= nCols) {
-                SPDLOG_WARN("Position [{},{}] out of grid bounds, skipping", row, col);
+                SPDLOG_WARN("[Stitch] Position [{},{}] out of grid bounds, skipping", row, col);
                 continue;
             }
 
@@ -710,7 +756,7 @@ private:
             cv::Mat uniform = scaleToUniform(images[i], row, col,
                 hasZ ? zValues[i] : 0, zRef);
 
-            // ── 2. Compute base crop ROI with per-cell offset ──
+            // ── 2. Compute base crop ROI with center positioning ──
             cv::Rect baseCrop = computeCropRoi(cv::Size(uniform.cols, uniform.rows),
                                                tileW, tileH, ox, oy);
 
@@ -798,6 +844,10 @@ private:
         resultFloat.convertTo(result, images[0].type());
 #endif
 
+        // ── 画布扩展：从边界图像提取被中心裁剪切掉的外沿条带 ──
+        result = expandEdgesWithPositions(result, images, positions,
+                                          zValues, zRef, hasZ,
+                                          gridSize, refSize, tileW, tileH);
         return result;
     }
 };

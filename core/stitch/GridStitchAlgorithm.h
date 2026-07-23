@@ -1,6 +1,7 @@
 #pragma once
 
 #include "IStitchAlgorithm.h"
+#include "infra/report/EdgeCrop.h"
 #include <opencv2/imgproc.hpp>
 #include <spdlog/spdlog.h>
 #include <map>
@@ -43,10 +44,7 @@ public:
 
             cv::Size imgSize = images[0].size();
             int tileW, tileH;
-
-            // Build crop ROIs for each image (same ROI for all images if sizes match)
             computeTileSize(imgSize, tileW, tileH);
-            cv::Rect cropRoi = computeCropRoi(imgSize, tileW, tileH);
 
             int totalW = gridSize.width * tileW;
             int totalH = gridSize.height * tileH;
@@ -54,20 +52,28 @@ public:
             cv::Mat result(totalH, totalW, images[0].type(), cv::Scalar(0, 0, 0));
             reportProgress(10, 100);
 
-            // Place images in row-major order (left-to-right, top-to-bottom).
-            // sortImagesInSCurveOrder already reordered the vector into S-curve,
-            // so the grid placement here uses simple row-major indexing.
+            // Uniform center crop — all tiles use the same ROI for seamless alignment
             int index = 0;
             for (int row = 0; row < gridSize.height; ++row) {
                 reportProgress(20 + (row * 80) / gridSize.height, 100);
                 for (int col = 0; col < gridSize.width; ++col) {
                     if (index >= static_cast<int>(images.size())) break;
-                    cv::Mat tile = images[index];
-                    tile = cropTile(tile, cropRoi, tileW, tileH);
+                    cv::Mat tile = cropTile(images[index], tileW, tileH);
                     cv::Rect dest(col * tileW, row * tileH, tileW, tileH);
                     tile.copyTo(result(dest));
                     ++index;
                 }
+            }
+
+            // ── 画布扩展：从边界图像提取被中心裁剪切掉的外沿条带 ──
+            if (centerCropSize_ > 0) {
+                std::vector<std::pair<int, int>> pos;
+                int idx2 = 0;
+                for (int r = 0; r < gridSize.height; ++r)
+                    for (int c = 0; c < gridSize.width; ++c)
+                        pos.emplace_back(r, c);
+                result = report::applyEdgeExpansion(
+                    result, images, pos, gridSize, imgSize, tileW, tileH);
             }
 
             reportProgress(100, 100);
@@ -100,7 +106,6 @@ public:
             cv::Size imgSize = images[0].size();
             int tileW, tileH;
             computeTileSize(imgSize, tileW, tileH);
-            cv::Rect cropRoi = computeCropRoi(imgSize, tileW, tileH);
 
             int totalW = gridSize.width * tileW;
             int totalH = gridSize.height * tileH;
@@ -108,22 +113,28 @@ public:
             cv::Mat result(totalH, totalW, images[0].type(), cv::Scalar(0, 0, 0));
             reportProgress(10, 100);
 
-            // Place each image directly at its grid position
+            // Place each image directly at its grid position with uniform center crop
             for (size_t i = 0; i < images.size(); ++i) {
                 int row = positions[i].first;
                 int col = positions[i].second;
 
                 if (row < 0 || row >= gridSize.height || col < 0 || col >= gridSize.width) {
-                    SPDLOG_WARN("Position [{},{}] out of grid bounds, skipping", row, col);
+                    SPDLOG_WARN("[Stitch] Position [{},{}] out of grid bounds, skipping", row, col);
                     continue;
                 }
 
-                cv::Mat tile = cropTile(images[i], cropRoi, tileW, tileH);
+                cv::Mat tile = cropTile(images[i], tileW, tileH);
                 cv::Rect dest(col * tileW, row * tileH, tileW, tileH);
                 tile.copyTo(result(dest));
 
                 int pct = 20 + static_cast<int>((i * 80) / images.size());
                 reportProgress(pct, 100);
+            }
+
+            // ── 画布扩展：从边界图像提取被中心裁剪切掉的外沿条带 ──
+            if (centerCropSize_ > 0) {
+                result = report::applyEdgeExpansion(
+                    result, images, positions, gridSize, imgSize, tileW, tileH);
             }
 
             reportProgress(100, 100);
@@ -164,23 +175,41 @@ private:
     }
 
     /// Compute the crop ROI for a source image based on current settings.
-    cv::Rect computeCropRoi(const cv::Size& imgSize, int tileW, int tileH) const {
+    /// When centerCropSize_ > 0 and position info is provided, uses edge-aware
+    /// cropping: boundary images preserve the outward-facing edge, interior
+    /// images use center crop. Falls back to uniform center crop when row/col
+    /// are -1 or grid size is unknown.
+    cv::Rect computeCropRoi(const cv::Size& imgSize, int tileW, int tileH,
+                            int row = -1, int col = -1,
+                            int gridRows = -1, int gridCols = -1,
+                            int ox = 0, int oy = 0) const {
         if (centerCropSize_ > 0) {
-            int left = (imgSize.width - tileW) / 2;
-            int top = (imgSize.height - tileH) / 2;
-            return cv::Rect(left, top, tileW, tileH);
+            return report::computeEdgeAwareCropRoi(
+                imgSize, tileW, row, col, gridRows, gridCols, ox, oy);
         } else if (cropMargin_ > 0) {
             int crop = cropMargin_;
             if (crop * 2 >= imgSize.width || crop * 2 >= imgSize.height) {
                 crop = 0;
             }
-            return cv::Rect(crop, crop, tileW, tileH);
+            int left = crop + ox;
+            int top  = crop + oy;
+            left = std::max(0, std::min(left, imgSize.width  - tileW));
+            top  = std::max(0, std::min(top,  imgSize.height - tileH));
+            return cv::Rect(left, top, tileW, tileH);
         }
-        return cv::Rect(0, 0, tileW, tileH);
+        int left = std::max(0, std::min(ox, imgSize.width  - tileW));
+        int top  = std::max(0, std::min(oy, imgSize.height - tileH));
+        return cv::Rect(left, top, tileW, tileH);
     }
 
     /// Crop and optionally resize a tile to the target dimensions.
-    cv::Mat cropTile(const cv::Mat& src, const cv::Rect& roi, int tileW, int tileH) const {
+    /// When row/col/gridSize are provided, uses edge-aware cropping.
+    cv::Mat cropTile(const cv::Mat& src, int tileW, int tileH,
+                     int row = -1, int col = -1,
+                     int gridRows = -1, int gridCols = -1,
+                     int ox = 0, int oy = 0) const {
+        cv::Rect roi = computeCropRoi(cv::Size(src.cols, src.rows),
+                                       tileW, tileH, row, col, gridRows, gridCols, ox, oy);
         cv::Mat tile;
         if (roi.x != 0 || roi.y != 0 || roi.width != src.cols || roi.height != src.rows) {
             tile = src(roi);

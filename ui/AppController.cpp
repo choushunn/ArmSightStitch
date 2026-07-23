@@ -100,7 +100,7 @@ AppController::AppController(QObject* parent)
                 fullParam.toStdString(), fullBin.toStdString());
             if (ok) {
                 emit modelLoaded();
-                SPDLOG_INFO("Auto-loaded default model");
+                SPDLOG_INFO("[App] Auto-loaded default model");
             }
         }
     }
@@ -129,7 +129,7 @@ AppController::AppController(QObject* parent)
     ep.nmsContainThresh = cfg.edgeNmsContainThresh();
     pimpl_->edge_detector_.setParams(ep);
 
-    SPDLOG_INFO("AppController initialized");
+    SPDLOG_INFO("[App] AppController initialized");
 }
 
 AppController::~AppController() {
@@ -139,7 +139,7 @@ AppController::~AppController() {
     pimpl_->camera_handler_.disconnect();
     pimpl_->arm_controller_.stopAutoRead();
     pimpl_->arm_controller_.disconnect();
-    SPDLOG_INFO("AppController destroyed");
+    SPDLOG_INFO("[App] AppController destroyed");
 }
 
 // ── High-level operations ─────────────────────────────────────────────
@@ -314,7 +314,7 @@ void AppController::setDetectorAlgorithm(int algo) {
     else
         pimpl_->current_detector_ = static_cast<detector::IDetector*>(&pimpl_->yolo_detector_);
     const char* name = (algo == 2) ? "Edge" : (algo == 1) ? "Dust" : "YOLO";
-    SPDLOG_INFO("Detector algorithm set to {}", name);
+    SPDLOG_INFO("[App] Detector algorithm set to {}", name);
 }
 
 int AppController::detectorAlgorithm() const {
@@ -375,7 +375,7 @@ std::string AppController::saveDetectionsJson(const std::vector<detector::Detect
                                               const std::string& sourceName) {
     std::string dirStd = scanDir();
     if (dirStd.empty()) {
-        SPDLOG_WARN("saveDetectionsJson: no scan directory available");
+        SPDLOG_WARN("[App] saveDetectionsJson: no scan directory available");
         return {};
     }
     QDir dir(QString::fromStdString(dirStd));
@@ -426,12 +426,59 @@ std::string AppController::saveDetectionsJson(const std::vector<detector::Detect
 
     QFile f(outPath);
     if (!f.open(QIODevice::WriteOnly)) {
-        SPDLOG_ERROR("saveDetectionsJson: cannot write {}", outPath.toStdString());
+        SPDLOG_ERROR("[App] saveDetectionsJson: cannot write {}", outPath.toStdString());
         emit errorMessage(QString("检测结果导出失败: %1").arg(outPath));
         return {};
     }
     f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
     f.close();
-    SPDLOG_INFO("Detection JSON saved: {} ({} items)", outPath.toStdString(), detections.size());
+    SPDLOG_INFO("[App] Detection JSON saved: {} ({} items)", outPath.toStdString(), detections.size());
+    return outPath.toStdString();
+}
+
+std::string AppController::saveDetectionsJsonTo(const std::vector<detector::Detection>& detections,
+                                                 const cv::Mat& image,
+                                                 const std::string& outDir,
+                                                 const std::string& baseName)
+{
+    QDir dir(QString::fromStdString(outDir));
+    dir.mkpath(".");
+    QString outPath = dir.absoluteFilePath(QString::fromStdString(baseName) + "_detections.json");
+
+    QJsonObject root;
+    root["source"] = QString::fromStdString(baseName);
+    root["algorithm"] = (detectorAlgorithm() == 2) ? "edge"
+                      : (detectorAlgorithm() == 1) ? "dust"
+                      : "yolo";
+    root["timestamp"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+    QJsonObject sz;
+    sz["width"] = image.cols; sz["height"] = image.rows;
+    root["image_size"] = sz;
+    root["count"] = static_cast<int>(detections.size());
+
+    QJsonArray arr;
+    int id = 1;
+    for (const auto& d : detections) {
+        QJsonObject o;
+        o["id"] = id++;
+        o["class"] = QString::fromStdString(d.class_name);
+        o["confidence"] = d.confidence;
+        QJsonObject bbox;
+        bbox["x"] = d.bounding_box.x; bbox["y"] = d.bounding_box.y;
+        bbox["width"] = d.bounding_box.width; bbox["height"] = d.bounding_box.height;
+        o["bbox"] = bbox;
+        o["area"] = d.bounding_box.width * d.bounding_box.height;
+        arr.append(o);
+    }
+    root["detections"] = arr;
+
+    QFile f(outPath);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        SPDLOG_ERROR("[App] saveDetectionsJsonTo: cannot write {}", outPath.toStdString());
+        return {};
+    }
+    f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    f.close();
+    SPDLOG_INFO("[App] Detection JSON saved: {} ({} items)", outPath.toStdString(), detections.size());
     return outPath.toStdString();
 }

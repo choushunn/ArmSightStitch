@@ -175,9 +175,9 @@ public:
             // ---- 5. 双判据 NMS（IoU 或包含率）----
             detections = edgeNms(detections);
 
-            SPDLOG_DEBUG("EdgeDetector: {} defects", detections.size());
+            SPDLOG_DEBUG("[Detect] EdgeDetector: {} defects", detections.size());
         } catch (const std::exception& e) {
-            SPDLOG_ERROR("EdgeDetector::detect exception: {}", e.what());
+            SPDLOG_ERROR("[Detect] EdgeDetector::detect exception: {}", e.what());
             detections.clear();
         }
         return detections;

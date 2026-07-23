@@ -98,6 +98,7 @@ private:
     bool hasNegativeImages(const std::string& directory) const;
 
     bool eventFilter(QObject* obj, QEvent* event) override;
+    void changeEvent(QEvent* event) override;
 
     AppController& ctrl_;
     Ui::MainWindow* ui_;

@@ -13,6 +13,7 @@
 #include "ui/ScanParametersDialog.h"
 #include "infra/config/ConfigManager.h"
 #include "infra/config/PathUtils.h"
+#include "infra/report/EdgeCrop.h"
 
 #include <spdlog/spdlog.h>
 #include <QEvent>
@@ -86,6 +87,8 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
     ui_->zeroButton->setEnabled(false);
     ui_->cellMoveCheck->setEnabled(false);
     ui_->cellMoveCheck->setChecked(false);
+    ui_->fullscreenToggleBtn->setChecked(true);
+    ui_->fullscreenToggleBtn->setText("退出全屏");
     ui_->scanNegativeCheck->setEnabled(false);
     ui_->scanNegativeCheck->setChecked(true);
     ui_->toolbarEmergStopBtn->setEnabled(false);
@@ -132,17 +135,20 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
         auto [frame, ok] = frame_replace_future_.result();
         int row = frame_replace_row_, col = frame_replace_col_;
         if (!ok || frame.empty()) {
-            QMessageBox::warning(this, "错误", "相机采集帧失败，请检查相机连接");
+            QMessageBox::warning(this, "警告", "相机采集帧失败，请检查相机连接");
             return;
         }
         if (row < 0 || col < 0) return;
-        // Thumbnail update
-        int cropSize = ConfigManager::instance().centerCropSize();
+        // Thumbnail update — edge-aware crop
+        auto& cfg0 = ConfigManager::instance();
+        int cropSize = cfg0.centerCropSize();
         cv::Mat cropped;
         if (cropSize > 0 && cropSize < frame.cols && cropSize < frame.rows) {
-            int left = (frame.cols - cropSize) / 2;
-            int top  = (frame.rows - cropSize) / 2;
-            cropped = frame(cv::Rect(left, top, cropSize, cropSize));
+            int gRows = cfg0.gridSizeY(), gCols = cfg0.gridSizeX();
+            cv::Rect roi = report::computeEdgeAwareCropRoi(
+                cv::Size(frame.cols, frame.rows), cropSize,
+                row, gCols - 1 - col, gRows, gCols);
+            cropped = frame(roi);
         } else {
             cropped = frame;
         }
@@ -307,7 +313,7 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
         vlay->addLayout(btnLayout);
 
         connect(browseBtn, &QPushButton::clicked, [&]() {
-            QString dir = QFileDialog::getExistingDirectory(&dlg, "选择目录", pathEdit->text(),
+            QString dir = QFileDialog::getExistingDirectory(&dlg, "选择工作空间目录", pathEdit->text(),
                                                             QFileDialog::ShowDirsOnly);
             if (!dir.isEmpty()) pathEdit->setText(dir);
         });
@@ -341,12 +347,17 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
                     tlay->insertWidget(btnIdx + 1, ui_->enableDetectionCheck);
                     tlay->insertWidget(tlay->indexOf(ui_->enableDetectionCheck) + 1, ui_->scanNegativeCheck);
                 }
+                // 添加检测设置按钮到工具栏
+                auto* detSettingsBtn = new QPushButton("缺陷检测", toolbar);
+                detSettingsBtn->setObjectName("quickDetSettingsBtn");
+                connect(detSettingsBtn, &QPushButton::clicked, this, &MainWindow::on_detSettings);
+                tlay->insertWidget(tlay->indexOf(ui_->scanNegativeCheck) + 1, detSettingsBtn);
             }
         }
     }
 
     appendLog("Application initialized", "INFO");
-    SPDLOG_INFO("MainWindow initialized");
+    SPDLOG_INFO("[MainWindow] MainWindow initialized");
 }
 
 MainWindow::~MainWindow() {
@@ -390,6 +401,14 @@ void MainWindow::connectSignals() {
                                                         QFileDialog::ShowDirsOnly);
         if (dir.isEmpty()) return;
 
+        // 扫描图像保存在 original/ 子目录，自动定位
+        QString runDir = dir;  // 运行目录（供负片查找等使用）
+        {
+            QString origPath = dir + "/original";
+            if (QFileInfo::exists(origPath) && QFileInfo(origPath).isDir())
+                dir = origPath;
+        }
+
         // ── Collect file list only (fast, no imread) ──
         std::regex namePattern(R"(^(\d+)_(\d+)(?:_(\d+))?$)");
         QDir qdir(dir);
@@ -408,13 +427,13 @@ void MainWindow::connectSignals() {
         }
 
         // ── Prepare UI state ──
-        last_scan_dir_ = dir.toStdString();
-        ctrl_.setScanDir(dir.toStdString());
+        last_scan_dir_ = runDir.toStdString();
+        ctrl_.setScanDir(runDir.toStdString());
         auto& cfg = ConfigManager::instance();
         cv::Size gs(cfg.gridSizeX(), cfg.gridSizeY());
         {
             std::lock_guard<std::mutex> lock(scan_state_mutex_);
-            scan_base_dir_ = dir.toStdString();
+            scan_base_dir_ = runDir.toStdString();
         }
         {
             std::lock_guard<std::mutex> lock(s_movement_images_mutex_);
@@ -457,16 +476,13 @@ void MainWindow::connectSignals() {
                     grid_thumbnails_[{row, col}] = {result.thumbnails[i], result.thumbnails[i]};
                 }
                 QPixmap pix = scan_showing_negative_ ? result.thumbnails[i] : result.thumbnails[i];
-                auto* item = ui_->topCellsTable->item(row, col);
-                if (item) {
-                    auto* lbl = new QLabel();
-                    lbl->setPixmap(pix);
-                    lbl->setScaledContents(true);
-                    lbl->setContentsMargins(0, 0, 0, 0);
-                    lbl->setAlignment(Qt::AlignCenter);
-                    lbl->setAttribute(Qt::WA_TransparentForMouseEvents, true);
-                    ui_->topCellsTable->setCellWidget(row, col, lbl);
-                }
+                auto* lbl = new QLabel();
+                lbl->setPixmap(pix);
+                lbl->setScaledContents(true);
+                lbl->setContentsMargins(0, 0, 0, 0);
+                lbl->setAlignment(Qt::AlignCenter);
+                lbl->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+                ui_->topCellsTable->setCellWidget(row, col, lbl);
             }
             appendLog(QString("已加载 %1 张图像: %2").arg(result.count).arg(dir), "INFO");
             ui_->scanNegativeCheck->setEnabled(true);
@@ -485,12 +501,13 @@ void MainWindow::connectSignals() {
                 if (img.empty()) continue;
                 int idx = row * gs.width + col;
                 r.cellFiles[idx] = path.toStdString();
-                // Thumbnail: center-crop → resize → QPixmap
+                // Thumbnail: edge-aware crop → resize → QPixmap
                 cv::Mat cropped;
                 if (cropSize > 0 && cropSize < img.cols && cropSize < img.rows) {
-                    int left = (img.cols - cropSize) / 2;
-                    int top  = (img.rows - cropSize) / 2;
-                    cropped = img(cv::Rect(left, top, cropSize, cropSize));
+                    cv::Rect roi = report::computeEdgeAwareCropRoi(
+                        cv::Size(img.cols, img.rows), cropSize,
+                        row, gs.width - 1 - col, gs.height, gs.width);
+                    cropped = img(roi);
                 } else {
                     cropped = img;
                 }
@@ -529,6 +546,17 @@ void MainWindow::connectSignals() {
     // ---- 视图 ----
     connect(ui_->actionToggleSidebar, &QAction::toggled, this, [this](bool visible) { ui_->menuPanel->setVisible(visible); });
     connect(ui_->actionToggleLog, &QAction::toggled, this, [this](bool visible) { ui_->statusLogEdit->setVisible(visible); });
+    connect(ui_->actionFullscreen, &QAction::toggled, this, [this](bool fs) {
+        if (fs) showFullScreen(); else showNormal();
+        ui_->fullscreenToggleBtn->setChecked(fs);
+        ui_->fullscreenToggleBtn->setText(fs ? "退出全屏" : "进入全屏");
+    });
+
+    // 工具栏全屏切换按钮
+    connect(ui_->fullscreenToggleBtn, &QPushButton::toggled, this, [this](bool checked) {
+        if (checked) showFullScreen(); else showNormal();
+        ui_->actionFullscreen->setChecked(checked);
+    });
 
     // ---- 设置 ----
     connect(ui_->actionDetSettings, &QAction::triggered, this, &MainWindow::on_detSettings);
@@ -1007,6 +1035,7 @@ void MainWindow::on_connectCamera() {
     if (ctrl_.connectCamera(id.toStdString())) {
         ui_->cameraToggleButton->setText("断开");
         ui_->captureImageButton->setEnabled(true);
+        ui_->scanNegativeCheck->setChecked(true);
         ui_->quickDetectBtn->setEnabled(true);
         ui_->enableDetectionCheck->setEnabled(true);
         // Clear placeholder text so preview area shows immediately
@@ -1379,9 +1408,12 @@ void MainWindow::startScanSequence() {
                 int cropSize = ConfigManager::instance().centerCropSize();
                 cv::Mat cropped;
                 if (cropSize > 0 && cropSize < frame.cols && cropSize < frame.rows) {
-                    int left = (frame.cols - cropSize) / 2;
-                    int top = (frame.rows - cropSize) / 2;
-                    cropped = frame(cv::Rect(left, top, cropSize, cropSize));
+                    int gRows = ConfigManager::instance().gridSizeY();
+                    int gCols = ConfigManager::instance().gridSizeX();
+                    cv::Rect roi = report::computeEdgeAwareCropRoi(
+                        cv::Size(frame.cols, frame.rows), cropSize,
+                        row, gCols - 1 - tableCol, gRows, gCols);
+                    cropped = frame(roi);
                 } else {
                     cropped = frame;
                 }
@@ -1400,16 +1432,13 @@ void MainWindow::startScanSequence() {
                 }
                 QPixmap pix = scan_showing_negative_ ? pixNeg : pixOrig;
                 QMetaObject::invokeMethod(this, [this, row, tableCol, pix]() {
-                    auto* item = ui_->topCellsTable->item(row, tableCol);
-                    if (item) {
-                        auto* lbl = new QLabel();
-                        lbl->setPixmap(pix);
-                        lbl->setScaledContents(true);
-                        lbl->setContentsMargins(0, 0, 0, 0);
-                        lbl->setAlignment(Qt::AlignCenter);
-                        lbl->setAttribute(Qt::WA_TransparentForMouseEvents, true);
-                        ui_->topCellsTable->setCellWidget(row, tableCol, lbl);
-                    }
+                    auto* lbl = new QLabel();
+                    lbl->setPixmap(pix);
+                    lbl->setScaledContents(true);
+                    lbl->setContentsMargins(0, 0, 0, 0);
+                    lbl->setAlignment(Qt::AlignCenter);
+                    lbl->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+                    ui_->topCellsTable->setCellWidget(row, tableCol, lbl);
                     // 缩略图设置 + 边框标记原子完成
                     scanned_cells_.insert({row, tableCol});
                     applyCellBorder(row, tableCol);
@@ -1627,7 +1656,7 @@ void MainWindow::on_stitchRun() {
     vlay->addLayout(btnLayout);
 
     connect(browseBtn, &QPushButton::clicked, [&]() {
-        QString dir = QFileDialog::getExistingDirectory(&dlg, "选择目录", pathEdit->text(),
+        QString dir = QFileDialog::getExistingDirectory(&dlg, "选择图像文件夹", pathEdit->text(),
                                                         QFileDialog::ShowDirsOnly);
         if (!dir.isEmpty()) pathEdit->setText(dir);
     });
@@ -1637,13 +1666,21 @@ void MainWindow::on_stitchRun() {
     if (dlg.exec() != QDialog::Accepted || pathEdit->text().isEmpty()) return;
 
     std::string dirPath = pathEdit->text().toStdString();
-    last_scan_dir_ = dirPath;
-    ctrl_.setScanDir(dirPath);
+    std::string runDir = dirPath;  // 运行目录（供负片查找等使用）
+    // 扫描图像保存在 original/ 子目录，自动定位
+    {
+        std::string origPath = dirPath + "/original";
+        if (std::filesystem::exists(origPath) && std::filesystem::is_directory(origPath))
+            dirPath = origPath;
+    }
+    last_scan_dir_ = runDir;
+    ctrl_.setScanDir(runDir);
 
     if (stitch_progress_dlg_) return;
 
     // ── 阶段一：后台加载图像 ──
     stitch_progress_dlg_ = new QProgressDialog("正在加载图像...", QString(), 0, 0, this);
+    stitch_progress_dlg_->setWindowTitle("拼接");
     stitch_progress_dlg_->setWindowModality(Qt::WindowModal);
     stitch_progress_dlg_->setAutoClose(false);
     stitch_progress_dlg_->show();
@@ -1701,6 +1738,7 @@ void MainWindow::on_stitchRun() {
 
         // ── 阶段二：后台拼接 ──
         stitch_progress_dlg_ = new QProgressDialog("正在拼接图像...", QString(), 0, 100, this);
+        stitch_progress_dlg_->setWindowTitle("拼接");
         stitch_progress_dlg_->setWindowModality(Qt::WindowModal);
         stitch_progress_dlg_->setAutoClose(false);
         stitch_progress_dlg_->show();
@@ -1998,12 +2036,15 @@ void MainWindow::onZStackFinished() {
             cv::Mat frame = watcher->result();
             if (frame.empty()) return;
 
-            int cropSize = ConfigManager::instance().centerCropSize();
+            auto& zcfg = ConfigManager::instance();
+            int cropSize = zcfg.centerCropSize();
             cv::Mat cropped;
             if (cropSize > 0 && cropSize < frame.cols && cropSize < frame.rows) {
-                int left = (frame.cols - cropSize) / 2;
-                int top  = (frame.rows - cropSize) / 2;
-                cropped = frame(cv::Rect(left, top, cropSize, cropSize));
+                int gRows = zcfg.gridSizeY(), gCols = zcfg.gridSizeX();
+                cv::Rect roi = report::computeEdgeAwareCropRoi(
+                    cv::Size(frame.cols, frame.rows), cropSize,
+                    row, gCols - 1 - col, gRows, gCols);
+                cropped = frame(roi);
             } else {
                 cropped = frame;
             }
@@ -2161,6 +2202,16 @@ void MainWindow::displayImageFullQuality(const cv::Mat& image, QLabel* label, QP
     if (image.empty()) return;
     storage = QPixmap::fromImage(cvMatToQImage(image));
     label->setPixmap(storage.scaled(label->size(), Qt::KeepAspectRatio, Qt::FastTransformation));
+}
+
+void MainWindow::changeEvent(QEvent* event) {
+    if (event->type() == QEvent::WindowStateChange) {
+        bool fs = isFullScreen();
+        ui_->actionFullscreen->setChecked(fs);
+        ui_->fullscreenToggleBtn->setChecked(fs);
+        ui_->fullscreenToggleBtn->setText(fs ? "退出全屏" : "进入全屏");
+    }
+    QMainWindow::changeEvent(event);
 }
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
@@ -2355,7 +2406,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                         "Z-Map — 每个网格位置的 Z 轴高度（脉冲数）")) {
                     appendLog(QString("Z-Map 已更新: [%1,%2] Z=%3")
                         .arg(row+1).arg(col+1).arg(newZ), "INFO");
-                    QMessageBox::information(this, "完成",
+                    QMessageBox::information(this, "保存完成",
                         QString("已保存 Z 值: [行%1,列%2] Z=%3")
                             .arg(row+1).arg(col+1).arg(newZ));
                 }
@@ -2370,7 +2421,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                         "Scale-Map — 每个网格位置的缩放因子")) {
                     appendLog(QString("Scale-Map 已更新: [%1,%2] scale=%3")
                         .arg(row+1).arg(col+1).arg(newS, 0, 'f', 3), "INFO");
-                    QMessageBox::information(this, "完成",
+                    QMessageBox::information(this, "保存完成",
                         QString("已保存缩放: [行%1,列%2] scale=%3")
                             .arg(row+1).arg(col+1).arg(newS, 0, 'f', 3));
                 }
@@ -2408,7 +2459,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                     if (oxOk && oyOk) {
                         appendLog(QString("Crop Offset 已更新: [%1,%2] ox=%3 oy=%4")
                             .arg(row+1).arg(col+1).arg(newOx).arg(newOy), "INFO");
-                        QMessageBox::information(this, "完成",
+                        QMessageBox::information(this, "保存完成",
                             QString("已保存裁剪偏移: [行%1,列%2] ox=%3 oy=%4")
                                 .arg(row+1).arg(col+1).arg(newOx).arg(newOy));
                     }
@@ -2422,7 +2473,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                     if (it != s_movement_images_.end()) origPath = it->second;
                 }
                 if (origPath.empty()) {
-                    QMessageBox::warning(this, "提示",
+                    QMessageBox::warning(this, "警告",
                         QString("单元格 [行%1,列%2] 没有已扫描的图像").arg(row+1).arg(col+1));
                 } else {
                     frame_replace_row_ = row;
@@ -2916,7 +2967,7 @@ void MainWindow::startNegativeStitching(const std::string& directory, const cv::
                 }
             }
         } catch (const std::exception& e) {
-            SPDLOG_ERROR("Error loading negative images: {}", e.what());
+            SPDLOG_ERROR("[MainWindow] Error loading negative images: {}", e.what());
             return cv::Mat();
         }
 

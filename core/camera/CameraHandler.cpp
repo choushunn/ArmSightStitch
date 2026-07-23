@@ -48,7 +48,11 @@ std::vector<CameraDevice> CameraHandler::enumerateCameras() {
             device.height = devices[i].model->res[0].height;
             available_cameras_.push_back(device);
         }
-    } catch (...) {}
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[Camera] enumerateCameras exception: {}", e.what());
+    } catch (...) {
+        SPDLOG_ERROR("[Camera] enumerateCameras: unknown exception");
+    }
     return available_cameras_;
 }
 
@@ -64,7 +68,11 @@ bool CameraHandler::connect(const std::string& device_id) {
             hcam_ = Toupcam_Open(device_id.c_str());
 #endif
         }
-        if (!hcam_) { updateStatus(false, "Failed to open camera"); return false; }
+        if (!hcam_) {
+            SPDLOG_ERROR("[Camera] Failed to open camera, device='{}'", device_id.empty() ? "default" : device_id);
+            updateStatus(false, "Failed to open camera");
+            return false;
+        }
 
         int w = 0, h = 0;
         if (SUCCEEDED(Toupcam_get_Size(hcam_, &w, &h)))
@@ -78,10 +86,12 @@ bool CameraHandler::connect(const std::string& device_id) {
         Toupcam_put_HFlip(hcam_, 1);   // 默认水平翻转
         Toupcam_put_VFlip(hcam_, 1);   // 默认垂直翻转
 
+        SPDLOG_INFO("[Camera] Camera connected: {}x{}", image_width_, image_height_);
         connected_ = true; capturing_ = false;
         updateStatus(true, "Connected to camera");
         return true;
     } catch (const std::exception& e) {
+        SPDLOG_ERROR("[Camera] Camera connection error: {}", e.what());
         updateStatus(false, std::string("Connection error: ") + e.what());
         return false;
     }
@@ -90,7 +100,7 @@ bool CameraHandler::connect(const std::string& device_id) {
 void CameraHandler::disconnect() {
     if (hcam_) { capturing_ = false; push_active_ = false; Toupcam_Stop(hcam_); Toupcam_Close(hcam_); hcam_ = nullptr; }
     connected_ = false; capturing_ = false;
-    // Note: negative_ is a user preview preference (default on) — not reset on disconnect.
+    // Note: negative_ is a user preview preference — not reset on disconnect.
     updateStatus(false, "Disconnected from camera");
 }
 
@@ -102,7 +112,13 @@ bool CameraHandler::startCapture() {
     try {
         push_active_ = true;
         HRESULT hr = Toupcam_StartPushModeV4(hcam_, pushDataCallback, this, pushEventCallback, this);
-        if (FAILED(hr)) { push_active_ = false; updateStatus(false, "Failed to start capture"); return false; }
+        if (FAILED(hr)) {
+            SPDLOG_ERROR("[Camera] Toupcam_StartPushModeV4 failed, hr=0x{:08X}", static_cast<unsigned>(hr));
+            push_active_ = false;
+            updateStatus(false, "Failed to start capture");
+            return false;
+        }
+        SPDLOG_INFO("[Camera] Camera capture started (push mode)");
         capturing_ = true;
         updateStatus(true, "Capture started (push mode)");
         return true;
@@ -202,7 +218,10 @@ bool CameraHandler::captureSingleFrame(cv::Mat& frame) {
             if (SUCCEEDED(r)) break;
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
-        if (FAILED(r)) return false;
+        if (FAILED(r)) {
+            SPDLOG_ERROR("[Camera] captureSingleFrame failed after 3 retries, hr=0x{:08X}", static_cast<unsigned>(r));
+            return false;
+        }
 
         cv::Mat bgr(image_height_, image_width_, CV_8UC3, buf.data(), stride);
         if (rotation_ == 90) cv::rotate(bgr, bgr, cv::ROTATE_90_CLOCKWISE);
@@ -210,14 +229,18 @@ bool CameraHandler::captureSingleFrame(cv::Mat& frame) {
         else if (rotation_ == 270) cv::rotate(bgr, bgr, cv::ROTATE_90_COUNTERCLOCKWISE);
         frame = bgr.clone();
         return true;
-    } catch (const std::exception&) { return false; }
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[Camera] captureSingleFrame exception: {}", e.what());
+        return false;
+    }
 }
 
 bool CameraHandler::captureTriggerFrame(cv::Mat& frame) {
-    // Read latest full-res frame stored by pushDataCallback (already includes
-    // hardware HFlip/VFlip). Apply same software rotation as preview.
     std::lock_guard<std::mutex> lock(frame_mutex_);
-    if (latest_full_frame_.empty()) return false;
+    if (latest_full_frame_.empty()) {
+        SPDLOG_WARN("[Camera] captureTriggerFrame: no frame available (push active={})", push_active_.load());
+        return false;
+    }
     frame = latest_full_frame_.clone();
     if (rotation_ == 90) cv::rotate(frame, frame, cv::ROTATE_90_CLOCKWISE);
     else if (rotation_ == 180) cv::rotate(frame, frame, cv::ROTATE_180);

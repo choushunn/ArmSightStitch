@@ -40,25 +40,25 @@ bool YoloDetector::loadModel(const std::string& param_path, const std::string& b
     if (gpu_count > 0) {
         yolo_net_.opt.use_vulkan_compute = true;
         gpu_enabled_ = true;
-        SPDLOG_INFO("NCNN Vulkan enabled: {} GPU(s) detected, using GPU inference", gpu_count);
+        SPDLOG_INFO("[Detect] NCNN Vulkan enabled: {} GPU(s) detected, using GPU inference", gpu_count);
     } else {
         yolo_net_.opt.use_vulkan_compute = false;
-        SPDLOG_WARN("NCNN built with Vulkan but no compatible GPU found, falling back to CPU");
+        SPDLOG_WARN("[Detect] NCNN built with Vulkan but no compatible GPU found, falling back to CPU");
     }
 #else
-    SPDLOG_INFO("NCNN built without Vulkan support, using CPU inference");
+    SPDLOG_INFO("[Detect] NCNN built without Vulkan support, using CPU inference");
 #endif
 
     // Load model
     int ret = yolo_net_.load_param(param_path.c_str());
     if (ret != 0) {
-        SPDLOG_ERROR("Failed to load model param: {} (ret={})", param_path, ret);
+        SPDLOG_ERROR("[Detect] Failed to load model param: {} (ret={})", param_path, ret);
         return false;
     }
 
     ret = yolo_net_.load_model(bin_path.c_str());
     if (ret != 0) {
-        SPDLOG_ERROR("Failed to load model bin: {} (ret={})", bin_path, ret);
+        SPDLOG_ERROR("[Detect] Failed to load model bin: {} (ret={})", bin_path, ret);
         return false;
     }
 
@@ -70,53 +70,53 @@ std::vector<Detection> YoloDetector::detect(const cv::Mat& image) {
     try {
         std::vector<Detection> detections;
         if (!model_loaded_) {
-            SPDLOG_ERROR("Model not loaded");
+            SPDLOG_ERROR("[Detect] Model not loaded");
             return detections;
         }
 
-        SPDLOG_DEBUG("Starting detection...");
-        SPDLOG_DEBUG("Input image size - width={}, height={}, channels={}", image.cols, image.rows, image.channels());
+        SPDLOG_DEBUG("[Detect] Starting detection...");
+        SPDLOG_DEBUG("[Detect] Input image size - width={}, height={}, channels={}", image.cols, image.rows, image.channels());
 
         // Preprocess image
-        SPDLOG_DEBUG("Preprocessing image...");
+        SPDLOG_DEBUG("[Detect] Preprocessing image...");
         ncnn::Mat in = preprocess(image);
-        SPDLOG_DEBUG("Preprocessed image size - w={}, h={}, c={}", in.w, in.h, in.c);
+        SPDLOG_DEBUG("[Detect] Preprocessed image size - w={}, h={}, c={}", in.w, in.h, in.c);
 
-        SPDLOG_DEBUG("Creating extractor...");
+        SPDLOG_DEBUG("[Detect] Creating extractor...");
         ncnn::Extractor ex = yolo_net_.create_extractor();
         
         // Enable light mode for faster inference
         ex.set_light_mode(true);
         
-        SPDLOG_DEBUG("Setting input...");
+        SPDLOG_DEBUG("[Detect] Setting input...");
         ex.input("in0", in);
 
         // Run inference
-        SPDLOG_DEBUG("Running inference...");
+        SPDLOG_DEBUG("[Detect] Running inference...");
         ncnn::Mat out;
         int ret = ex.extract("out0", out);
-        SPDLOG_DEBUG("Inference completed, ret={}", ret);
+        SPDLOG_DEBUG("[Detect] Inference completed, ret={}", ret);
         
         if (ret != 0) {
-            SPDLOG_ERROR("Failed to extract output, ret={}", ret);
+            SPDLOG_ERROR("[Detect] Failed to extract output, ret={}", ret);
             return detections;
         }
 
-        SPDLOG_DEBUG("Output shape - w={}, h={}, c={}", out.w, out.h, out.c);
-        SPDLOG_DEBUG("Output total elements - {}", out.total());
+        SPDLOG_DEBUG("[Detect] Output shape - w={}, h={}, c={}", out.w, out.h, out.c);
+        SPDLOG_DEBUG("[Detect] Output total elements - {}", out.total());
 
         // Process output
     
     // Check if output is empty
     if (out.w <= 0 || out.data == nullptr) {
-        SPDLOG_ERROR("Invalid output - w={}, data={}", out.w, fmt::ptr(out.data));
+        SPDLOG_ERROR("[Detect] Invalid output - w={}, data={}", out.w, fmt::ptr(out.data));
         return detections;
     }
     
     // YOLOv5 output parsing based on Python script
     // Model output format: [8, 25200] for NCNN, but each detection is 8 values
     // The output is stored as [out.w=8, out.h=25200], so we need to process it correctly
-    SPDLOG_DEBUG("Processing YOLOv5 output based on Python script...");
+    SPDLOG_DEBUG("[Detect] Processing YOLOv5 output based on Python script...");
     
     // Get output dimensions
     int output_channels = out.w;   // Number of values per detection
@@ -124,19 +124,19 @@ std::vector<Detection> YoloDetector::detect(const cv::Mat& image) {
 
     // Validate output shape to prevent out-of-bounds access with mismatched models
     if (out.c != 1) {
-        SPDLOG_ERROR("Unexpected output batch size: expected 1, got {} — model may be incompatible", out.c);
+        SPDLOG_ERROR("[Detect] Unexpected output batch size: expected 1, got {} — model may be incompatible", out.c);
         return detections;
     }
     if (output_channels < 6) {
-        SPDLOG_ERROR("Output channels too small: {} (minimum 6 required: cx,cy,w,h,conf,cls)", output_channels);
+        SPDLOG_ERROR("[Detect] Output channels too small: {} (minimum 6 required: cx,cy,w,h,conf,cls)", output_channels);
         return detections;
     }
     if (total_detections <= 0 || total_detections > 1000000) {
-        SPDLOG_ERROR("Invalid detection count: {} (expected 1–1000000)", total_detections);
+        SPDLOG_ERROR("[Detect] Invalid detection count: {} (expected 1–1000000)", total_detections);
         return detections;
     }
 
-    SPDLOG_DEBUG("Output channels={}, total detections={}", output_channels, total_detections);
+    SPDLOG_DEBUG("[Detect] Output channels={}, total detections={}", output_channels, total_detections);
     
     float* data = (float*)out.data;
     
@@ -148,7 +148,7 @@ std::vector<Detection> YoloDetector::detect(const cv::Mat& image) {
     float scale_w = static_cast<float>(img_width) / input_width_;
     float scale_h = static_cast<float>(img_height) / input_height_;
     
-    SPDLOG_DEBUG("Scale factors - scale_w={}, scale_h={}", scale_w, scale_h);
+    SPDLOG_DEBUG("[Detect] Scale factors - scale_w={}, scale_h={}", scale_w, scale_h);
     
     // Process each detection
     for (int i = 0; i < total_detections; i++) {
@@ -226,33 +226,33 @@ std::vector<Detection> YoloDetector::detect(const cv::Mat& image) {
             detections.push_back(det);
             
             // Log detection details
-            SPDLOG_DEBUG("Detection {}: Center(x,y)=[{}, {}], Size(w,h)=[{}, {}], ObjConf={}, ClsConf={}, FinalConf={}, ClassID={}, Bounding box=[{}x{} from ({}, {})]",
+            SPDLOG_DEBUG("[Detect] Detection {}: Center(x,y)=[{}, {}], Size(w,h)=[{}, {}], ObjConf={}, ClsConf={}, FinalConf={}, ClassID={}, Bounding box=[{}x{} from ({}, {})]",
                          i, x_center, y_center, box_width, box_height, obj_conf, max_cls_conf, final_conf, class_id, width, height, x1, y1);
             
         } catch (const std::exception& e) {
-            SPDLOG_ERROR("Exception processing detection {}: {}", i, e.what());
+            SPDLOG_ERROR("[Detect] Exception processing detection {}: {}", i, e.what());
             continue;
         } catch (...) {
-            SPDLOG_ERROR("Unknown exception processing detection {}", i);
+            SPDLOG_ERROR("[Detect] Unknown exception processing detection {}", i);
             continue;
         }
     }
 
         // Apply NMS if we have detections
         if (!detections.empty()) {
-            SPDLOG_DEBUG("Applying NMS on {} detections...", detections.size());
+            SPDLOG_DEBUG("[Detect] Applying NMS on {} detections...", detections.size());
             detections = applyNMS(detections);
-            SPDLOG_DEBUG("NMS completed, remaining detections={}", detections.size());
+            SPDLOG_DEBUG("[Detect] NMS completed, remaining detections={}", detections.size());
         } else {
-            SPDLOG_DEBUG("No detections to apply NMS on");
+            SPDLOG_DEBUG("[Detect] No detections to apply NMS on");
         }
         
         return detections;
     } catch (const std::exception& e) {
-        SPDLOG_ERROR("Exception in detect function: {}", e.what());
+        SPDLOG_ERROR("[Detect] Exception in detect function: {}", e.what());
         return std::vector<Detection>();
     } catch (...) {
-        SPDLOG_ERROR("Unknown exception in detect function");
+        SPDLOG_ERROR("[Detect] Unknown exception in detect function");
         return std::vector<Detection>();
     }
 }

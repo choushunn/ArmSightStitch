@@ -143,9 +143,9 @@ public:
                                    : 1.0f;
                 detections.push_back(d);
             }
-            SPDLOG_DEBUG("DustDetector: {} particles", detections.size());
+            SPDLOG_DEBUG("[Detect] DustDetector: {} particles", detections.size());
         } catch (const std::exception& e) {
-            SPDLOG_ERROR("DustDetector::detect exception: {}", e.what());
+            SPDLOG_ERROR("[Detect] DustDetector::detect exception: {}", e.what());
             detections.clear();
         }
         return detections;

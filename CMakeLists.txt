@@ -18,7 +18,7 @@ set(CMAKE_AUTORCC ON)
 # ============================================================
 
 # Qt
-find_package(Qt6 QUIET COMPONENTS Widgets Core Gui Network Concurrent)
+find_package(Qt6 QUIET COMPONENTS Widgets Core Gui Network Concurrent PrintSupport)
 if(Qt6_FOUND)
     set(QT_VERSION_MAJOR 6)
     message(STATUS "Found Qt6: ${Qt6_DIR}")
@@ -155,6 +155,7 @@ set(SOURCES
     core/stitch/SeamFeatherStitchAlgorithm.h
     core/stitch/IStitchAlgorithm.h
     infra/config/ConfigManager.cpp
+    infra/report/ReportLayout.cpp
     ui/WorkflowManager.cpp
 )
 
@@ -223,6 +224,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt${QT_VERSION_MAJOR}::Gui
     Qt${QT_VERSION_MAJOR}::Network
     Qt${QT_VERSION_MAJOR}::Concurrent
+    Qt${QT_VERSION_MAJOR}::PrintSupport
     ${OpenCV_LIBS}
     spdlog::spdlog
 )

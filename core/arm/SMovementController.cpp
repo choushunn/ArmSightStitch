@@ -67,7 +67,7 @@ bool SMovementController::initialize(const cv::Size& grid_size,
         updateStatus("Initialized successfully");
         return true;
     } catch (const std::exception& e) {
-        SPDLOG_ERROR("Error initializing S-movement controller: {}", e.what());
+        SPDLOG_ERROR("[SMovement] Error initializing S-movement controller: {}", e.what());
         updateStatus(std::string("Initialization error: ") + e.what());
         return false;
     }
@@ -107,7 +107,7 @@ bool SMovementController::start() {
 
         return true;
     } catch (const std::exception& e) {
-        SPDLOG_ERROR("Error starting S-movement: {}", e.what());
+        SPDLOG_ERROR("[SMovement] Error starting S-movement: {}", e.what());
         updateStatus(std::string("Failed to start: ") + e.what());
         running_ = false;
         arm_controller_.startAutoRead(); // restore auto-read on failure
@@ -141,6 +141,7 @@ void SMovementController::stop() {
 
 void SMovementController::pause() {
     if (running_ && !paused_) {
+        SPDLOG_INFO("[SMovement] S-movement paused at point {}/{}", static_cast<int>(current_point_index_), movement_path_.size());
         paused_ = true;
         current_status_.paused = true;
         updateStatus("Movement paused");
@@ -149,6 +150,7 @@ void SMovementController::pause() {
 
 void SMovementController::resume() {
     if (running_ && paused_) {
+        SPDLOG_INFO("[SMovement] S-movement resumed");
         paused_ = false;
         current_status_.paused = false;
         updateStatus("Movement resumed");
@@ -172,7 +174,7 @@ void SMovementController::setSaveDirectory(const std::string& save_dir) {
     
     if (!save_directory_.empty() && !std::filesystem::exists(save_directory_)) {
         std::filesystem::create_directories(save_directory_);
-        SPDLOG_INFO("Created save directory: {}", save_directory_);
+        SPDLOG_INFO("[SMovement] Created save directory: {}", save_directory_);
     }
 }
 
@@ -187,7 +189,7 @@ void SMovementController::setDwellTimeMs(int ms) {
 void SMovementController::setZMode(int mode) {
     z_mode_ = (mode >= 0 && mode <= 2) ? mode : 0;
     static const char* names[] = {"spherical cap", "manual Z-map", "radial Z-map"};
-    SPDLOG_INFO("Z mode set to: {} ({})", z_mode_, names[z_mode_]);
+    SPDLOG_INFO("[SMovement] Z mode set to: {} ({})", z_mode_, names[z_mode_]);
 }
 
 void SMovementController::setZMapFile(const std::string& path) {
@@ -197,7 +199,7 @@ void SMovementController::setZMapFile(const std::string& path) {
         try {
             QFile file(QString::fromStdString(path));
             if (!file.open(QIODevice::ReadOnly)) {
-                SPDLOG_ERROR("Cannot open Z-map file: {}", path);
+                SPDLOG_ERROR("[SMovement] Cannot open Z-map file: {}", path);
                 z_map_.clear();
                 return;
             }
@@ -205,13 +207,13 @@ void SMovementController::setZMapFile(const std::string& path) {
             file.close();
             QJsonDocument doc = QJsonDocument::fromJson(data);
             if (!doc.isObject()) {
-                SPDLOG_ERROR("Z-map file is not a valid JSON object: {}", path);
+                SPDLOG_ERROR("[SMovement] Z-map file is not a valid JSON object: {}", path);
                 z_map_.clear();
                 return;
             }
             QJsonObject root = doc.object();
             if (!root.contains("z_values") || !root["z_values"].isArray()) {
-                SPDLOG_ERROR("Z-map file missing 'z_values' array: {}", path);
+                SPDLOG_ERROR("[SMovement] Z-map file missing 'z_values' array: {}", path);
                 z_map_.clear();
                 return;
             }
@@ -220,7 +222,7 @@ void SMovementController::setZMapFile(const std::string& path) {
             z_map_.reserve(rows.size());
             for (int r = 0; r < rows.size(); ++r) {
                 if (!rows[r].isArray()) {
-                    SPDLOG_ERROR("Z-map row {} is not an array", r);
+                    SPDLOG_ERROR("[SMovement] Z-map row {} is not an array", r);
                     z_map_.clear();
                     return;
                 }
@@ -232,9 +234,9 @@ void SMovementController::setZMapFile(const std::string& path) {
                 }
                 z_map_.push_back(std::move(rowVals));
             }
-            SPDLOG_INFO("Z-map loaded from {}: {} rows", path, z_map_.size());
+            SPDLOG_INFO("[SMovement] Z-map loaded from {}: {} rows", path, z_map_.size());
         } catch (const std::exception& e) {
-            SPDLOG_ERROR("Failed to parse Z-map file {}: {}", path, e.what());
+            SPDLOG_ERROR("[SMovement] Failed to parse Z-map file {}: {}", path, e.what());
             z_map_.clear();
         }
     } else {
@@ -254,19 +256,19 @@ void SMovementController::loadRadialZMap(const std::string& path) {
     try {
         QFile file(QString::fromStdString(path));
         if (!file.open(QIODevice::ReadOnly)) {
-            SPDLOG_ERROR("Cannot open radial Z-map file: {}", path);
+            SPDLOG_ERROR("[SMovement] Cannot open radial Z-map file: {}", path);
             return;
         }
         QByteArray data = file.readAll();
         file.close();
         QJsonDocument doc = QJsonDocument::fromJson(data);
         if (!doc.isObject()) {
-            SPDLOG_ERROR("Radial Z-map file is not a valid JSON object: {}", path);
+            SPDLOG_ERROR("[SMovement] Radial Z-map file is not a valid JSON object: {}", path);
             return;
         }
         QJsonObject root = doc.object();
         if (!root.contains("z_radial") || !root["z_radial"].isArray()) {
-            SPDLOG_ERROR("Radial Z-map file missing 'z_radial' array: {}", path);
+            SPDLOG_ERROR("[SMovement] Radial Z-map file missing 'z_radial' array: {}", path);
             return;
         }
         QJsonArray entries = root["z_radial"].toArray();
@@ -281,9 +283,9 @@ void SMovementController::loadRadialZMap(const std::string& path) {
         // Sort by r ascending
         std::sort(z_radial_.begin(), z_radial_.end(),
                   [](const RadialZEntry& a, const RadialZEntry& b) { return a.r < b.r; });
-        SPDLOG_INFO("Radial Z-map loaded from {}: {} entries", path, z_radial_.size());
+        SPDLOG_INFO("[SMovement] Radial Z-map loaded from {}: {} entries", path, z_radial_.size());
     } catch (const std::exception& e) {
-        SPDLOG_ERROR("Failed to parse radial Z-map file {}: {}", path, e.what());
+        SPDLOG_ERROR("[SMovement] Failed to parse radial Z-map file {}: {}", path, e.what());
         z_radial_.clear();
     }
 }
@@ -337,7 +339,7 @@ void SMovementController::setSphereParams(int radius, int capHeight, int heightO
     sphere_cap_height_ = capHeight;
     sphere_height_offset_ = heightOffset;
     z_base_height_ = zBase;
-    SPDLOG_INFO("Sphere params set: R={}, h={}, dH={}, zBase={}",
+    SPDLOG_INFO("[SMovement] Sphere params set: R={}, h={}, dH={}, zBase={}",
                 radius, capHeight, heightOffset, zBase);
 }
 
@@ -363,10 +365,10 @@ std::vector<SMovementPoint> SMovementController::generateFixedPointSMovementPath
             ? static_cast<double>(end_pos.y - start_pos.y) / (height - 1)
             : 0.0;
         
-        SPDLOG_INFO("Grid size: {}x{}", width, height);
-        SPDLOG_INFO("Start position: ({}, {})", start_pos.x, start_pos.y);
-        SPDLOG_INFO("End position: ({}, {})", end_pos.x, end_pos.y);
-        SPDLOG_INFO("Step sizes: X={}, Y={}", x_step, y_step);
+        SPDLOG_INFO("[SMovement] Grid size: {}x{}", width, height);
+        SPDLOG_INFO("[SMovement] Start position: ({}, {})", start_pos.x, start_pos.y);
+        SPDLOG_INFO("[SMovement] End position: ({}, {})", end_pos.x, end_pos.y);
+        SPDLOG_INFO("[SMovement] Step sizes: X={}, Y={}", x_step, y_step);
 
         // ── Pre-compute spherical cap geometry ──
         // Grid center (cap is centered on the grid)
@@ -383,7 +385,7 @@ std::vector<SMovementPoint> SMovementController::generateFixedPointSMovementPath
         int zBase = z_base_height_;
         int dH = sphere_height_offset_;
 
-        SPDLOG_INFO("Sphere cap: R={}, h={}, dH={}, zBase={}, Rs={}, center=({},{})",
+        SPDLOG_INFO("[SMovement] Sphere cap: R={}, h={}, dH={}, zBase={}, Rs={}, center=({},{})",
                     R, h_cap, dH, zBase, Rs, cx, cy);
         
         // Generate grid points in S-curve order (zig-zag pattern)
@@ -420,7 +422,7 @@ std::vector<SMovementPoint> SMovementController::generateFixedPointSMovementPath
                             point.z = std::max(0, std::min(z_map_[y_idx][actual_x_idx], zBase));
                         } else {
                             point.z = start_pos.z; // fallback if map is missing/incomplete
-                            SPDLOG_WARN("Z-map missing entry for row={}, col={}", y_idx, actual_x_idx);
+                            SPDLOG_WARN("[SMovement] Z-map missing entry for row={}, col={}", y_idx, actual_x_idx);
                         }
                     } else {
                         // Spherical cap Z compensation (default)
@@ -444,14 +446,14 @@ std::vector<SMovementPoint> SMovementController::generateFixedPointSMovementPath
                 point.col = actual_x_idx;
                 
                 path.push_back(point);
-                SPDLOG_DEBUG("Added point ({}, {}) at row {}, col {}", point.x, point.y, point.row, point.col);
+                SPDLOG_DEBUG("[SMovement] Added point ({}, {}) at row {}, col {}", point.x, point.y, point.row, point.col);
             }
         }
         
-        SPDLOG_INFO("Generated {} points for S-movement", path.size());
+        SPDLOG_INFO("[SMovement] Generated {} points for S-movement", path.size());
         
     } catch (const std::exception& e) {
-        SPDLOG_ERROR("Error generating S-movement path: {}", e.what());
+        SPDLOG_ERROR("[SMovement] Error generating S-movement path: {}", e.what());
     }
     
     return path;
@@ -460,15 +462,15 @@ std::vector<SMovementPoint> SMovementController::generateFixedPointSMovementPath
 void SMovementController::movementThread() {
     try {
         updateAction("Starting movement");
-        SPDLOG_INFO("Starting S-movement thread");
+        SPDLOG_INFO("[SMovement] Starting S-movement thread");
         
         // Set movement speed for X/Y/Z only (A/B disabled)
         for (int axis = 0; axis < 3; ++axis) {
             try {
                 arm_controller_.setSpeed(axis, movement_speed_);
-                SPDLOG_INFO("Set speed for axis {} to {}", axis, movement_speed_.load());
+                SPDLOG_INFO("[SMovement] Set speed for axis {} to {}", axis, movement_speed_.load());
             } catch (const std::exception& e) {
-                SPDLOG_ERROR("Error setting speed for axis {}: {}", axis, e.what());
+                SPDLOG_ERROR("[SMovement] Error setting speed for axis {}: {}", axis, e.what());
             }
         }
 
@@ -476,7 +478,7 @@ void SMovementController::movementThread() {
         for (size_t i = 0; i < movement_path_.size() && !stop_requested_; ++i) {
             try {
                 if (stop_requested_) {
-                    SPDLOG_DEBUG("Movement stopped by user");
+                    SPDLOG_DEBUG("[SMovement] Movement stopped by user");
                     break;
                 }
                 
@@ -490,16 +492,16 @@ void SMovementController::movementThread() {
                 // Update current position
                 current_status_.current_position = point;
                 
-                SPDLOG_INFO("Moving to point {} of {}", i + 1, movement_path_.size());
+                SPDLOG_INFO("[SMovement] Moving to point {} of {}", i + 1, movement_path_.size());
                 updateAction("Moving");
                 
                 // 直接向机械臂发送固定点
-                SPDLOG_DEBUG("Sending fixed point {} to arm: ({}, {}, {})", i + 1, point.x, point.y, point.z);
+                SPDLOG_DEBUG("[SMovement] Sending fixed point {} to arm: ({}, {}, {})", i + 1, point.x, point.y, point.z);
                 
                 bool all_ok = arm_controller_.moveAxesConcurrent(point.x, point.y, point.z);
                 if (!all_ok) {
                     updateStatus("Failed to move to point " + std::to_string(i + 1) + ", skipping to next point");
-                    SPDLOG_ERROR("Failed to move to point {}, skipping to next point", i + 1);
+                    SPDLOG_ERROR("[SMovement] Failed to move to point {}, skipping to next point", i + 1);
                     continue;
                 }
 
@@ -511,7 +513,7 @@ void SMovementController::movementThread() {
                 }
                 if (stop_requested_) break;
 
-                SPDLOG_INFO("Arrived at point {}, waiting dwell time before capture", i + 1);
+                SPDLOG_INFO("[SMovement] Arrived at point {}, waiting dwell time before capture", i + 1);
                 updateAction("Stabilizing");
 
                 // 停留时间（可配置，默认20ms；到达后等待稳定再拍照；期间检查暂停/停止）
@@ -519,11 +521,11 @@ void SMovementController::movementThread() {
                 auto stay_start = std::chrono::steady_clock::now();
                 while (std::chrono::duration<double>(std::chrono::steady_clock::now() - stay_start).count() < dwell_sec) {
                     if (stop_requested_) {
-                        SPDLOG_DEBUG("Movement stopped by user during dwell");
+                        SPDLOG_DEBUG("[SMovement] Movement stopped by user during dwell");
                         break;
                     }
                     while (paused_ && !stop_requested_) {
-                        SPDLOG_DEBUG("Movement paused during dwell");
+                        SPDLOG_DEBUG("[SMovement] Movement paused during dwell");
                         std::this_thread::sleep_for(std::chrono::milliseconds(50));
                     }
                     if (stop_requested_) {
@@ -555,7 +557,7 @@ void SMovementController::movementThread() {
                                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
                             }
                         } catch (const std::exception& e) {
-                            SPDLOG_ERROR("Error capturing image: {}", e.what());
+                            SPDLOG_ERROR("[SMovement] Error capturing image: {}", e.what());
                             std::this_thread::sleep_for(std::chrono::milliseconds(5));
                         }
                     } else {
@@ -565,7 +567,7 @@ void SMovementController::movementThread() {
 
                 // 如果成功捕获图像，立即入队列（后台线程异步保存，不阻塞移动）
                 if (image_captured && !save_directory_.empty()) {
-                    SPDLOG_DEBUG("Queuing frame for async save at [{}, {}]", point.row, point.col);
+                    SPDLOG_DEBUG("[SMovement] Queuing frame for async save at [{}, {}]", point.row, point.col);
                     {
                         std::lock_guard<std::mutex> lock(save_queue_mutex_);
                         save_queue_.push({frame.clone(), save_directory_, point.row, point.col, point.z});
@@ -578,15 +580,15 @@ void SMovementController::movementThread() {
 
                 // 检查是否暂停
                 while (paused_ && !stop_requested_) {
-                    SPDLOG_DEBUG("Movement paused");
+                    SPDLOG_DEBUG("[SMovement] Movement paused");
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 }
                 
                 // Minimal gap before next move
-                SPDLOG_DEBUG("Waiting 5ms before next move");
+                SPDLOG_DEBUG("[SMovement] Waiting 5ms before next move");
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
             } catch (const std::exception& e) {
-                SPDLOG_ERROR("Error processing point {}: {}", i + 1, e.what());
+                SPDLOG_ERROR("[SMovement] Error processing point {}: {}", i + 1, e.what());
                 updateStatus("Error processing point " + std::to_string(i + 1) + ", skipping to next point");
                 // 继续处理下一个点
                 continue;
@@ -595,21 +597,21 @@ void SMovementController::movementThread() {
         
         if (stop_requested_) {
             updateStatus("Movement stopped by user");
-            SPDLOG_INFO("Movement stopped by user");
+            SPDLOG_INFO("[SMovement] Movement stopped by user");
         } else {
             updateStatus("Movement completed successfully");
-            SPDLOG_INFO("Movement completed successfully");
-            SPDLOG_INFO("Saved {} images out of {} points", saved_images_count_.load(), movement_path_.size());
+            SPDLOG_INFO("[SMovement] Movement completed successfully");
+            SPDLOG_INFO("[SMovement] Saved {} images out of {} points", saved_images_count_.load(), movement_path_.size());
         }
         
         updateAction("Idle");
         
     } catch (const std::exception& e) {
-        SPDLOG_ERROR("Error in movement thread: {}", e.what());
+        SPDLOG_ERROR("[SMovement] Error in movement thread: {}", e.what());
         updateStatus(std::string("Movement error: ") + e.what());
         updateAction("Error");
     } catch (...) {
-        SPDLOG_ERROR("Unknown error in movement thread");
+        SPDLOG_ERROR("[SMovement] Unknown error in movement thread");
         updateStatus("Unknown movement error");
         updateAction("Error");
     }
@@ -630,7 +632,7 @@ void SMovementController::movementThread() {
         status_callback_(current_status_);
     }
 
-    SPDLOG_INFO("Exiting movement thread");
+    SPDLOG_INFO("[SMovement] Exiting movement thread");
 }
 
 void SMovementController::updateStatus(const std::string& status_message) {
@@ -652,7 +654,7 @@ void SMovementController::updateAction(const std::string& action) {
 }
 
 void SMovementController::saveConsumerThread() {
-    SPDLOG_INFO("Save consumer thread started");
+    SPDLOG_INFO("[SMovement] Save consumer thread started");
     while (save_thread_running_) {
         FrameSaveTask task;
         {
@@ -671,11 +673,11 @@ void SMovementController::saveConsumerThread() {
             try {
                 image_save_callback_(task.frame, task.directory, task.row, task.col, task.z);
             } catch (const std::exception& e) {
-                SPDLOG_ERROR("Save callback error for [{},{}]: {}", task.row, task.col, e.what());
+                SPDLOG_ERROR("[SMovement] Save callback error for [{},{}]: {}", task.row, task.col, e.what());
             }
         }
     }
-    SPDLOG_INFO("Save consumer thread exiting, {} items left in queue", save_queue_.size());
+    SPDLOG_INFO("[SMovement] Save consumer thread exiting, {} items left in queue", save_queue_.size());
 }
 
 } // namespace arm

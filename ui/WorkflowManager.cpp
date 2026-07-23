@@ -22,19 +22,19 @@ WorkflowManager::WorkflowManager(
 {
     step_timer_ = new QTimer(this);
     step_timer_->setSingleShot(true);
-    SPDLOG_INFO("WorkflowManager initialized");
+    SPDLOG_INFO("[Workflow] WorkflowManager initialized");
 }
 
 WorkflowManager::~WorkflowManager() {
     stopAutoWorkflow();
-    SPDLOG_INFO("WorkflowManager destroyed");
+    SPDLOG_INFO("[Workflow] WorkflowManager destroyed");
 }
 
 void WorkflowManager::setState(State s) {
     if (state_ != s) {
         State old = state_;
         state_ = s;
-        SPDLOG_INFO("Workflow state: {} -> {}",
+        SPDLOG_INFO("[Workflow] Workflow state: {} -> {}",
                      static_cast<int>(old), static_cast<int>(s));
         emit stateChanged(s);
     }
@@ -52,7 +52,7 @@ void WorkflowManager::scheduleNext(int delayMs, std::function<void()> step) {
             try {
                 step();
             } catch (const std::exception& e) {
-                SPDLOG_ERROR("Workflow step error: {}", e.what());
+                SPDLOG_ERROR("[Workflow] Workflow step error: {}", e.what());
                 emit workflowError(QString::fromStdString(e.what()));
                 setState(State::Error);
             }
@@ -70,7 +70,7 @@ bool WorkflowManager::waitForPosition(const arm::SMovementPoint& target,
     while (!stop_requested_) {
         auto elapsed = std::chrono::steady_clock::now() - start;
         if (std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() > timeoutMs) {
-            SPDLOG_WARN("Position wait timed out after {}ms", timeoutMs);
+            SPDLOG_WARN("[Workflow] Position wait timed out after {}ms", timeoutMs);
             return false;
         }
 
@@ -92,13 +92,13 @@ bool WorkflowManager::waitForPosition(const arm::SMovementPoint& target,
 
 void WorkflowManager::startAutoWorkflow() {
     stop_requested_ = false;
-    SPDLOG_INFO("Starting auto workflow");
+    SPDLOG_INFO("[Workflow] Starting auto workflow");
     emit statusMessage("Starting auto workflow...");
     scheduleNext(100, [this]() { onConnectArmStep(); });
 }
 
 void WorkflowManager::stopAutoWorkflow() {
-    SPDLOG_INFO("Stopping auto workflow");
+    SPDLOG_INFO("[Workflow] Stopping auto workflow");
     stop_requested_ = true;
     step_timer_->stop();
     step_timer_->disconnect();

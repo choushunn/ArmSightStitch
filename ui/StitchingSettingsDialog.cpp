@@ -68,7 +68,7 @@ StitchingSettingsDialog::StitchingSettingsDialog(QWidget* parent)
                 QString startDir = cropOffsetEdit_->text().isEmpty()
                     ? QCoreApplication::applicationDirPath()
                     : QFileInfo(cropOffsetEdit_->text()).absolutePath();
-                QString path = QFileDialog::getOpenFileName(this, "选择 Crop Offset 文件",
+                QString path = QFileDialog::getOpenFileName(this, "选择裁剪偏移文件",
                     startDir, "JSON Files (*.json);;All Files (*)");
                 if (!path.isEmpty()) cropOffsetEdit_->setText(path);
             });
