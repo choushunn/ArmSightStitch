@@ -21,6 +21,7 @@
 #include <QSpinBox>
 #include <QTextEdit>
 #include <QFutureWatcher>
+#include <QShortcut>
 #include <mutex>
 #include <QtConcurrent/QtConcurrent>
 #include <opencv2/opencv.hpp>
@@ -122,6 +123,14 @@ private:
     bool detect_fullscreen_active_ = false;
     bool image_detection_enabled_ = false;
     QWidget* preview_dlg_ = nullptr; // grid cell fullscreen preview
+
+    // Keyboard shortcuts
+    QShortcut* sc_emergency_stop_ = nullptr;
+    QShortcut* sc_toggle_scan_ = nullptr;
+    QShortcut* sc_start_stitch_ = nullptr;
+    QShortcut* sc_manual_detect_ = nullptr;
+    QShortcut* sc_toggle_detection_ = nullptr;
+    QShortcut* sc_toggle_fullscreen_ = nullptr;
 
     // FPS tracking
     QLabel* fps_label_ = nullptr;

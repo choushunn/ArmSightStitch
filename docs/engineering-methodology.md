@@ -420,7 +420,7 @@ on:
 | `F6` | 开始拼接 | 触发拼接流程 |
 | `F7` | 检测单帧 | 手动触发检测 |
 | `Ctrl+E` | 实时检测开关 | toggle |
-| `Ctrl+F` | 全屏切换 | 已有 actionFullscreen |
+| `F11` / `Ctrl+F` | 全屏切换 | 已有 actionFullscreen |
 | `Ctrl+O` | 打开图像 | 已有 |
 | `Ctrl+S` | 保存结果 | 已有 |
 | `F1` | 使用说明 | 已有 |

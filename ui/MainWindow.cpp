@@ -322,6 +322,49 @@ MainWindow::MainWindow(AppController& ctrl, QWidget *parent)
 
     appendLog("Application initialized", "INFO");
     SPDLOG_INFO("[MainWindow] MainWindow initialized");
+
+    // ── 全局键盘快捷键 ──
+    // Space: 紧急停止 (最高优先级，始终可用)
+    sc_emergency_stop_ = new QShortcut(QKeySequence(Qt::Key_Space), this);
+    sc_emergency_stop_->setContext(Qt::ApplicationShortcut);
+    connect(sc_emergency_stop_, &QShortcut::activated, this, [this]() {
+        if (ctrl_.movementController().getStatus().running) scan_ctrl_->onToggleScanStartStop();
+        for (int i = 0; i < 5; ++i) ctrl_.armController().stopAllMovements(i);
+        if (ui_->contMoveBtn->isChecked()) ui_->contMoveBtn->setChecked(false);
+        appendLog("紧急停止：所有运动已停止 (快捷键 Space)", "WARN");
+    });
+
+    // F5: 开始/停止扫描
+    sc_toggle_scan_ = new QShortcut(QKeySequence(Qt::Key_F5), this);
+    sc_toggle_scan_->setContext(Qt::ApplicationShortcut);
+    connect(sc_toggle_scan_, &QShortcut::activated,
+            scan_ctrl_, &ScanController::onToggleScanStartStop);
+
+    // F6: 开始拼接
+    sc_start_stitch_ = new QShortcut(QKeySequence(Qt::Key_F6), this);
+    sc_start_stitch_->setContext(Qt::ApplicationShortcut);
+    connect(sc_start_stitch_, &QShortcut::activated,
+            stitch_ctrl_, &StitchController::onStitchRun);
+
+    // F7: 检测单帧
+    sc_manual_detect_ = new QShortcut(QKeySequence(Qt::Key_F7), this);
+    sc_manual_detect_->setContext(Qt::ApplicationShortcut);
+    connect(sc_manual_detect_, &QShortcut::activated,
+            detect_ctrl_, &DetectController::onManualDetect);
+
+    // Ctrl+E: 实时检测开关
+    sc_toggle_detection_ = new QShortcut(QKeySequence("Ctrl+E"), this);
+    sc_toggle_detection_->setContext(Qt::ApplicationShortcut);
+    connect(sc_toggle_detection_, &QShortcut::activated, this, [this]() {
+        ui_->enableDetectionCheck->toggle();
+    });
+
+    // Ctrl+F: 全屏切换 (补充 F11)
+    sc_toggle_fullscreen_ = new QShortcut(QKeySequence("Ctrl+F"), this);
+    sc_toggle_fullscreen_->setContext(Qt::ApplicationShortcut);
+    connect(sc_toggle_fullscreen_, &QShortcut::activated, this, [this]() {
+        ui_->actionFullscreen->toggle();
+    });
 }
 
 MainWindow::~MainWindow() {
@@ -597,21 +640,43 @@ void MainWindow::connectSignals() {
     // ---- 帮助 ----
     connect(ui_->actionUserGuide, &QAction::triggered, this, [this]() {
         QMessageBox::information(this, QStringLiteral("使用说明"),
+            QStringLiteral(
             "明场显微成像验证组件\n\n"
             "工作流程:\n"
             "1. 连接相机和机械臂 (左侧硬件连接区)\n"
             "2. 设置网格参数，点击「开始扫描」执行S型扫描采集\n"
             "3. 扫描完成后自动拼接，也可手动点击「开始拼接」\n"
             "4. 加载检测模型后，点击「开始检测」执行目标检测\n\n"
-            "工具栏按钮:\n"
-            "拍照 - 手动拍摄单帧图像\n"
-            "开始扫描 / 暂停 - 控制S型扫描流程\n"
-            "开始拼接 - 对已采集图像执行拼接\n"
-            "保存结果 - 保存拼接或检测结果\n"
-            "开始检测 / 检测单帧 - 执行目标检测\n\n"
             "快捷键:\n"
-            "Ctrl+O - 打开图像  Ctrl+S - 保存结果\n"
-            "F1 - 显示使用说明");
+            "Space    — 紧急停止\n"
+            "F5       — 开始/停止扫描\n"
+            "F6       — 开始拼接\n"
+            "F7       — 检测单帧\n"
+            "Ctrl+E   — 实时检测开关\n"
+            "Ctrl+F   — 全屏切换\n"
+            "Ctrl+O   — 打开图像\n"
+            "Ctrl+S   — 保存结果\n"
+            "F11      — 全屏切换\n"
+            "F1       — 使用说明"));
+    });
+
+    // 添加快捷键参考到帮助菜单
+    auto* actionShortcuts = new QAction(QStringLiteral("快捷键参考"), this);
+    ui_->menuHelp->insertAction(ui_->actionUserGuide, actionShortcuts);
+    connect(actionShortcuts, &QAction::triggered, this, [this]() {
+        QMessageBox::information(this, QStringLiteral("快捷键参考"),
+            QStringLiteral(
+            "Space    — 紧急停止（全局可用）\n"
+            "F5       — 开始/停止扫描\n"
+            "F6       — 开始拼接\n"
+            "F7       — 检测单帧\n"
+            "Ctrl+E   — 实时检测开关\n"
+            "Ctrl+F   — 全屏切换\n"
+            "Ctrl+O   — 打开图像\n"
+            "Ctrl+S   — 保存拼接结果\n"
+            "F11      — 全屏切换\n"
+            "F1       — 使用说明\n"
+            "Ctrl+Q   — 退出程序"));
     });
 
     // ---- 扫描页面: 相机 ----
