@@ -30,9 +30,10 @@ jobs:
 
       - name: Setup vcpkg
         if: steps.cache-vcpkg.outputs.cache-hit != 'true'
+        shell: cmd
         run: |
-          git clone --depth 1 https://github.com/microsoft/vcpkg.git ${{ github.workspace }}/vcpkg
-          ${{ github.workspace }}/vcpkg/bootstrap-vcpkg.bat
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git %GITHUB_WORKSPACE%\vcpkg
+          %GITHUB_WORKSPACE%\vcpkg\bootstrap-vcpkg.bat
 
       - name: "Cache: vcpkg packages"
         uses: actions/cache@v4
@@ -95,9 +96,10 @@ jobs:
 
       - name: Setup vcpkg (mingw)
         if: steps.cache-vcpkg-mingw.outputs.cache-hit != 'true'
+        shell: cmd
         run: |
-          git clone --depth 1 https://github.com/microsoft/vcpkg.git ${{ github.workspace }}/vcpkg-mingw
-          ${{ github.workspace }}/vcpkg-mingw/bootstrap-vcpkg.bat
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git %GITHUB_WORKSPACE%\vcpkg-mingw
+          %GITHUB_WORKSPACE%\vcpkg-mingw\bootstrap-vcpkg.bat
 
       - name: "Cache: vcpkg packages (mingw)"
         uses: actions/cache@v4
