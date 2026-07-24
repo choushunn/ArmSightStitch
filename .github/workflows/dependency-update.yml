@@ -32,7 +32,7 @@ jobs:
         id: latest
         shell: bash
         run: |
-          git clone --depth 1 https://github.com/microsoft/vcpkg.git /tmp/vcpkg-latest
+          git clone https://github.com/microsoft/vcpkg.git /tmp/vcpkg-latest
           LATEST=$(cd /tmp/vcpkg-latest && git rev-parse HEAD)
           echo "latest=$LATEST" >> $GITHUB_OUTPUT
           echo "Latest baseline: $LATEST"

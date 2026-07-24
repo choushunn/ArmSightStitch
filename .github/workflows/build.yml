@@ -32,7 +32,7 @@ jobs:
         if: steps.cache-vcpkg.outputs.cache-hit != 'true'
         shell: cmd
         run: |
-          git clone --depth 1 https://github.com/microsoft/vcpkg.git %GITHUB_WORKSPACE%\vcpkg
+          git clone https://github.com/microsoft/vcpkg.git %GITHUB_WORKSPACE%\vcpkg
           %GITHUB_WORKSPACE%\vcpkg\bootstrap-vcpkg.bat
 
       - name: "Cache: vcpkg packages"
@@ -106,7 +106,7 @@ jobs:
         if: steps.cache-vcpkg-mingw.outputs.cache-hit != 'true'
         shell: cmd
         run: |
-          git clone --depth 1 https://github.com/microsoft/vcpkg.git %GITHUB_WORKSPACE%\vcpkg-mingw
+          git clone https://github.com/microsoft/vcpkg.git %GITHUB_WORKSPACE%\vcpkg-mingw
           %GITHUB_WORKSPACE%\vcpkg-mingw\bootstrap-vcpkg.bat
 
       - name: "Cache: vcpkg packages (mingw)"
