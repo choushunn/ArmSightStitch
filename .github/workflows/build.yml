@@ -37,9 +37,17 @@ jobs:
 
       - name: "Cache: vcpkg packages"
         uses: actions/cache@v4
+        id: cache-vcpkg-packages
         with:
           path: ${{ github.workspace }}/vcpkg/installed
           key: vcpkg-installed-x64-windows-${{ hashFiles('vcpkg.json') }}
+
+      - name: Install vcpkg packages (MSVC)
+        if: steps.cache-vcpkg-packages.outputs.cache-hit != 'true'
+        shell: cmd
+        working-directory: ${{ github.workspace }}
+        run: |
+          %GITHUB_WORKSPACE%\vcpkg\vcpkg.exe install --triplet=x64-windows
 
       # ── Cache: Qt 6.10.1 ──
       - name: Restore Qt cache
@@ -103,6 +111,7 @@ jobs:
 
       - name: "Cache: vcpkg packages (mingw)"
         uses: actions/cache@v4
+        id: cache-vcpkg-packages-mingw
         with:
           path: ${{ github.workspace }}/vcpkg-mingw/installed
           key: vcpkg-installed-x64-mingw-static-${{ hashFiles('vcpkg.json') }}
@@ -126,8 +135,17 @@ jobs:
           # aqt also provides the MinGW toolchain matching Qt 6.10.1
           aqt install-tool windows desktop tools_mingw1310 qt.tools.win64_mingw1310 --outputdir C:/Qt
 
+      # ── Install vcpkg dependencies ──
+      - name: Install vcpkg packages (mingw)
+        if: steps.cache-vcpkg-packages-mingw.outputs.cache-hit != 'true'
+        shell: cmd
+        working-directory: ${{ github.workspace }}
+        run: |
+          %GITHUB_WORKSPACE%\vcpkg-mingw\vcpkg.exe install --triplet=x64-mingw-static
+
       # ── Build ──
       - name: Configure
+        shell: bash
         run: |
           export PATH="C:/Qt/Tools/mingw1310_64/bin:C:/Qt/Tools/Ninja:$PATH"
           cmake --preset default \
