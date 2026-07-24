@@ -19,7 +19,7 @@ ModbusConnection::~ModbusConnection() {
 
 bool ModbusConnection::connect(const std::string& ip, int port) {
     std::lock_guard<std::mutex> lock(modbus_mutex_);
-    SPDLOG_INFO("[Arm] Connecting to {}:{}", ip, port);
+    SPDLOG_INFO("[Arm] Connecting to arm device (port {})...", port);
 
     if (isConnected()) {
         SPDLOG_INFO("[Arm] Already connected, disconnecting first...");
@@ -77,7 +77,7 @@ bool ModbusConnection::connect(const std::string& ip, int port) {
         return false;
     }
 
-    SPDLOG_INFO("[Arm] Attempting to connect to modbus server at {}:{}...", ip, port);
+    SPDLOG_INFO("[Arm] Attempting TCP connection to modbus server...");
     if (modbus_connect(modbus_) == -1) {
         int saved_errno = errno;
 #ifdef _WIN32

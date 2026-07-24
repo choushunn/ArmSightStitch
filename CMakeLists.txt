@@ -300,18 +300,29 @@ if(HAS_TOUPCAM)
 endif()
 
 # ============================================================
-# Deploy target: windeployqt + MinGW runtime DLLs
+# Deploy target: windeployqt + runtime DLLs (MinGW & MSVC)
 # ============================================================
 
+# Detect windeployqt for the active Qt installation
 find_program(WINDEPLOYQT_EXECUTABLE
     NAMES windeployqt windeployqt.exe
-    PATHS "C:/Programs/Qt/6.10.1/mingw_64/bin"
+    PATHS
+        # MinGW search paths
+        "C:/Programs/Qt/6.10.1/mingw_64/bin"
+        # MSVC search paths
+        "C:/Programs/Qt/6.10.1/msvc2022_64/bin"
+        # Fallback: look in Qt6_DIR parent
+        "${Qt6_DIR}/../../bin"
     NO_DEFAULT_PATH
 )
-if(WINDEPLOYQT_EXECUTABLE)
-    get_filename_component(MINGW_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
 
-    add_custom_target(deploy
+if(NOT WINDEPLOYQT_EXECUTABLE)
+    message(WARNING "windeployqt not found. Deploy target will not be available.")
+else()
+    message(STATUS "Found windeployqt: ${WINDEPLOYQT_EXECUTABLE}")
+
+    # ── Common cleanup commands (shared by both toolchains) ──
+    set(DEPLOY_CLEANUP_COMMANDS
         COMMAND ${CMAKE_COMMAND} -E echo "=== Step 0: Clean nested bin dirs + logs ==="
         COMMAND ${CMAKE_COMMAND} -E rm -rf
             $<TARGET_FILE_DIR:${PROJECT_NAME}>/bin
@@ -320,17 +331,14 @@ if(WINDEPLOYQT_EXECUTABLE)
         COMMAND ${WINDEPLOYQT_EXECUTABLE}
             --dir $<TARGET_FILE_DIR:${PROJECT_NAME}>
             $<TARGET_FILE:${PROJECT_NAME}>
-        COMMAND ${CMAKE_COMMAND} -E echo "=== Step 2: Copying MinGW runtime DLLs ==="
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${MINGW_BIN_DIR}/libgcc_s_seh-1.dll"    $<TARGET_FILE_DIR:${PROJECT_NAME}>
-            "${MINGW_BIN_DIR}/libstdc++-6.dll"       $<TARGET_FILE_DIR:${PROJECT_NAME}>
-            "${MINGW_BIN_DIR}/libwinpthread-1.dll"   $<TARGET_FILE_DIR:${PROJECT_NAME}>
-            "${MINGW_BIN_DIR}/libgomp-1.dll"         $<TARGET_FILE_DIR:${PROJECT_NAME}>
         COMMAND ${CMAKE_COMMAND} -E echo "=== Step 3: Clean up unnecessary files ==="
         COMMAND ${CMAKE_COMMAND} -E rm -f
             $<TARGET_FILE_DIR:${PROJECT_NAME}>/opengl32sw.dll
             $<TARGET_FILE_DIR:${PROJECT_NAME}>/D3Dcompiler_47.dll
         COMMAND ${CMAKE_COMMAND} -E echo "=== Step 4: Remove unused translations ==="
+    )
+
+    set(DEPLOY_TRANSLATION_CLEANUP
         COMMAND ${CMAKE_COMMAND} -E rm -f
             $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_ar.qm
             $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_bg.qm
@@ -363,14 +371,47 @@ if(WINDEPLOYQT_EXECUTABLE)
             $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_tr.qm
             $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_uk.qm
             $<TARGET_FILE_DIR:${PROJECT_NAME}>/translations/qt_zh_TW.qm
-        COMMAND ${CMAKE_COMMAND} -E echo "=== Deploy complete ==="
-        COMMENT "Deploy: Qt + MinGW runtime DLLs"
-        DEPENDS ${PROJECT_NAME}
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
-    message(STATUS "Found windeployqt: ${WINDEPLOYQT_EXECUTABLE}")
-else()
-    message(WARNING "windeployqt not found. Deploy target will not be available.")
+
+    if(MINGW)
+        # -- MinGW deploy: add MinGW runtime DLLs --
+        get_filename_component(MINGW_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+
+        add_custom_target(deploy
+            ${DEPLOY_CLEANUP_COMMANDS}
+            COMMAND ${CMAKE_COMMAND} -E echo "=== Step 2: Copying MinGW runtime DLLs ==="
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${MINGW_BIN_DIR}/libgcc_s_seh-1.dll"    $<TARGET_FILE_DIR:${PROJECT_NAME}>
+                "${MINGW_BIN_DIR}/libstdc++-6.dll"       $<TARGET_FILE_DIR:${PROJECT_NAME}>
+                "${MINGW_BIN_DIR}/libwinpthread-1.dll"   $<TARGET_FILE_DIR:${PROJECT_NAME}>
+                "${MINGW_BIN_DIR}/libgomp-1.dll"         $<TARGET_FILE_DIR:${PROJECT_NAME}>
+            ${DEPLOY_TRANSLATION_CLEANUP}
+            COMMAND ${CMAKE_COMMAND} -E echo "=== Deploy (MinGW) complete ==="
+            COMMENT "Deploy: Qt + MinGW runtime DLLs"
+            DEPENDS ${PROJECT_NAME}
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        )
+    elseif(MSVC)
+        # -- MSVC deploy: windeployqt handles VCRUNTIME automatically (AUTOMOC) --
+        add_custom_target(deploy
+            ${DEPLOY_CLEANUP_COMMANDS}
+            ${DEPLOY_TRANSLATION_CLEANUP}
+            COMMAND ${CMAKE_COMMAND} -E echo "=== Deploy (MSVC) complete ==="
+            COMMENT "Deploy: Qt + MSVC runtime (VCRUNTIME via AUTOMOC)"
+            DEPENDS ${PROJECT_NAME}
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        )
+    else()
+        # Unknown compiler — deploy with windeployqt only
+        add_custom_target(deploy
+            ${DEPLOY_CLEANUP_COMMANDS}
+            ${DEPLOY_TRANSLATION_CLEANUP}
+            COMMAND ${CMAKE_COMMAND} -E echo "=== Deploy complete ==="
+            COMMENT "Deploy: Qt runtime only (unknown compiler)"
+            DEPENDS ${PROJECT_NAME}
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        )
+    endif()
 endif()
 
 # ============================================================

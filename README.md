@@ -1,6 +1,8 @@
 # ArmSightStitch
 
-明场显微镜自动扫描与图像拼接系统。
+[![Build & Test](https://github.com/choushunn/ArmSightStitch/actions/workflows/build.yml/badge.svg)](https://github.com/choushunn/ArmSightStitch/actions/workflows/build.yml)
+
+明场显微成像验证组件 — 明场显微镜自动扫描与图像拼接系统。
 
 ## 功能概览
 
@@ -101,22 +103,50 @@ ninja
 | spdlog | 日志 |
 | vcpkg | 包管理，triplet: `x64-mingw-static` |
 
+## 测试
+
+```bash
+# 运行测试（需先在构建时启用 BUILD_TESTING）
+cmake --preset msvc -DBUILD_TESTING=ON
+cmake --build build/vcpkg-msvc --config Release --target armsightstitch_tests
+
+# 手动运行（需 Qt/vcpkg DLL 在 PATH）
+cd bin-msvc/Release
+./armsightstitch_tests.exe
+```
+
 ## 目录结构
 
 ```
 ArmSightStitch/
-├── app/              # main.cpp 入口
+├── app/                  # main.cpp 入口
 ├── core/
-│   ├── arm/          # 机械臂 Modbus TCP 控制器 + S 运动控制
-│   ├── camera/       # ToupCam SDK 封装
-│   ├── detector/     # YOLO (NCNN) + Dust 灰尘传统 CV 检测
-│   └── stitch/       # 4 种图像拼接算法 (Grid/Feature/ZScale/SeamFeather)
+│   ├── arm/              # 机械臂 Modbus TCP 控制器 + S 运动控制
+│   │   ├── ModbusConnection      # TCP 连接生命周期
+│   │   ├── ModbusRegisterIO      # 寄存器/线圈读写
+│   │   ├── ModbusArmController   # 多轴运动编排
+│   │   └── SMovementController   # S 型扫描状态机
+│   ├── camera/           # ToupCam SDK 封装
+│   ├── detector/         # YOLO (NCNN) + Dust + Sobel 边缘检测
+│   └── stitch/           # 4 种拼接算法 + ImageStitcher 编排器
+│       ├── GridStitchAlgorithm      # 栅格定位拼接
+│       ├── FeatureStitchAlgorithm   # OpenCV 特征匹配
+│       ├── SeamFeatherStitchAlgorithm  # 接缝羽化（默认）
+│       └── ZScaleGridStitchAlgorithm   # Z 轴缩放感知拼接
 ├── infra/
-│   ├── config/       # 配置管理器（JSON + 环境变量覆盖）
-│   └── log/          # spdlog 日志管理器
-├── ui/               # Qt 界面（MainWindow + 对话框 + WorkflowManager）
-├── res/              # 资源文件（模型、图标、样式表）
-├── third_party/      # 第三方 SDK（ToupCam）
-├── docs/             # 设计文档 + Python 算法原型
-└── resources/        # 安装包资源（图标、位图、许可证）
+│   ├── config/           # ConfigManager + ConfigSections
+│   ├── log/              # spdlog + QtLogSink
+│   ├── report/           # PDF 报告布局与渲染
+│   └── util/             # Result<T> + AppConstants
+├── ui/
+│   ├── controllers/      # 5 个子 Controller (Camera/Arm/Scan/Stitch/Detect)
+│   ├── *.ui              # Qt Designer 布局
+│   ├── *ParamsWidget     # 检测参数面板 (YOLO/灰尘/Sobel)
+│   └── MainWindow / AppController / WorkflowManager
+├── tests/                # Google Test 测试套件
+├── res/                  # 资源文件（模型、图标、样式表）
+├── scripts/              # 辅助脚本
+├── third_party/          # 第三方 SDK（ToupCam）
+├── docs/                 # 设计文档 + Python 算法原型
+└── resources/            # 安装包资源（图标、位图、许可证）
 ```

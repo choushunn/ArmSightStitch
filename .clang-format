@@ -1,0 +1,132 @@
+---
+BasedOnStyle: Microsoft
+Language: Cpp
+Standard: c++17
+AccessModifierOffset: -4
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignEscapedNewlines: Left
+AlignOperands: true
+AlignTrailingComments: true
+AllowAllParametersOfDeclarationOnNextLine: false
+AllowShortBlocksOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AlwaysBreakAfterReturnType: None
+AlwaysBreakBeforeMultilineStrings: false
+AlwaysBreakTemplateDeclarations: true
+BinPackArguments: true
+BinPackParameters: true
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass: true
+  AfterControlStatement: false
+  AfterEnum: true
+  AfterFunction: true
+  AfterNamespace: false
+  AfterStruct: true
+  AfterUnion: true
+  BeforeCatch: false
+  BeforeElse: false
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: true
+BreakConstructorInitializers: BeforeColon
+BreakInheritanceList: BeforeColon
+ColumnLimit: 120
+CompactNamespaces: false
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+ConstructorInitializerIndentWidth: 4
+ContinuationIndentWidth: 4
+Cpp11BracedListStyle: true
+DerivePointerAlignment: false
+FixNamespaceComments: true
+IncludeBlocks: Preserve
+IndentCaseLabels: false
+IndentPPDirectives: None
+IndentWidth: 4
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+NamespaceIndentation: None
+PointerAlignment: Left
+ReflowComments: false
+SortIncludes: false
+SortUsingDeclarations: true
+SpaceAfterCStyleCast: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeParens: ControlStatements
+SpaceInEmptyParentheses: false
+SpacesInAngles: false
+SpacesInCStyleCastParentheses: false
+SpacesInContainerLiterals: false
+SpacesInParentheses: false
+TabWidth: 4
+UseTab: Never
+---
+Language: ObjC
+AccessModifierOffset: 2
+AlignArrayOfStructures: Right
+AlignConsecutiveAssignments: false
+AlignConsecutiveBitFields: false
+AlignConsecutiveDeclarations: false
+AlignConsecutiveMacros: false
+AllowShortBlocksOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: false
+AllowShortLambdasOnASingleLine: false
+AlwaysBreakBeforeMultilineStrings: false
+AttributeMacros: ['__unused', '__autoreleasing', '_Nonnull', '__bridge', '__block']
+BinPackArguments: true
+BinPackParameters: true
+BitFieldColonSpacing: Both
+BraceWrapping:
+  AfterCaseLabel: false
+  AfterClass: false
+  AfterControlStatement: Never
+  AfterEnum: false
+  AfterFunction: false
+  AfterNamespace: false
+  AfterObjCDeclaration: false
+  AfterStruct: false
+  AfterUnion: false
+  AfterExternBlock: false
+  BeforeCatch: false
+  BeforeElse: false
+  BeforeLambdaBody: false
+  BeforeWhile: false
+  IndentBraces: false
+  SplitEmptyFunction: true
+  SplitEmptyRecord: true
+  SplitEmptyNamespace: true
+BreakAfterAttributes: Never
+BreakAfterJavaFieldAnnotations: false
+BreakArrays: true
+BreakBeforeBinaryOperators: None
+BreakBeforeBraces: Custom
+BreakBeforeInheritanceComma: false
+BreakConstructorInitializers: BeforeComma
+ColumnLimit: 120
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+ContinuationIndentWidth: 4
+EmptyLineBeforeAccessModifier: Never
+ExperimentalAutoDetectBinPacking: false
+IndentCaseBlocks: false
+IndentCaseLabels: true
+IndentGotoLabels: false
+IndentRequiresClause: true
+IndentWidth: 4
+InsertBraces: false
+InsertNewlineAtEOF: true
+MaxEmptyLinesToKeep: 1
+PointerAlignment: Right
+QualifierAlignment: Leave
+ReferenceAlignment: Left
+RemoveBracesLLVM: false
+RemoveSemicolon: false
+RequiresClausePosition: WithPreceding
+SpaceBeforeRangeBasedForLoopColon: true
+SpacesBeforeTrailingComments: 1
+TabWidth: 4
+UseTab: Never
