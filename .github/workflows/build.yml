@@ -34,7 +34,7 @@ jobs:
           git clone --depth 1 https://github.com/microsoft/vcpkg.git ${{ github.workspace }}/vcpkg
           ${{ github.workspace }}/vcpkg/bootstrap-vcpkg.bat
 
-      - name: Cache: vcpkg packages
+      - name: "Cache: vcpkg packages"
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/vcpkg/installed
@@ -99,7 +99,7 @@ jobs:
           git clone --depth 1 https://github.com/microsoft/vcpkg.git ${{ github.workspace }}/vcpkg-mingw
           ${{ github.workspace }}/vcpkg-mingw/bootstrap-vcpkg.bat
 
-      - name: Cache: vcpkg packages (mingw)
+      - name: "Cache: vcpkg packages (mingw)"
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/vcpkg-mingw/installed
