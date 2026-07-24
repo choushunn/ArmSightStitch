@@ -231,6 +231,233 @@ feature/*  ← individual features / fixes
 
 ---
 
+---
+
+## 9. 可观测性 (Observability)
+
+**结构化日志：**
+
+```cpp
+// ✅ 键值对格式，便于 grep / 日志分析工具解析
+SPDLOG_INFO("[Arm] action=connect port={} status=ok latency_ms={}", port, latency);
+SPDLOG_ERROR("[Camera] action=capture error='{}' retry_count={}", err, retries);
+
+// ❌ 自由文本格式
+SPDLOG_INFO("[Arm] Connecting to arm device on port {}...", port);
+```
+
+**健康检查：**
+
+```cpp
+// AppController 中暴露统一接口
+struct SystemHealth {
+    bool armConnected;       chrono::steady_clock::time_point armLastComms;
+    bool cameraConnected;    chrono::steady_clock::time_point cameraLastFrame;
+    bool modelLoaded;        string modelName;
+    bool scanInProgress;     int scanProgressPct;
+};
+SystemHealth healthCheck();
+```
+
+UI 中可在状态栏显示绿色/黄色/红色指示灯（类似现有 `armStatusLabel` 的 `●` 指示）。
+
+**性能埋点：**
+
+关键路径使用 `QElapsedTimer` + spdlog timing 字段：
+
+```cpp
+QElapsedTimer t; t.start();
+result = algo.stitch(images, grid);
+SPDLOG_DEBUG("[Perf] action=stitch algo={} grid={}x{} timing_ms={}", algo, grid.w, grid.h, t.elapsed());
+```
+
+---
+
+## 10. 配置热加载 (Hot Reload)
+
+- `QFileSystemWatcher` 监听 `config.json` 文件变化
+- 各模块实现 `reloadConfig(const ConfigSections&)` 方法接收新配置
+- 软件运行时 UI 修改 → 即时写入 config.json；外部修改 → 自动检测重载
+- 机械臂运动 / 扫描中加 `config_locked_` 标志，延迟到空闲时应用
+
+---
+
+## 11. 优雅降级 (Graceful Degradation)
+
+编译宏 `ARM_SIGHT_STITCH_NO_*` 改为运行时检测：
+
+| 模块 | 运行时检测方式 | fallback 行为 |
+|------|---------------|---------------|
+| NCNN 模型 | `QFileInfo::exists(modelPath)` | 检测按钮置灰，提示 "模型未加载" |
+| 相机 | `isConnected()` + 心跳超时 | 自动重试 3 次 (2s/5s/10s)，失败后预览区显示 "相机已断开 — 点击重连" |
+| 机械臂 | `isConnected()` + 心跳超时 | 断线自动重连，离线时扫描按钮置灰 |
+| CUDA | `cv::cuda::getCudaEnabledDeviceCount()` | fallback 到 CPU 拼接 |
+
+每个模块实现 `bool isAvailable() const` 查询接口。
+
+---
+
+## 12. 崩溃恢复 (Crash Recovery)
+
+**扫描恢复文件 `scan_state.json`：**
+
+```json
+{
+  "version": 1,
+  "scan_dir": "D:/ScannerData/20260724_093000",
+  "grid": {"x": 10, "y": 10},
+  "completed_cells": [{"row": 0, "col": 0}, {"row": 0, "col": 1}],
+  "next_cell": {"row": 0, "col": 2},
+  "arm_position": {"x": 86000, "y": 0, "z": 80000},
+  "timestamp": "2026-07-24T09:35:00"
+}
+```
+
+- 每个 cell 扫描完成时原子写入（`QSaveFile`）
+- 启动时检查是否存在 → 提示用户 "检测到未完成的扫描，从断点继续？"
+- 扫描正常结束 / 用户手动停止时删除恢复文件
+
+---
+
+## 13. 依赖版本锁定
+
+**vcpkg 基线：** `builtin-baseline` 固定 SHA + 文档化日期。每次更新基线时在 CHANGELOG 记录兼容性验证结果。
+
+**overrides 精确锁定：**
+
+```json
+"overrides": [
+  { "name": "opencv4", "version": "4.12.0" },
+  { "name": "spdlog", "version": "1.17.0" }
+]
+```
+
+**兼容性矩阵：** 在 `docs/compatibility.md` 中维护已验证的依赖版本组合。
+
+---
+
+## 14. 性能基准测试
+
+**基准测试文件：** `tests/bench_*.cpp`，使用固定大小测试图像，跑 5 次取中位数。
+
+**CMake 控制：** `ARM_SIGHT_STITCH_BENCHMARK` option，默认 OFF（不阻塞 CI）。
+
+**关键路径埋点：**
+
+| 操作 | 测量指标 | 目标 |
+|------|---------|------|
+| GridStitch (10×10) | timing_ms, memory_mb | < 500ms |
+| SeamFeather (10×10) | timing_ms, memory_mb | < 2000ms |
+| YOLO detect (1920×1080) | timing_ms | < 100ms (GPU) |
+| Scan per cell | timing_ms | < 3000ms |
+
+**结果输出：** spdlog 以 `[Perf]` 标签 + `timing_ms=N memory_mb=N` 字段。
+
+---
+
+## 15. 日志轮转
+
+```cpp
+// 替代 basic_file_sink_mt(truncate=true)
+auto sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+    logFile, 10 * 1024 * 1024, 5);  // 10MB × 5 文件 = 50MB 上限
+```
+
+- 上次运行日志在崩溃或重启后保留
+- 旧日志自动归档为 `armsightstitch.1.log` ~ `.5.log`
+- 总磁盘占用上限 50MB
+
+---
+
+## 16. 配置版本迁移
+
+`config.json` 增加 `"version"` 字段：
+
+```cpp
+static constexpr int kCurrentConfigVersion = 3;
+
+ConfigManager::migrate(int fromVersion) {
+    if (fromVersion < 1) { /* 旧格式 → 新格式 */ }
+    if (fromVersion < 2) { setStitchAlgorithm(3); }   // Grid→SeamFeather
+    if (fromVersion < 3) { setDetectionAlgorithm(2); } // YOLO→Sobel
+    version_ = kCurrentConfigVersion;
+}
+```
+
+迁移函数集中维护，按版本号链式调用。加载完成后自动保存更新后的 config。
+
+---
+
+## 17. 自动化依赖更新
+
+**GitHub Actions monthly schedule：**
+
+```yaml
+name: Dependency Update Check
+on:
+  schedule:
+    - cron: '0 0 1 * *'  # 每月 1 号
+```
+
+**步骤：**
+
+1. `vcpkg update` → 更新 baseline
+2. 全量构建 (MSVC + MinGW)
+3. 全量测试
+4. 通过 → 自动开 PR（标题 `chore(deps): vcpkg baseline update YYYY-MM`）
+5. 失败 → 开 Issue 记录兼容性问题
+
+---
+
+## 18. 键盘可访问性
+
+**全局快捷键：**
+
+| 快捷键 | 操作 | 备注 |
+|--------|------|------|
+| `Space` | 紧急停止 | 最高优先级，单键触发，全局响应 |
+| `F5` | 开始/停止扫描 | 扫描状态切换 |
+| `F6` | 开始拼接 | 触发拼接流程 |
+| `F7` | 检测单帧 | 手动触发检测 |
+| `Ctrl+E` | 实时检测开关 | toggle |
+| `Ctrl+F` | 全屏切换 | 已有 actionFullscreen |
+| `Ctrl+O` | 打开图像 | 已有 |
+| `Ctrl+S` | 保存结果 | 已有 |
+| `F1` | 使用说明 | 已有 |
+
+**实现方式：** `QShortcut` 或 `QAction::setShortcut()`，紧急停止始终 Enable。
+
+在菜单「帮助 → 快捷键参考」中列出完整列表。
+
+---
+
+## 19. 扫描数据管理
+
+**扫描元数据 `scan_meta.json`：**
+
+```json
+{
+  "version": 1,
+  "timestamp": "2026-07-24T09:30:00",
+  "grid": {"x": 10, "y": 10},
+  "stitch_params": {"algorithm": 3, "feather_width": 120},
+  "detection_result_count": 47,
+  "total_image_size_mb": 340
+}
+```
+
+**自动清理策略：**
+
+- 配置项 `max_scan_retention_days` (默认 30 天)
+- 启动时检查工作目录，列出超过保留期的扫描
+- 提示用户清理，提供 "清理旧扫描数据..." 菜单选项
+
+**最近扫描列表：**
+
+- 启动时扫描工作目录，读取所有 `scan_meta.json`
+- 在主界面中显示 "最近扫描" 列表（最近 10 次），可直接双击打开
+
+
 ## 参考
 
 - [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
