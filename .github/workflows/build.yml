@@ -1,0 +1,39 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+
+jobs:
+  msvc:
+    name: MSVC (x64-windows)
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup vcpkg
+        run: |
+          echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" >> $env:GITHUB_ENV
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git ${{ github.workspace }}/vcpkg
+          ${{ github.workspace }}/vcpkg/bootstrap-vcpkg.bat
+
+      - name: Install Qt 6.10.1
+        run: |
+          # Qt must be preinstalled or cached; for CI we use aqtinstall
+          pip install aqtinstall
+          aqt install-qt windows desktop 6.10.1 win64_msvc2022_64 --outputdir C:/Qt
+
+      - name: Configure (MSVC)
+        run: |
+          cmake --preset msvc `
+            -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+            -DQt6_DIR="C:/Qt/6.10.1/msvc2022_64/lib/cmake/Qt6" `
+            -DCMAKE_PREFIX_PATH="C:/Qt/6.10.1/msvc2022_64"
+
+      - name: Build
+        run: cmake --build build/vcpkg-msvc --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build/vcpkg-msvc --config Release --output-on-failure

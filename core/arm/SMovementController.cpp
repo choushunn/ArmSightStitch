@@ -313,12 +313,12 @@ int SMovementController::interpolateRadialZ(double r, int zBase) const {
 }
 
 SMovementStatus SMovementController::getStatus() const {
-    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(status_mutex_));
+    std::lock_guard<std::mutex> lock(status_mutex_);
     return current_status_;
 }
 
 std::vector<SMovementPoint> SMovementController::getMovementPath() const {
-    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(path_mutex_));
+    std::lock_guard<std::mutex> lock(path_mutex_);
     return movement_path_;
 }
 

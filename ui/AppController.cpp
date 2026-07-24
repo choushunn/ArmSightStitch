@@ -40,19 +40,19 @@ struct AppController::Impl {
 };
 
 // ── Module accessors ──────────────────────────────────────────────────
-arm::IArmController& AppController::armController() {
+arm::ModbusArmController& AppController::armController() {
     return pimpl_->arm_controller_;
 }
-arm::ISMovementController& AppController::movementController() {
+arm::SMovementController& AppController::movementController() {
     return pimpl_->s_movement_controller_;
 }
-camera::ICameraHandler& AppController::cameraHandler() {
+camera::CameraHandler& AppController::cameraHandler() {
     return pimpl_->camera_handler_;
 }
 detector::IDetector& AppController::detector() {
     return *pimpl_->current_detector_;
 }
-stitch::IStitcher& AppController::stitcher() {
+stitch::ImageStitcher& AppController::stitcher() {
     return pimpl_->image_stitcher_;
 }
 WorkflowManager& AppController::workflow() {

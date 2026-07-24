@@ -1,17 +1,21 @@
 #pragma once
 
+#ifdef _MSC_VER
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#endif
+
 #include <QObject>
 #include <memory>
 
-#include "core/arm/IArmController.h"
-#include "core/camera/ICameraHandler.h"
-#include "core/detector/IDetector.h"
+#include "core/arm/ModbusArmController.h"
+#include "core/arm/SMovementController.h"
+#include "core/camera/CameraHandler.h"
+#include "core/detector/YoloDetector.h"
 #include "core/detector/DustDetectionParams.h"
 #include "core/detector/EdgeDetectionParams.h"
-#include "core/stitch/IStitcher.h"
+#include "core/stitch/ImageStitcher.h"
 
-namespace arm { struct SMovementStatus; }
-namespace camera { struct CameraStatus; }
 class WorkflowManager;
 
 class AppController : public QObject {
@@ -22,11 +26,11 @@ public:
     ~AppController();
 
     // Module access (read-only for MainWindow)
-    arm::IArmController& armController();
-    arm::ISMovementController& movementController();
-    camera::ICameraHandler& cameraHandler();
+    arm::ModbusArmController& armController();
+    arm::SMovementController& movementController();
+    camera::CameraHandler& cameraHandler();
     detector::IDetector& detector();
-    stitch::IStitcher& stitcher();
+    stitch::ImageStitcher& stitcher();
     WorkflowManager& workflow();
 
     // High-level operations

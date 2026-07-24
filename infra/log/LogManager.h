@@ -41,9 +41,14 @@ public:
         });
     }
 
+    /// Add a custom sink to the default logger (must be called after init()).
+    static void addSink(spdlog::sink_ptr sink) {
+        auto logger = spdlog::default_logger();
+        if (logger) logger->sinks().push_back(std::move(sink));
+    }
+
     static void shutdown() {
         spdlog::shutdown();
-        // std::call_once cannot be reset; re-init after shutdown is not supported
     }
 
 private:

@@ -9,7 +9,11 @@ configure_file(cmake/version.h.in ${CMAKE_CURRENT_BINARY_DIR}/version.h @ONLY)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Testing
+enable_testing()
+
 set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTOUIC_SEARCH_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/ui")
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
@@ -139,23 +143,38 @@ endif()
 set(SOURCES
     app/main.cpp
     ui/MainWindow.cpp
+    ui/controllers/CameraPaneController.cpp
+    ui/controllers/ArmPaneController.cpp
+    ui/controllers/ScanController.cpp
+    ui/controllers/StitchController.cpp
+    ui/controllers/DetectController.cpp
     ui/AppController.cpp
     ui/DetectionSettingsDialog.cpp
+    ui/YoloParamsWidget.cpp
+    ui/DustParamsWidget.cpp
+    ui/EdgeParamsWidget.cpp
     ui/SphereSettingsDialog.h
     ui/ScanParametersDialog.h
     ui/StitchingSettingsDialog.cpp
     core/arm/ModbusArmController.cpp
+    core/arm/ModbusConnection.cpp
+    core/arm/ModbusRegisterIO.cpp
     core/arm/SMovementController.cpp
     core/camera/CameraHandler.cpp
     core/detector/YoloDetector.cpp
     core/stitch/ImageStitcher.cpp
+    core/stitch/FeatureStitchAlgorithm.cpp
+    core/stitch/GridStitchAlgorithm.cpp
     core/stitch/GridStitchAlgorithm.h
     core/stitch/FeatureStitchAlgorithm.h
     core/stitch/ZScaleGridStitchAlgorithm.h
-    core/stitch/SeamFeatherStitchAlgorithm.h
+    core/stitch/ZScaleGridStitchAlgorithm.cpp
+    core/stitch/SeamFeatherStitchAlgorithm.cpp
     core/stitch/IStitchAlgorithm.h
     infra/config/ConfigManager.cpp
+    infra/report/EdgeCrop.cpp
     infra/report/ReportLayout.cpp
+    infra/report/ReportRenderer.cpp
     ui/WorkflowManager.cpp
 )
 
@@ -201,7 +220,7 @@ if(HAS_LIBMODBUS)
     # FD_SETSIZE so all valid handles pass the check. (32768 = 256KB per fd_set)
     # OS_WIN32 is required by libmodbus to enable Windows-specific code paths
     # (WSAStartup, non-blocking connect, etc.)
-    target_compile_definitions(${PROJECT_NAME} PRIVATE FD_SETSIZE=32768 OS_WIN32)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE FD_SETSIZE=32768 OS_WIN32 WIN32_LEAN_AND_MEAN NOMINMAX)
     target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32)
 endif()
 
@@ -401,5 +420,10 @@ install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin/
         USE_SOURCE_PERMISSIONS
         PATTERN "logs" EXCLUDE
         PATTERN "bin" EXCLUDE)
+
+# ── Tests ──
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()
 
 include(CPack)

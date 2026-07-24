@@ -1,11 +1,12 @@
 #pragma once
 
-#include <modbus.h>
 #include <mutex>
 #include <thread>
 #include <atomic>
 
 #include "IArmController.h"
+#include "ModbusConnection.h"
+#include "ModbusRegisterIO.h"
 
 namespace arm {
 
@@ -20,19 +21,19 @@ public:
      * @param port Port number of the arm
      * @return true if connected successfully, false otherwise
      */
-    bool connect(const std::string& ip, int port);
+    bool connect(const std::string& ip, int port) override;
 
     /**
      * @brief Disconnect from modbus server
      */
-    void disconnect();
+    void disconnect() override;
 
     /**
      * @brief Read current position of specified axis
      * @param axis_id Axis ID (0-4: X, Y, Z, A, B)
      * @return Current position, or 0.0 if error
      */
-    double readPosition(int axis_id);
+    double readPosition(int axis_id) override;
 
     /**
      * @brief Set speed of specified axis
@@ -40,14 +41,14 @@ public:
      * @param speed Speed value
      * @return true if success, false otherwise
      */
-    bool setSpeed(int axis_id, int32_t speed);
+    bool setSpeed(int axis_id, int32_t speed) override;
 
     /**
      * @brief Read speed of specified axis
      * @param axis_id Axis ID (0-4: X, Y, Z, A, B)
      * @return Speed value, or -1 if error
      */
-    int32_t readSpeed(int axis_id);
+    int32_t readSpeed(int axis_id) override;
 
     /**
      * @brief Start continuous movement
@@ -55,14 +56,14 @@ public:
      * @param direction Movement direction (true: forward, false: backward)
      * @return true if success, false otherwise
      */
-    bool startContinuousMovement(int axis_id, bool direction);
+    bool startContinuousMovement(int axis_id, bool direction) override;
 
     /**
      * @brief Stop continuous movement
      * @param axis_id Axis ID (0-4: X, Y, Z, A, B)
      * @return true if success, false otherwise
      */
-    bool stopContinuousMovement(int axis_id);
+    bool stopContinuousMovement(int axis_id) override;
 
     /**
      * @brief Move to absolute position
@@ -70,7 +71,7 @@ public:
      * @param target_position Target position
      * @return true if success, false otherwise
      */
-    bool moveToPosition(int axis_id, double target_position);
+    bool moveToPosition(int axis_id, double target_position) override;
     bool moveXYAxes(double target_x, double target_y) override;
     bool moveAxesConcurrent(int x, int y, int z) override;
 
@@ -79,44 +80,41 @@ public:
      * @param axis_id Axis ID (0-4: X, Y, Z, A, B)
      * @return true if success, false otherwise
      */
-    bool stopAllMovements(int axis_id);
+    bool stopAllMovements(int axis_id) override;
 
-    void setSafetyLimits(int axis_id, const AxisLimits& limits);
-    AxisLimits getSafetyLimits(int axis_id) const;
+    void setSafetyLimits(int axis_id, const AxisLimits& limits) override;
+    AxisLimits getSafetyLimits(int axis_id) const override;
     void setDebugEnabled(bool enabled);
-    std::string lastError() const {
-        std::lock_guard<std::mutex> lock(status_mutex_);
-        return last_error_;
-    }
+    std::string lastError() const override;
 
     /**
      * @brief Start auto reading of positions
      * @param interval Interval in seconds
      */
-    void startAutoRead(float interval = 0.5f);
+    void startAutoRead(float interval = 0.5f) override;
 
     /**
      * @brief Stop auto reading of positions
      */
-    void stopAutoRead();
+    void stopAutoRead() override;
 
     /**
      * @brief Check if connected
      * @return true if connected, false otherwise
      */
-    bool isConnected() const;
+    bool isConnected() const override;
 
     /**
      * @brief Get current arm status
      * @return Arm status
      */
-    ArmStatus getStatus() const;
+    ArmStatus getStatus() const override;
 
     /**
      * @brief Status update callback
      * @param callback Callback function
      */
-    void setStatusCallback(std::function<void(const ArmStatus&)> callback);
+    void setStatusCallback(std::function<void(const ArmStatus&)> callback) override;
 
 private:
     /**
@@ -125,56 +123,7 @@ private:
     void autoReadLoop();
 
     /**
-     * @brief Write coil (relay)
-     * @param address Coil address
-     * @param value Coil value (true/false)
-     * @return true if success, false otherwise
-     */
-    bool writeCoil(int address, bool value);
-
-    /**
-     * @brief Read coil (relay)
-     * @param address Coil address
-     * @param value Output coil value (true/false)
-     * @return true if success, false otherwise
-     */
-    bool readCoil(int address, bool& value);
-
-    /**
-     * @brief Write register
-     * @param address Register address
-     * @param value Register value
-     * @return true if success, false otherwise
-     */
-    bool writeRegister(int address, int16_t value);
-
-    /**
-     * @brief Write multiple registers
-     * @param address Start register address
-     * @param values Vector of values
-     * @return true if success, false otherwise
-     */
-    bool writeRegisters(int address, const std::vector<int16_t>& values);
-
-    /**
-     * @brief Read register
-     * @param address Register address
-     * @param value Output register value
-     * @return true if success, false otherwise
-     */
-    bool readRegister(int address, int16_t& value);
-
-    /**
-     * @brief Read multiple registers
-     * @param address Start register address
-     * @param count Number of registers to read
-     * @param values Output register values
-     * @return true if success, false otherwise
-     */
-    bool readRegisters(int address, int count, std::vector<int16_t>& values);
-
-    /**
-     * @brief Read register without mutex lock (caller must hold modbus_mutex_)
+     * @brief Read register without connected check (caller must verify connection first)
      * @param address Register address
      * @param value Output register value
      * @return true if success, false otherwise
@@ -182,16 +131,11 @@ private:
     bool readRegisterUnsafe(int address, int16_t& value);
 
     /**
-     * @brief Read position without mutex lock (caller must hold modbus_mutex_)
+     * @brief Read position without connected check (caller must verify connection first)
      * @param axis_id Axis ID (0-4: X, Y, Z, A, B)
      * @return Current position, or 0.0 if error
      */
     double readPositionUnsafe(int axis_id);
-
-    /**
-     * @brief Internal disconnect without mutex lock (caller must hold modbus_mutex_)
-     */
-    void disconnectInternal();
 
     /**
      * @brief Convert two 16-bit registers to 32-bit integer
@@ -210,9 +154,9 @@ private:
     void convertTo16Bit(int32_t value, int16_t& low, int16_t& high);
 
 private:
-    modbus_t* modbus_ = nullptr;
-    std::mutex modbus_mutex_;
-    std::atomic<bool> connected_ = false;
+    ModbusConnection conn_;
+    ModbusRegisterIO registerIO_;
+
     std::atomic<bool> auto_read_running_ = false;
     std::thread auto_read_thread_;
     float auto_read_interval_ = 0.5f;
@@ -234,17 +178,6 @@ private:
         {0, 384000}, {0, 384000}, {0, 80000},
         {-180000, 180000}, {-180000, 180000}
     };
-
-    std::string stored_ip_;
-    int stored_port_ = 502;
-    std::atomic<bool> debug_enabled_{false};
-    std::atomic<int> consecutive_failures_{0};
-    mutable std::string last_error_;
-    mutable std::atomic<bool> last_read_failed_{false};
-    static constexpr int kMaxConsecutiveFailures = 5;
-    static constexpr int kMaxReconnectAttempts = 10;
-
-    bool attemptReconnect();
 };
 
 } // namespace arm

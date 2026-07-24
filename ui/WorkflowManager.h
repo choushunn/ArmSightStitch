@@ -1,5 +1,10 @@
 #pragma once
 
+#ifdef _MSC_VER
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#endif
+
 #include <QObject>
 #include <QTimer>
 #include <QCoreApplication>
@@ -8,9 +13,10 @@
 #include <chrono>
 #include <thread>
 
-#include "core/arm/IArmController.h"
-#include "core/camera/ICameraHandler.h"
-#include "core/stitch/IStitcher.h"
+#include "core/arm/ModbusArmController.h"
+#include "core/arm/SMovementController.h"
+#include "core/camera/CameraHandler.h"
+#include "core/stitch/ImageStitcher.h"
 
 class WorkflowManager : public QObject {
     Q_OBJECT
@@ -27,10 +33,10 @@ public:
     };
 
     explicit WorkflowManager(
-        arm::IArmController& arm,
-        arm::ISMovementController& s_movement,
-        camera::ICameraHandler& camera,
-        stitch::IStitcher& stitcher,
+        arm::ModbusArmController& arm,
+        arm::SMovementController& s_movement,
+        camera::CameraHandler& camera,
+        stitch::ImageStitcher& stitcher,
         QObject* parent = nullptr);
     ~WorkflowManager();
 
@@ -62,10 +68,10 @@ private:
     bool waitForPosition(const arm::SMovementPoint& target,
                          int timeoutMs = 10000, int checkIntervalMs = 100);
 
-    arm::IArmController& arm_;
-    arm::ISMovementController& s_movement_;
-    camera::ICameraHandler& camera_;
-    stitch::IStitcher& stitcher_;
+    arm::ModbusArmController& arm_;
+    arm::SMovementController& s_movement_;
+    camera::CameraHandler& camera_;
+    stitch::ImageStitcher& stitcher_;
 
     State state_ = State::Idle;
     std::atomic<bool> stop_requested_ = false;

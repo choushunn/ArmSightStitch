@@ -21,63 +21,63 @@ ConfigManager::ConfigManager() {
 }
 
 void ConfigManager::loadDefaults() {
-    arm_ip_ = "192.168.0.1";
-    arm_port_ = 502;
-    default_speed_ = 30000;
+    system_.armIp = "192.168.0.1";
+    system_.armPort = 502;
+    system_.defaultSpeed = 30000;
 
-    camera_width_ = 640;
-    camera_height_ = 480;
-    camera_exposure_ = 70.0f;
-    camera_gain_ = 1.0f;
-    camera_sharpening_ = 0;
+    camera_.width = 640;
+    camera_.height = 480;
+    camera_.exposure = 70.0f;
+    camera_.gain = 1.0f;
+    camera_.sharpening = 0;
 
-    model_param_path_ = "models/best-sim-opt.ncnn.param";
-    model_bin_path_ = "models/best-sim-opt.ncnn.bin";
+    detection_.modelParamPath = "models/best-sim-opt.ncnn.param";
+    detection_.modelBinPath = "models/best-sim-opt.ncnn.bin";
 
-    grid_size_x_ = 10;
-    grid_size_y_ = 10;
-    step_size_ = 43000;
-    z_height_ = 70000;
-    z_mode_ = 0;
+    scan_.gridSizeX = 10;
+    scan_.gridSizeY = 10;
+    scan_.stepSize = 43000;
+    scan_.zHeight = 70000;
+    zaxis_.mode = 0;
     {
         QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-        z_map_file_ = (docs + "/ScannerData/z_map.json").toStdString();
-        z_radial_file_ = (docs + "/ScannerData/z_radial.json").toStdString();
+        zaxis_.zMapFile = (docs + "/ScannerData/z_map.json").toStdString();
+        zaxis_.zRadialFile = (docs + "/ScannerData/z_radial.json").toStdString();
     }
-    dwell_time_ms_ = 300;
-    center_crop_size_ = 1775;
-    stitch_algorithm_ = 3;
-    scale_mode_ = 0;
+    scan_.dwellTimeMs = 300;
+    stitch_.centerCropSize = 1775;
+    stitch_.algorithm = 3;
+    stitch_.scaleMode = 0;
     {
         QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-        scale_map_file_ = (docs + "/ScannerData/scale_map.json").toStdString();
-        crop_offset_file_ = (docs + "/ScannerData/crop_offset.json").toStdString();
+        stitch_.scaleMapFile = (docs + "/ScannerData/scale_map.json").toStdString();
+        stitch_.cropOffsetFile = (docs + "/ScannerData/crop_offset.json").toStdString();
     }
-    feather_width_ = 120;
+    stitch_.featherWidth = 120;
 
-    detection_algorithm_ = 2;
-    dust_clahe_clip_ = 2.0;
-    dust_bg_blur_ = 31;
-    dust_min_area_ = 50;
-    dust_max_area_ = 20000;
-    dust_dilate_iter_ = 0;
-    dust_max_iter_ = 4;
-    dust_nms_iou_ = 0.1;
+    detection_.algorithm = 2;
+    detection_.dustClaheClip = 2.0;
+    detection_.dustBgBlur = 31;
+    detection_.dustMinArea = 50;
+    detection_.dustMaxArea = 20000;
+    detection_.dustDilateIter = 0;
+    detection_.dustMaxIter = 4;
+    detection_.dustNmsIou = 0.1;
 
-    edge_clahe_clip_ = 2.0;
-    edge_clahe_tile_grid_ = 8;
-    edge_threshold_ = 30;
-    edge_sobel_ksize_ = 3;
-    edge_dilate_iter_ = 1;
-    edge_min_bbox_area_ = 25;
-    edge_nms_iou_thresh_ = 0.4;
-    edge_nms_contain_thresh_ = 0.5;
+    detection_.edgeClaheClip = 2.0;
+    detection_.edgeClaheTileGrid = 8;
+    detection_.edgeThreshold = 30;
+    detection_.edgeSobelKSize = 3;
+    detection_.edgeDilateIter = 1;
+    detection_.edgeMinBboxArea = 25;
+    detection_.edgeNmsIouThresh = 0.4;
+    detection_.edgeNmsContainThresh = 0.5;
 
-{
-    QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-    image_save_base_path_ = (docs + "/ScannerData/captured_images").toStdString();
-    log_path_ = (docs + "/ScannerData/logs/scanner.log").toStdString();
-}
+    {
+        QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+        system_.imageSaveBasePath = (docs + "/ScannerData/captured_images").toStdString();
+        system_.logPath = (docs + "/ScannerData/logs/scanner.log").toStdString();
+    }
 }
 
 void ConfigManager::applyEnvironmentOverrides() {
@@ -97,29 +97,29 @@ void ConfigManager::applyEnvironmentOverrides() {
         }
     };
 
-    env_override("ARM_SIGHT_STITCH_ARM_IP", arm_ip_);
-    env_override_int("ARM_SIGHT_STITCH_ARM_PORT", arm_port_);
-    env_override_int("ARM_SIGHT_STITCH_DEFAULT_SPEED", default_speed_);
-    env_override("ARM_SIGHT_STITCH_MODEL_PARAM", model_param_path_);
-    env_override("ARM_SIGHT_STITCH_MODEL_BIN", model_bin_path_);
-    env_override("ARM_SIGHT_STITCH_SAVE_PATH", image_save_base_path_);
-    env_override_int("ARM_SIGHT_STITCH_GRID_X", grid_size_x_);
-    env_override_int("ARM_SIGHT_STITCH_GRID_Y", grid_size_y_);
-    env_override_int("ARM_SIGHT_STITCH_STEP_SIZE", step_size_);
-    env_override_int("ARM_SIGHT_STITCH_Z_HEIGHT", z_height_);
-    env_override_int("ARM_SIGHT_STITCH_DWELL_TIME_MS", dwell_time_ms_);
-    env_override_int("ARM_SIGHT_STITCH_CENTER_CROP_SIZE", center_crop_size_);
-    env_override_int("ARM_SIGHT_STITCH_ALGORITHM", stitch_algorithm_);
-    env_override_int("ARM_SIGHT_STITCH_FEATHER_WIDTH", feather_width_);
+    env_override("ARM_SIGHT_STITCH_ARM_IP", system_.armIp);
+    env_override_int("ARM_SIGHT_STITCH_ARM_PORT", system_.armPort);
+    env_override_int("ARM_SIGHT_STITCH_DEFAULT_SPEED", system_.defaultSpeed);
+    env_override("ARM_SIGHT_STITCH_MODEL_PARAM", detection_.modelParamPath);
+    env_override("ARM_SIGHT_STITCH_MODEL_BIN", detection_.modelBinPath);
+    env_override("ARM_SIGHT_STITCH_SAVE_PATH", system_.imageSaveBasePath);
+    env_override_int("ARM_SIGHT_STITCH_GRID_X", scan_.gridSizeX);
+    env_override_int("ARM_SIGHT_STITCH_GRID_Y", scan_.gridSizeY);
+    env_override_int("ARM_SIGHT_STITCH_STEP_SIZE", scan_.stepSize);
+    env_override_int("ARM_SIGHT_STITCH_Z_HEIGHT", scan_.zHeight);
+    env_override_int("ARM_SIGHT_STITCH_DWELL_TIME_MS", scan_.dwellTimeMs);
+    env_override_int("ARM_SIGHT_STITCH_CENTER_CROP_SIZE", stitch_.centerCropSize);
+    env_override_int("ARM_SIGHT_STITCH_ALGORITHM", stitch_.algorithm);
+    env_override_int("ARM_SIGHT_STITCH_FEATHER_WIDTH", stitch_.featherWidth);
     {
         const char* val = std::getenv("ARM_SIGHT_STITCH_Z_CORRECTION_COEF");
         if (val && val[0] != '\0') {
-            z_correction_coef_ = std::atof(val);
+            stitch_.zCorrectionCoef = std::atof(val);
             SPDLOG_INFO("[Config] Config overridden by env ARM_SIGHT_STITCH_Z_CORRECTION_COEF = {}",
-                        z_correction_coef_);
+                        stitch_.zCorrectionCoef);
         }
     }
-    env_override("ARM_SIGHT_STITCH_CROP_OFFSET_FILE", crop_offset_file_);
+    env_override("ARM_SIGHT_STITCH_CROP_OFFSET_FILE", stitch_.cropOffsetFile);
 }
 
 bool ConfigManager::loadFromFile(const std::string& filepath) {
@@ -179,60 +179,60 @@ bool ConfigManager::loadFromJson(const QJsonObject& json) {
         }
     };
 
-    readStr("arm_ip", arm_ip_);
-    readInt("arm_port", arm_port_);
-    readInt("default_speed", default_speed_);
+    readStr("arm_ip", system_.armIp);
+    readInt("arm_port", system_.armPort);
+    readInt("default_speed", system_.defaultSpeed);
 
-    readInt("camera_width", camera_width_);
-    readInt("camera_height", camera_height_);
-    readFloat("camera_exposure", camera_exposure_);
-    readFloat("camera_gain", camera_gain_);
-    readInt("camera_sharpening", camera_sharpening_);
+    readInt("camera_width", camera_.width);
+    readInt("camera_height", camera_.height);
+    readFloat("camera_exposure", camera_.exposure);
+    readFloat("camera_gain", camera_.gain);
+    readInt("camera_sharpening", camera_.sharpening);
 
-    readStr("model_param_path", model_param_path_);
-    readStr("model_bin_path", model_bin_path_);
+    readStr("model_param_path", detection_.modelParamPath);
+    readStr("model_bin_path", detection_.modelBinPath);
 
-    readInt("grid_size_x", grid_size_x_);
-    readInt("grid_size_y", grid_size_y_);
-    readInt("step_size", step_size_);
-    readInt("z_height", z_height_);
-    readInt("dwell_time_ms", dwell_time_ms_);
-    readInt("center_crop_size", center_crop_size_);
-    readInt("stitch_algorithm", stitch_algorithm_);
-    readInt("feather_width", feather_width_);
-    readInt("scale_mode", scale_mode_);
-    readStr("scale_map_file", scale_map_file_);
-    readDouble("z_correction_coef", z_correction_coef_);
-    readStr("crop_offset_file", crop_offset_file_);
+    readInt("grid_size_x", scan_.gridSizeX);
+    readInt("grid_size_y", scan_.gridSizeY);
+    readInt("step_size", scan_.stepSize);
+    readInt("z_height", scan_.zHeight);
+    readInt("dwell_time_ms", scan_.dwellTimeMs);
+    readInt("center_crop_size", stitch_.centerCropSize);
+    readInt("stitch_algorithm", stitch_.algorithm);
+    readInt("feather_width", stitch_.featherWidth);
+    readInt("scale_mode", stitch_.scaleMode);
+    readStr("scale_map_file", stitch_.scaleMapFile);
+    readDouble("z_correction_coef", stitch_.zCorrectionCoef);
+    readStr("crop_offset_file", stitch_.cropOffsetFile);
 
-    readInt("detection_algorithm", detection_algorithm_);
-    readDouble("dust_clahe_clip", dust_clahe_clip_);
-    readInt("dust_bg_blur", dust_bg_blur_);
-    readInt("dust_min_area", dust_min_area_);
-    readInt("dust_max_area", dust_max_area_);
-    readInt("dust_dilate_iter", dust_dilate_iter_);
-    readInt("dust_max_iter", dust_max_iter_);
-    readDouble("dust_nms_iou", dust_nms_iou_);
+    readInt("detection_algorithm", detection_.algorithm);
+    readDouble("dust_clahe_clip", detection_.dustClaheClip);
+    readInt("dust_bg_blur", detection_.dustBgBlur);
+    readInt("dust_min_area", detection_.dustMinArea);
+    readInt("dust_max_area", detection_.dustMaxArea);
+    readInt("dust_dilate_iter", detection_.dustDilateIter);
+    readInt("dust_max_iter", detection_.dustMaxIter);
+    readDouble("dust_nms_iou", detection_.dustNmsIou);
 
-    readDouble("edge_clahe_clip", edge_clahe_clip_);
-    readInt("edge_clahe_tile_grid", edge_clahe_tile_grid_);
-    readInt("edge_threshold", edge_threshold_);
-    readInt("edge_sobel_ksize", edge_sobel_ksize_);
-    readInt("edge_dilate_iter", edge_dilate_iter_);
-    readInt("edge_min_bbox_area", edge_min_bbox_area_);
-    readDouble("edge_nms_iou_thresh", edge_nms_iou_thresh_);
-    readDouble("edge_nms_contain_thresh", edge_nms_contain_thresh_);
+    readDouble("edge_clahe_clip", detection_.edgeClaheClip);
+    readInt("edge_clahe_tile_grid", detection_.edgeClaheTileGrid);
+    readInt("edge_threshold", detection_.edgeThreshold);
+    readInt("edge_sobel_ksize", detection_.edgeSobelKSize);
+    readInt("edge_dilate_iter", detection_.edgeDilateIter);
+    readInt("edge_min_bbox_area", detection_.edgeMinBboxArea);
+    readDouble("edge_nms_iou_thresh", detection_.edgeNmsIouThresh);
+    readDouble("edge_nms_contain_thresh", detection_.edgeNmsContainThresh);
 
-    readInt("sphere_radius", sphere_radius_);
-    readInt("sphere_cap_height", sphere_cap_height_);
-    readInt("sphere_height_offset", sphere_height_offset_);
-    readInt("z_base_height", z_base_height_);
-    readInt("z_mode", z_mode_);
-    readStr("z_map_file", z_map_file_);
-    readStr("z_radial_file", z_radial_file_);
+    readInt("sphere_radius", zaxis_.sphereRadius);
+    readInt("sphere_cap_height", zaxis_.sphereCapHeight);
+    readInt("sphere_height_offset", zaxis_.sphereHeightOffset);
+    readInt("z_base_height", zaxis_.zBaseHeight);
+    readInt("z_mode", zaxis_.mode);
+    readStr("z_map_file", zaxis_.zMapFile);
+    readStr("z_radial_file", zaxis_.zRadialFile);
 
-    readStr("image_save_base_path", image_save_base_path_);
-    readStr("log_path", log_path_);
+    readStr("image_save_base_path", system_.imageSaveBasePath);
+    readStr("log_path", system_.logPath);
 
     auto readIntArray = [&](const QString& key, int* target, int count) {
         if (json.contains(key) && json[key].isArray()) {
@@ -242,13 +242,13 @@ bool ConfigManager::loadFromJson(const QJsonObject& json) {
             }
         }
     };
-    readIntArray("axis_min_pos", axis_min_pos_, 5);
-    readIntArray("axis_max_pos", axis_max_pos_, 5);
+    readIntArray("axis_min_pos", system_.axisMinPos, 5);
+    readIntArray("axis_max_pos", system_.axisMaxPos, 5);
 
-    readFloat("position_tolerance", position_tolerance_);
+    readFloat("position_tolerance", system_.positionTolerance);
 
     if (json.contains("modbus_debug") && json["modbus_debug"].isBool()) {
-        modbus_debug_ = json["modbus_debug"].toBool();
+        system_.modbusDebug = json["modbus_debug"].toBool();
     }
 
     if (!validateConfig()) {
@@ -284,89 +284,89 @@ bool ConfigManager::saveToFile(const std::string& filepath) const {
 
 QJsonObject ConfigManager::toJson() const {
     QJsonObject json;
-    json["arm_ip"] = QString::fromStdString(arm_ip_);
-    json["arm_port"] = arm_port_;
-    json["default_speed"] = default_speed_;
-    json["camera_width"] = camera_width_;
-    json["camera_height"] = camera_height_;
-    json["camera_exposure"] = static_cast<double>(camera_exposure_);
-    json["camera_gain"] = static_cast<double>(camera_gain_);
-    json["camera_sharpening"] = camera_sharpening_;
-    json["model_param_path"] = QString::fromStdString(model_param_path_);
-    json["model_bin_path"] = QString::fromStdString(model_bin_path_);
-    json["grid_size_x"] = grid_size_x_;
-    json["grid_size_y"] = grid_size_y_;
-    json["step_size"] = step_size_;
-    json["z_height"] = z_height_;
-    json["dwell_time_ms"] = dwell_time_ms_;
-    json["center_crop_size"] = center_crop_size_;
-    json["stitch_algorithm"] = stitch_algorithm_;
-    json["feather_width"] = feather_width_;
-    json["scale_mode"] = scale_mode_;
-    json["scale_map_file"] = QString::fromStdString(scale_map_file_);
-    json["z_correction_coef"] = z_correction_coef_;
-    json["crop_offset_file"] = QString::fromStdString(crop_offset_file_);
-    json["detection_algorithm"] = detection_algorithm_;
-    json["dust_clahe_clip"] = dust_clahe_clip_;
-    json["dust_bg_blur"] = dust_bg_blur_;
-    json["dust_min_area"] = dust_min_area_;
-    json["dust_max_area"] = dust_max_area_;
-    json["dust_dilate_iter"] = dust_dilate_iter_;
-    json["dust_max_iter"] = dust_max_iter_;
-    json["dust_nms_iou"] = dust_nms_iou_;
-    json["edge_clahe_clip"] = edge_clahe_clip_;
-    json["edge_clahe_tile_grid"] = edge_clahe_tile_grid_;
-    json["edge_threshold"] = edge_threshold_;
-    json["edge_sobel_ksize"] = edge_sobel_ksize_;
-    json["edge_dilate_iter"] = edge_dilate_iter_;
-    json["edge_min_bbox_area"] = edge_min_bbox_area_;
-    json["edge_nms_iou_thresh"] = edge_nms_iou_thresh_;
-    json["edge_nms_contain_thresh"] = edge_nms_contain_thresh_;
-    json["sphere_radius"] = sphere_radius_;
-    json["sphere_cap_height"] = sphere_cap_height_;
-    json["sphere_height_offset"] = sphere_height_offset_;
-    json["z_base_height"] = z_base_height_;
-    json["z_mode"] = z_mode_;
-    json["z_map_file"] = QString::fromStdString(z_map_file_);
-    json["z_radial_file"] = QString::fromStdString(z_radial_file_);
-    json["image_save_base_path"] = QString::fromStdString(image_save_base_path_);
-    json["log_path"] = QString::fromStdString(log_path_);
+    json["arm_ip"] = QString::fromStdString(system_.armIp);
+    json["arm_port"] = system_.armPort;
+    json["default_speed"] = system_.defaultSpeed;
+    json["camera_width"] = camera_.width;
+    json["camera_height"] = camera_.height;
+    json["camera_exposure"] = static_cast<double>(camera_.exposure);
+    json["camera_gain"] = static_cast<double>(camera_.gain);
+    json["camera_sharpening"] = camera_.sharpening;
+    json["model_param_path"] = QString::fromStdString(detection_.modelParamPath);
+    json["model_bin_path"] = QString::fromStdString(detection_.modelBinPath);
+    json["grid_size_x"] = scan_.gridSizeX;
+    json["grid_size_y"] = scan_.gridSizeY;
+    json["step_size"] = scan_.stepSize;
+    json["z_height"] = scan_.zHeight;
+    json["dwell_time_ms"] = scan_.dwellTimeMs;
+    json["center_crop_size"] = stitch_.centerCropSize;
+    json["stitch_algorithm"] = stitch_.algorithm;
+    json["feather_width"] = stitch_.featherWidth;
+    json["scale_mode"] = stitch_.scaleMode;
+    json["scale_map_file"] = QString::fromStdString(stitch_.scaleMapFile);
+    json["z_correction_coef"] = stitch_.zCorrectionCoef;
+    json["crop_offset_file"] = QString::fromStdString(stitch_.cropOffsetFile);
+    json["detection_algorithm"] = detection_.algorithm;
+    json["dust_clahe_clip"] = detection_.dustClaheClip;
+    json["dust_bg_blur"] = detection_.dustBgBlur;
+    json["dust_min_area"] = detection_.dustMinArea;
+    json["dust_max_area"] = detection_.dustMaxArea;
+    json["dust_dilate_iter"] = detection_.dustDilateIter;
+    json["dust_max_iter"] = detection_.dustMaxIter;
+    json["dust_nms_iou"] = detection_.dustNmsIou;
+    json["edge_clahe_clip"] = detection_.edgeClaheClip;
+    json["edge_clahe_tile_grid"] = detection_.edgeClaheTileGrid;
+    json["edge_threshold"] = detection_.edgeThreshold;
+    json["edge_sobel_ksize"] = detection_.edgeSobelKSize;
+    json["edge_dilate_iter"] = detection_.edgeDilateIter;
+    json["edge_min_bbox_area"] = detection_.edgeMinBboxArea;
+    json["edge_nms_iou_thresh"] = detection_.edgeNmsIouThresh;
+    json["edge_nms_contain_thresh"] = detection_.edgeNmsContainThresh;
+    json["sphere_radius"] = zaxis_.sphereRadius;
+    json["sphere_cap_height"] = zaxis_.sphereCapHeight;
+    json["sphere_height_offset"] = zaxis_.sphereHeightOffset;
+    json["z_base_height"] = zaxis_.zBaseHeight;
+    json["z_mode"] = zaxis_.mode;
+    json["z_map_file"] = QString::fromStdString(zaxis_.zMapFile);
+    json["z_radial_file"] = QString::fromStdString(zaxis_.zRadialFile);
+    json["image_save_base_path"] = QString::fromStdString(system_.imageSaveBasePath);
+    json["log_path"] = QString::fromStdString(system_.logPath);
 
     QJsonArray minArr, maxArr;
     for (int i = 0; i < 5; ++i) {
-        minArr.append(axis_min_pos_[i]);
-        maxArr.append(axis_max_pos_[i]);
+        minArr.append(system_.axisMinPos[i]);
+        maxArr.append(system_.axisMaxPos[i]);
     }
     json["axis_min_pos"] = minArr;
     json["axis_max_pos"] = maxArr;
-    json["position_tolerance"] = position_tolerance_;
-    json["modbus_debug"] = modbus_debug_;
+    json["position_tolerance"] = system_.positionTolerance;
+    json["modbus_debug"] = system_.modbusDebug;
 
     return json;
 }
 
 bool ConfigManager::validateConfig() const {
-    if (!isValidPort(arm_port_)) {
-        last_error_ = "Invalid arm port: " + std::to_string(arm_port_);
+    if (!isValidPort(system_.armPort)) {
+        last_error_ = "Invalid arm port: " + std::to_string(system_.armPort);
         SPDLOG_ERROR(last_error_);
         return false;
     }
-    if (default_speed_ <= 0 || default_speed_ > 200000) {
-        last_error_ = "Invalid default speed: " + std::to_string(default_speed_);
+    if (system_.defaultSpeed <= 0 || system_.defaultSpeed > 200000) {
+        last_error_ = "Invalid default speed: " + std::to_string(system_.defaultSpeed);
         SPDLOG_ERROR(last_error_);
         return false;
     }
-    if (camera_width_ <= 0 || camera_height_ <= 0) {
+    if (camera_.width <= 0 || camera_.height <= 0) {
         last_error_ = "Invalid camera resolution";
         SPDLOG_ERROR(last_error_);
         return false;
     }
-    if (grid_size_x_ <= 0 || grid_size_y_ <= 0) {
+    if (scan_.gridSizeX <= 0 || scan_.gridSizeY <= 0) {
         last_error_ = "Grid size must be positive";
         SPDLOG_ERROR(last_error_);
         return false;
     }
-    if (step_size_ <= 0) {
+    if (scan_.stepSize <= 0) {
         last_error_ = "Step size must be positive";
         SPDLOG_ERROR(last_error_);
         return false;
@@ -389,13 +389,13 @@ void ConfigManager::setArmIp(const std::string& ip) {
         SPDLOG_WARN("[Config] Attempted to set empty arm IP, ignored");
         return;
     }
-    arm_ip_ = ip;
+    system_.armIp = ip;
     SPDLOG_INFO("[Config] Arm IP set to {}", ip);
 }
 
 void ConfigManager::setArmPort(int port) {
     if (isValidPort(port)) {
-        arm_port_ = port;
+        system_.armPort = port;
         SPDLOG_INFO("[Config] Arm port set to {}", port);
     } else {
         SPDLOG_WARN("[Config] Invalid arm port: {}", port);
@@ -404,190 +404,190 @@ void ConfigManager::setArmPort(int port) {
 
 void ConfigManager::setDefaultSpeed(int speed) {
     if (speed > 0 && speed <= 200000) {
-        default_speed_ = speed;
+        system_.defaultSpeed = speed;
     } else {
         SPDLOG_WARN("[Config] Invalid speed value: {}", speed);
     }
 }
 
 void ConfigManager::setCameraWidth(int w) {
-    if (w > 0) camera_width_ = w;
+    if (w > 0) camera_.width = w;
 }
 
 void ConfigManager::setCameraHeight(int h) {
-    if (h > 0) camera_height_ = h;
+    if (h > 0) camera_.height = h;
 }
 
 void ConfigManager::setCameraExposure(float exp) {
-    if (exp >= 0) camera_exposure_ = exp;
+    if (exp >= 0) camera_.exposure = exp;
 }
 
 void ConfigManager::setCameraGain(float gain) {
-    if (gain >= 0) camera_gain_ = gain;
+    if (gain >= 0) camera_.gain = gain;
 }
 
 void ConfigManager::setCameraSharpening(int v) {
-    if (v >= 0 && v <= 500) camera_sharpening_ = v;
+    if (v >= 0 && v <= 500) camera_.sharpening = v;
 }
 
 void ConfigManager::setModelParamPath(const std::string& path) {
     if (isValidFilePath(path)) {
-        model_param_path_ = path;
+        detection_.modelParamPath = path;
     }
 }
 
 void ConfigManager::setModelBinPath(const std::string& path) {
     if (isValidFilePath(path)) {
-        model_bin_path_ = path;
+        detection_.modelBinPath = path;
     }
 }
 
 void ConfigManager::setGridSizeX(int x) {
-    if (x > 0) grid_size_x_ = x;
+    if (x > 0) scan_.gridSizeX = x;
 }
 
 void ConfigManager::setGridSizeY(int y) {
-    if (y > 0) grid_size_y_ = y;
+    if (y > 0) scan_.gridSizeY = y;
 }
 
 void ConfigManager::setStepSize(int s) {
-    if (s > 0) step_size_ = s;
+    if (s > 0) scan_.stepSize = s;
 }
 
 void ConfigManager::setZHeight(int z) {
-    z_height_ = z;
+    scan_.zHeight = z;
 }
 
 void ConfigManager::setCenterCropSize(int size) {
-    if (size >= 0) center_crop_size_ = size;
+    if (size >= 0) stitch_.centerCropSize = size;
 }
 
 void ConfigManager::setStitchAlgorithm(int algo) {
-    if (algo >= 0 && algo <= 4) stitch_algorithm_ = algo;
+    if (algo >= 0 && algo <= 4) stitch_.algorithm = algo;
 }
 
 void ConfigManager::setFeatherWidth(int width) {
-    if (width >= 0) feather_width_ = width;
+    if (width >= 0) stitch_.featherWidth = width;
 }
 
 void ConfigManager::setScaleMode(int mode) {
-    scale_mode_ = (mode == 1) ? 1 : 0;
+    stitch_.scaleMode = (mode == 1) ? 1 : 0;
 }
 
 void ConfigManager::setScaleMapFile(const std::string& path) {
-    scale_map_file_ = path;
+    stitch_.scaleMapFile = path;
 }
 
 void ConfigManager::setZCorrectionCoef(double coef) {
-    if (coef > 0.0) z_correction_coef_ = coef;
+    if (coef > 0.0) stitch_.zCorrectionCoef = coef;
 }
 
 void ConfigManager::setCropOffsetFile(const std::string& path) {
-    crop_offset_file_ = path;
+    stitch_.cropOffsetFile = path;
 }
 
 void ConfigManager::setDetectionAlgorithm(int algo) {
-    if (algo >= 0 && algo <= 2) detection_algorithm_ = algo;
+    if (algo >= 0 && algo <= 2) detection_.algorithm = algo;
 }
 
 void ConfigManager::setDustClaheClip(double v) {
-    if (v > 0.0) dust_clahe_clip_ = v;
+    if (v > 0.0) detection_.dustClaheClip = v;
 }
 void ConfigManager::setDustBgBlur(int v) {
-    if (v >= 3) dust_bg_blur_ = v | 1;  // 强制奇数核
+    if (v >= 3) detection_.dustBgBlur = v | 1;  // force odd kernel
 }
 void ConfigManager::setDustMinArea(int v) {
-    if (v >= 0) dust_min_area_ = v;
+    if (v >= 0) detection_.dustMinArea = v;
 }
 void ConfigManager::setDustMaxArea(int v) {
-    if (v >= 0) dust_max_area_ = v;     // 0 = 不限
+    if (v >= 0) detection_.dustMaxArea = v;     // 0 = unlimited
 }
 void ConfigManager::setDustDilateIter(int v) {
-    if (v >= 0) dust_dilate_iter_ = v;
+    if (v >= 0) detection_.dustDilateIter = v;
 }
 void ConfigManager::setDustMaxIter(int v) {
-    if (v >= 1) dust_max_iter_ = v;
+    if (v >= 1) detection_.dustMaxIter = v;
 }
 void ConfigManager::setDustNmsIou(double v) {
-    if (v >= 0.0 && v <= 1.0) dust_nms_iou_ = v;
+    if (v >= 0.0 && v <= 1.0) detection_.dustNmsIou = v;
 }
 
 // Edge detection parameter setters
-void ConfigManager::setEdgeClaheClip(double v) { if (v > 0.0) edge_clahe_clip_ = v; }
-void ConfigManager::setEdgeClaheTileGrid(int v) { if (v > 0) edge_clahe_tile_grid_ = v; }
-void ConfigManager::setEdgeThreshold(int v) { if (v >= 0 && v <= 255) edge_threshold_ = v; }
-void ConfigManager::setEdgeSobelKSize(int v) { if (v >= 1 && v % 2 == 1) edge_sobel_ksize_ = v; }
-void ConfigManager::setEdgeDilateIter(int v) { if (v >= 0 && v <= 10) edge_dilate_iter_ = v; }
-void ConfigManager::setEdgeMinBboxArea(int v) { if (v >= 0) edge_min_bbox_area_ = v; }
-void ConfigManager::setEdgeNmsIouThresh(double v) { if (v >= 0.0 && v <= 1.0) edge_nms_iou_thresh_ = v; }
-void ConfigManager::setEdgeNmsContainThresh(double v) { if (v >= 0.0 && v <= 1.0) edge_nms_contain_thresh_ = v; }
+void ConfigManager::setEdgeClaheClip(double v) { if (v > 0.0) detection_.edgeClaheClip = v; }
+void ConfigManager::setEdgeClaheTileGrid(int v) { if (v > 0) detection_.edgeClaheTileGrid = v; }
+void ConfigManager::setEdgeThreshold(int v) { if (v >= 0 && v <= 255) detection_.edgeThreshold = v; }
+void ConfigManager::setEdgeSobelKSize(int v) { if (v >= 1 && v % 2 == 1) detection_.edgeSobelKSize = v; }
+void ConfigManager::setEdgeDilateIter(int v) { if (v >= 0 && v <= 10) detection_.edgeDilateIter = v; }
+void ConfigManager::setEdgeMinBboxArea(int v) { if (v >= 0) detection_.edgeMinBboxArea = v; }
+void ConfigManager::setEdgeNmsIouThresh(double v) { if (v >= 0.0 && v <= 1.0) detection_.edgeNmsIouThresh = v; }
+void ConfigManager::setEdgeNmsContainThresh(double v) { if (v >= 0.0 && v <= 1.0) detection_.edgeNmsContainThresh = v; }
 
 void ConfigManager::setSphereRadius(int r) {
-    if (r > 0) sphere_radius_ = r;
+    if (r > 0) zaxis_.sphereRadius = r;
 }
 
 void ConfigManager::setSphereCapHeight(int h) {
-    if (h >= 0) sphere_cap_height_ = h;
+    if (h >= 0) zaxis_.sphereCapHeight = h;
 }
 
 void ConfigManager::setSphereHeightOffset(int d) {
-    sphere_height_offset_ = d;
+    zaxis_.sphereHeightOffset = d;
 }
 
 void ConfigManager::setZBaseHeight(int z) {
-    z_base_height_ = z;
+    zaxis_.zBaseHeight = z;
 }
 
 void ConfigManager::setZMode(int mode) {
-    z_mode_ = (mode >= 0 && mode <= 2) ? mode : 0;
+    zaxis_.mode = (mode >= 0 && mode <= 2) ? mode : 0;
 }
 
 void ConfigManager::setZMapFile(const std::string& path) {
-    z_map_file_ = path;
+    zaxis_.zMapFile = path;
 }
 
 void ConfigManager::setZRadialFile(const std::string& path) {
-    z_radial_file_ = path;
+    zaxis_.zRadialFile = path;
 }
 
 void ConfigManager::setImageSaveBasePath(const std::string& path) {
     if (isValidFilePath(path)) {
-        image_save_base_path_ = path;
+        system_.imageSaveBasePath = path;
     }
 }
 
 void ConfigManager::setLogPath(const std::string& path) {
     if (isValidFilePath(path)) {
-        log_path_ = path;
+        system_.logPath = path;
     }
 }
 
 int ConfigManager::axisMinPos(int axis) const {
-    if (axis >= 0 && axis < 5) return axis_min_pos_[axis];
+    if (axis >= 0 && axis < 5) return system_.axisMinPos[axis];
     return -1000000;
 }
 
 int ConfigManager::axisMaxPos(int axis) const {
-    if (axis >= 0 && axis < 5) return axis_max_pos_[axis];
+    if (axis >= 0 && axis < 5) return system_.axisMaxPos[axis];
     return 1000000;
 }
 
 void ConfigManager::setAxisMinPos(int axis, int value) {
-    if (axis >= 0 && axis < 5) axis_min_pos_[axis] = value;
+    if (axis >= 0 && axis < 5) system_.axisMinPos[axis] = value;
 }
 
 void ConfigManager::setAxisMaxPos(int axis, int value) {
-    if (axis >= 0 && axis < 5) axis_max_pos_[axis] = value;
+    if (axis >= 0 && axis < 5) system_.axisMaxPos[axis] = value;
 }
 
 void ConfigManager::setPositionTolerance(float t) {
-    if (t > 0) position_tolerance_ = t;
+    if (t > 0) system_.positionTolerance = t;
 }
 
 void ConfigManager::setDwellTimeMs(int ms) {
-    if (ms >= 0) dwell_time_ms_ = ms;
+    if (ms >= 0) scan_.dwellTimeMs = ms;
 }
 
 void ConfigManager::setModbusDebug(bool enabled) {
-    modbus_debug_ = enabled;
+    system_.modbusDebug = enabled;
 }

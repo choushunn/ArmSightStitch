@@ -133,6 +133,10 @@ int main(int argc, char *argv[]) {
     // Create application controller and main window (MVP)
     AppController ctrl;
     MainWindow w(ctrl);
+
+    // 应用图标
+    a.setWindowIcon(QIcon(QApplication::applicationDirPath() + "/logo.ico"));
+
     w.resize(1728, 972);   // 1920*0.9 × 1080*0.9
     w.showFullScreen();
 

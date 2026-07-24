@@ -1,10 +1,15 @@
 #include "DetectionSettingsDialog.h"
+#include "YoloParamsWidget.h"
+#include "DustParamsWidget.h"
+#include "EdgeParamsWidget.h"
+
 #include <QFileDialog>
 #include <QPushButton>
 #include <QFileInfo>
 #include <QDir>
 #include <QMessageBox>
 #include <QDateTime>
+#include <QTabWidget>
 #include <opencv2/opencv.hpp>
 #include <regex>
 #include <spdlog/spdlog.h>
@@ -26,8 +31,16 @@ DetectionSettingsDialog::DetectionSettingsDialog(AppController* app, QWidget* pa
 {
     ui.setupUi(this);
 
-    connect(ui.browseParamButton, &QPushButton::clicked, this, &DetectionSettingsDialog::onBrowseParam);
-    connect(ui.browseBinButton, &QPushButton::clicked, this, &DetectionSettingsDialog::onBrowseBin);
+    // ── Create parameter widgets and add to tab widget ──
+    yoloWidget_ = new YoloParamsWidget(this);
+    dustWidget_ = new DustParamsWidget(this);
+    edgeWidget_ = new EdgeParamsWidget(this);
+
+    ui.paramsTab->addTab(yoloWidget_, "YOLO");
+    ui.paramsTab->addTab(dustWidget_, "灰尘");
+    ui.paramsTab->addTab(edgeWidget_, "Sobel边缘");
+
+    // ── Connections ──
     connect(ui.browseImageButton, &QPushButton::clicked, this, &DetectionSettingsDialog::onBrowseImage);
     connect(ui.detectAndSaveButton, &QPushButton::clicked, this, &DetectionSettingsDialog::onDetectAndSave);
     connect(ui.algorithmCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -55,79 +68,49 @@ DetectionSettingsDialog::DetectionSettingsDialog(AppController* app, QWidget* pa
     onModeChanged(0);
 }
 
-QString DetectionSettingsDialog::paramPath() const { return ui.paramPathEdit->text(); }
-QString DetectionSettingsDialog::binPath() const { return ui.binPathEdit->text(); }
-double DetectionSettingsDialog::confidenceThreshold() const { return ui.confidenceSpin->value(); }
-double DetectionSettingsDialog::nmsThreshold() const { return ui.nmsSpin->value(); }
+// ── YOLO param accessors (delegated to YoloParamsWidget) ──
 
-void DetectionSettingsDialog::setParamPath(const QString& path) { ui.paramPathEdit->setText(path); }
-void DetectionSettingsDialog::setBinPath(const QString& path) { ui.binPathEdit->setText(path); }
-void DetectionSettingsDialog::setConfidenceThreshold(double val) { ui.confidenceSpin->setValue(val); }
-void DetectionSettingsDialog::setNmsThreshold(double val) { ui.nmsSpin->setValue(val); }
+QString DetectionSettingsDialog::paramPath() const { return yoloWidget_->paramPath(); }
+QString DetectionSettingsDialog::binPath() const { return yoloWidget_->binPath(); }
+double DetectionSettingsDialog::confidenceThreshold() const { return yoloWidget_->confidenceThreshold(); }
+double DetectionSettingsDialog::nmsThreshold() const { return yoloWidget_->nmsThreshold(); }
+
+void DetectionSettingsDialog::setParamPath(const QString& path) { yoloWidget_->setParamPath(path); }
+void DetectionSettingsDialog::setBinPath(const QString& path) { yoloWidget_->setBinPath(path); }
+void DetectionSettingsDialog::setConfidenceThreshold(double val) { yoloWidget_->setConfidenceThreshold(val); }
+void DetectionSettingsDialog::setNmsThreshold(double val) { yoloWidget_->setNmsThreshold(val); }
+
+// ── Algorithm switching ──
 
 int DetectionSettingsDialog::detectionAlgorithm() const { return ui.algorithmCombo->currentIndex(); }
 void DetectionSettingsDialog::setDetectionAlgorithm(int algo) {
     ui.algorithmCombo->setCurrentIndex(algo >= 0 && algo <= 2 ? algo : 0);
 }
 
+// ── Dust / Edge param accessors (delegated to respective widgets) ──
+
 detector::DustDetectionParams DetectionSettingsDialog::dustParams() const {
-    detector::DustDetectionParams p;
-    p.claheClip  = ui.claheSpin->value();
-    p.bgBlurSize = ui.bgBlurSpin->value() | 1;  // 强制奇数核
-    p.minArea    = ui.minAreaSpin->value();
-    p.maxArea    = ui.maxAreaSpin->value();
-    p.dilateIter = ui.dilateSpin->value();
-    p.maxIter    = ui.maxIterSpin->value();
-    p.nmsIou     = ui.nmsIouSpin->value();
-    return p;
+    return dustWidget_->dustParams();
 }
 
 void DetectionSettingsDialog::setDustParams(const detector::DustDetectionParams& p) {
-    ui.claheSpin->setValue(p.claheClip);
-    ui.bgBlurSpin->setValue(p.bgBlurSize);
-    ui.minAreaSpin->setValue(p.minArea);
-    ui.maxAreaSpin->setValue(p.maxArea);
-    ui.dilateSpin->setValue(p.dilateIter);
-    ui.maxIterSpin->setValue(p.maxIter);
-    ui.nmsIouSpin->setValue(p.nmsIou);
+    dustWidget_->setDustParams(p);
 }
 
 detector::EdgeDetectionParams DetectionSettingsDialog::edgeParams() const {
-    detector::EdgeDetectionParams p;
-    p.claheClip        = ui.edgeClaheSpin->value();
-    p.claheTileGrid    = ui.edgeTileSpin->value();
-    p.edgeThreshold    = ui.edgeThreshSpin->value();
-    p.sobelKSize       = ui.sobelKSpin->value() | 1;
-    p.dilateIter       = ui.edgeDilateSpin->value();
-    p.minBboxArea      = ui.minBboxSpin->value();
-    p.nmsIouThresh     = ui.nmsIouThreshSpin->value();
-    p.nmsContainThresh = ui.nmsContainThreshSpin->value();
-    return p;
+    return edgeWidget_->edgeParams();
 }
 
 void DetectionSettingsDialog::setEdgeParams(const detector::EdgeDetectionParams& p) {
-    ui.edgeClaheSpin->setValue(p.claheClip);
-    ui.edgeTileSpin->setValue(p.claheTileGrid);
-    ui.edgeThreshSpin->setValue(p.edgeThreshold);
-    ui.sobelKSpin->setValue(p.sobelKSize);
-    ui.edgeDilateSpin->setValue(p.dilateIter);
-    ui.minBboxSpin->setValue(p.minBboxArea);
-    ui.nmsIouThreshSpin->setValue(p.nmsIouThresh);
-    ui.nmsContainThreshSpin->setValue(p.nmsContainThresh);
+    edgeWidget_->setEdgeParams(p);
 }
 
+// ── Algorithm / Mode changed ──
+
 void DetectionSettingsDialog::onAlgorithmChanged(int index) {
-    const bool yolo = (index == 0);
-    const bool dust = (index == 1);
-    const bool edge = (index == 2);
-    ui.modelGroup->setVisible(yolo);
-    ui.thresholdsGroup->setVisible(yolo);
-    ui.dustGroup->setVisible(dust);
-    ui.edgeGroup->setVisible(edge);
-    // Collapse/expand to exactly fit visible widgets
-    layout()->setSizeConstraint(QLayout::SetFixedSize);
-    adjustSize();
-    layout()->setSizeConstraint(QLayout::SetDefaultConstraint);
+    // Switch to the corresponding tab
+    if (index >= 0 && index < ui.paramsTab->count())
+        ui.paramsTab->setCurrentIndex(index);
 }
 
 void DetectionSettingsDialog::onModeChanged(int index) {
@@ -141,23 +124,7 @@ void DetectionSettingsDialog::onModeChanged(int index) {
     ui.singleImageGroup->setTitle(batch ? "批量图片检测" : "单张图片检测");
 }
 
-void DetectionSettingsDialog::onBrowseParam() {
-    QString cur = ui.paramPathEdit->text();
-    QString dir = cur.isEmpty() ? QCoreApplication::applicationDirPath()
-                                : QFileInfo(cur).absolutePath();
-    QString path = QFileDialog::getOpenFileName(this, "选择 Param 文件", dir,
-        "NCNN Param (*.param);;所有文件 (*.*)");
-    if (!path.isEmpty()) ui.paramPathEdit->setText(path);
-}
-
-void DetectionSettingsDialog::onBrowseBin() {
-    QString cur = ui.binPathEdit->text();
-    QString dir = cur.isEmpty() ? QCoreApplication::applicationDirPath()
-                                : QFileInfo(cur).absolutePath();
-    QString path = QFileDialog::getOpenFileName(this, "选择 Bin 文件", dir,
-        "NCNN Bin (*.bin);;所有文件 (*.*)");
-    if (!path.isEmpty()) ui.binPathEdit->setText(path);
-}
+// ── Browse image ──
 
 void DetectionSettingsDialog::onBrowseImage() {
     QString cur = ui.imagePathEdit->text();
@@ -188,6 +155,8 @@ void DetectionSettingsDialog::onBrowseImage() {
     }
 }
 
+// ── Detect and save ──
+
 void DetectionSettingsDialog::onDetectAndSave() {
     if (!app_) { QMessageBox::warning(this, "警告", "检测器未初始化"); return; }
 
@@ -204,8 +173,8 @@ void DetectionSettingsDialog::onDetectAndSave() {
     } else if (algo == 2) {
         app_->setEdgeParams(edgeParams());
     } else {
-        app_->detector().setConfidenceThreshold(static_cast<float>(ui.confidenceSpin->value()));
-        app_->detector().setNmsThreshold(static_cast<float>(ui.nmsSpin->value()));
+        app_->detector().setConfidenceThreshold(static_cast<float>(yoloWidget_->confidenceThreshold()));
+        app_->detector().setNmsThreshold(static_cast<float>(yoloWidget_->nmsThreshold()));
     }
 
     if (algo == 0 && !app_->isModelLoaded()) {
@@ -215,8 +184,8 @@ void DetectionSettingsDialog::onDetectAndSave() {
 
     const detector::DustDetectionParams dp = dustParams();
     const detector::EdgeDetectionParams ep = edgeParams();
-    const float conf = static_cast<float>(ui.confidenceSpin->value());
-    const float nms  = static_cast<float>(ui.nmsSpin->value());
+    const float conf = static_cast<float>(yoloWidget_->confidenceThreshold());
+    const float nms  = static_cast<float>(yoloWidget_->nmsThreshold());
     const bool batch = (modeCombo_ && modeCombo_->currentData().toInt() == 1);
 
     if (batch)
@@ -224,6 +193,8 @@ void DetectionSettingsDialog::onDetectAndSave() {
     else
         runSingleDetection(path, algo, dp, ep, conf, nms);
 }
+
+// ── Single detection ──
 
 void DetectionSettingsDialog::runSingleDetection(
     const QString& imgPath, int algo,
@@ -347,6 +318,8 @@ void DetectionSettingsDialog::runSingleDetection(
         }
     }));
 }
+
+// ── Batch detection ──
 
 void DetectionSettingsDialog::runBatchDetection(
     const QString& folderPath, int algo,

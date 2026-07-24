@@ -202,8 +202,8 @@ private:
     std::string save_directory_;
     std::atomic<int> saved_images_count_{0};
     double position_tolerance_ = 100.0;
-    std::mutex status_mutex_;
-    std::mutex path_mutex_;
+    mutable std::mutex status_mutex_;
+    mutable std::mutex path_mutex_;
 
     // Spherical cap compensation parameters
     int sphere_radius_ = 230000;

@@ -8,6 +8,10 @@
 #include "core/detector/EdgeDetectionParams.h"
 
 class AppController;
+class QTabWidget;
+class YoloParamsWidget;
+class DustParamsWidget;
+class EdgeParamsWidget;
 
 class DetectionSettingsDialog : public QDialog {
     Q_OBJECT
@@ -37,8 +41,6 @@ public:
     void setEdgeParams(const detector::EdgeDetectionParams& params);
 
 private slots:
-    void onBrowseParam();
-    void onBrowseBin();
     void onBrowseImage();
     void onDetectAndSave();
     void onAlgorithmChanged(int index);
@@ -58,4 +60,8 @@ private:
     AppController* app_ = nullptr;
     QComboBox* modeCombo_ = nullptr;
     QLabel* pathLabel_ = nullptr;
+
+    YoloParamsWidget* yoloWidget_ = nullptr;
+    DustParamsWidget* dustWidget_ = nullptr;
+    EdgeParamsWidget* edgeWidget_ = nullptr;
 };

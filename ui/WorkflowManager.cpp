@@ -9,10 +9,10 @@
 #include <thread>
 
 WorkflowManager::WorkflowManager(
-    arm::IArmController& arm,
-    arm::ISMovementController& s_movement,
-    camera::ICameraHandler& camera,
-    stitch::IStitcher& stitcher,
+    arm::ModbusArmController& arm,
+    arm::SMovementController& s_movement,
+    camera::CameraHandler& camera,
+    stitch::ImageStitcher& stitcher,
     QObject* parent)
     : QObject(parent)
     , arm_(arm)
