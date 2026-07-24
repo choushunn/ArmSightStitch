@@ -91,6 +91,10 @@ cd build/vcpkg-mingw
 ninja
 ```
 
+## 工程实践
+
+[软件工程方法论](docs/engineering-methodology.md) — 测试金字塔、代码规范、CI/CD、技术债管理。
+
 ## 依赖
 
 | 组件 | 版本/说明 |
