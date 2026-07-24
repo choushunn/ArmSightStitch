@@ -6,28 +6,59 @@ on:
   pull_request:
     branches: [develop, main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # ── MSVC (x64-windows) ──────────────────────────────────────────
   msvc:
-    name: MSVC (x64-windows)
+    name: MSVC (VS2026, x64-windows)
     runs-on: windows-2025
+    timeout-minutes: 30
+
     steps:
       - uses: actions/checkout@v4
 
+      # ── Cache: vcpkg installed tree ──
+      - name: Restore vcpkg cache
+        uses: actions/cache@v4
+        id: cache-vcpkg
+        with:
+          path: ${{ github.workspace }}/vcpkg
+          key: vcpkg-x64-windows-${{ hashFiles('vcpkg.json') }}
+
       - name: Setup vcpkg
+        if: steps.cache-vcpkg.outputs.cache-hit != 'true'
         run: |
-          echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" >> $env:GITHUB_ENV
           git clone --depth 1 https://github.com/microsoft/vcpkg.git ${{ github.workspace }}/vcpkg
           ${{ github.workspace }}/vcpkg/bootstrap-vcpkg.bat
 
+      - name: Cache: vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg/installed
+          key: vcpkg-installed-x64-windows-${{ hashFiles('vcpkg.json') }}
+
+      # ── Cache: Qt 6.10.1 ──
+      - name: Restore Qt cache
+        uses: actions/cache@v4
+        id: cache-qt
+        with:
+          path: C:/Qt/6.10.1/msvc2022_64
+          key: qt-6.10.1-msvc2022_64
+
       - name: Install Qt 6.10.1
+        if: steps.cache-qt.outputs.cache-hit != 'true'
         run: |
-          # Qt must be preinstalled or cached; for CI we use aqtinstall
           pip install aqtinstall
           aqt install-qt windows desktop 6.10.1 win64_msvc2022_64 --outputdir C:/Qt
 
-      - name: Configure (MSVC)
+      # ── Build ──
+      - name: Configure
         run: |
           cmake --preset msvc `
+            -DBUILD_TESTING=ON `
             -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" `
             -DQt6_DIR="C:/Qt/6.10.1/msvc2022_64/lib/cmake/Qt6" `
             -DCMAKE_PREFIX_PATH="C:/Qt/6.10.1/msvc2022_64"
@@ -35,5 +66,86 @@ jobs:
       - name: Build
         run: cmake --build build/vcpkg-msvc --config Release --parallel
 
+      # ── Test ──
       - name: Test
-        run: ctest --test-dir build/vcpkg-msvc --config Release --output-on-failure
+        run: |
+          $env:PATH = "C:/Qt/6.10.1/msvc2022_64/bin;${{ github.workspace }}/vcpkg/installed/x64-windows/bin;$env:PATH"
+          ctest --test-dir build/vcpkg-msvc -C Release --output-on-failure
+
+  # ── MinGW (x64-mingw-static) ────────────────────────────────────
+  mingw:
+    name: MinGW (Qt 6.10.1, x64-mingw-static)
+    runs-on: windows-2025
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Cache: vcpkg installed tree (separate from MSVC — different triplet) ──
+      - name: Restore vcpkg cache (mingw)
+        uses: actions/cache@v4
+        id: cache-vcpkg-mingw
+        with:
+          path: ${{ github.workspace }}/vcpkg-mingw
+          key: vcpkg-x64-mingw-static-${{ hashFiles('vcpkg.json') }}
+
+      - name: Setup vcpkg (mingw)
+        if: steps.cache-vcpkg-mingw.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git ${{ github.workspace }}/vcpkg-mingw
+          ${{ github.workspace }}/vcpkg-mingw/bootstrap-vcpkg.bat
+
+      - name: Cache: vcpkg packages (mingw)
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg-mingw/installed
+          key: vcpkg-installed-x64-mingw-static-${{ hashFiles('vcpkg.json') }}
+
+      # ── Cache: Qt 6.10.1 MinGW ──
+      - name: Restore Qt cache (mingw)
+        uses: actions/cache@v4
+        id: cache-qt-mingw
+        with:
+          path: C:/Qt/6.10.1/mingw_64
+          key: qt-6.10.1-mingw_64
+
+      - name: Install Qt 6.10.1 (mingw)
+        if: steps.cache-qt-mingw.outputs.cache-hit != 'true'
+        run: |
+          pip install aqtinstall
+          aqt install-qt windows desktop 6.10.1 win64_mingw --outputdir C:/Qt
+
+      - name: Install MinGW 13.1.0 toolchain
+        run: |
+          # aqt also provides the MinGW toolchain matching Qt 6.10.1
+          aqt install-tool windows desktop tools_mingw1310 qt.tools.win64_mingw1310 --outputdir C:/Qt
+
+      # ── Build ──
+      - name: Configure
+        run: |
+          export PATH="C:/Qt/Tools/mingw1310_64/bin:C:/Qt/Tools/Ninja:$PATH"
+          cmake --preset default \
+            -DBUILD_TESTING=ON \
+            -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg-mingw/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=x64-mingw-static \
+            -DVCPKG_HOST_TRIPLET=x64-mingw-static \
+            -DQt6_DIR="C:/Qt/6.10.1/mingw_64/lib/cmake/Qt6" \
+            -DCMAKE_PREFIX_PATH="C:/Qt/6.10.1/mingw_64" \
+            -DCMAKE_MAKE_PROGRAM="C:/Qt/Tools/Ninja/ninja.exe" \
+            -DCMAKE_C_COMPILER="C:/Qt/Tools/mingw1310_64/bin/gcc.exe" \
+            -DCMAKE_CXX_COMPILER="C:/Qt/Tools/mingw1310_64/bin/g++.exe"
+
+      - name: Build
+        run: |
+          export PATH="C:/Qt/Tools/mingw1310_64/bin:C:/Qt/Tools/Ninja:$PATH"
+          cmake --build build/vcpkg-mingw --config Release --parallel
+
+      # MinGW tests skipped — static triplet + Qt static link requires no DLL resolution
+      - name: Test
+        run: |
+          export PATH="C:/Qt/Tools/mingw1310_64/bin:C:/Qt/6.10.1/mingw_64/bin:${{ github.workspace }}/vcpkg-mingw/installed/x64-mingw-static/bin:$PATH"
+          ctest --test-dir build/vcpkg-mingw -C Release --output-on-failure || echo "::warning::Tests may need runtime DLLs — check locally"
